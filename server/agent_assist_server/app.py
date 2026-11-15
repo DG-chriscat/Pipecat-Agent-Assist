@@ -1,3 +1,4 @@
+import logging
 import os
 from collections.abc import Callable, Mapping
 
@@ -12,6 +13,18 @@ from agent_assist_server.queue_api import router as queue_router
 
 def healthz() -> dict[str, str]:
     return {"status": "ok", "service": "agent-assist-server"}
+
+
+def configure_logging() -> None:
+    """Show the server's own INFO logs (dial-in calls, `[timing]` lines). Uvicorn only
+    configures its own loggers, so without this they are dropped. Idempotent."""
+    log = logging.getLogger("agent_assist_server")
+    if log.handlers or logging.getLogger().handlers:
+        return
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    log.addHandler(handler)
+    log.setLevel(logging.INFO)
 
 
 def create_app(
@@ -30,4 +43,5 @@ def create_app(
     return app
 
 
+configure_logging()
 app = create_app()

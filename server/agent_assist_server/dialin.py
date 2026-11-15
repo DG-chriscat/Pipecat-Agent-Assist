@@ -16,6 +16,7 @@ import hmac
 import json
 import logging
 import os
+import time
 import uuid
 from typing import Any
 
@@ -49,6 +50,14 @@ class DialinWebhook(BaseModel):
 def is_test_ping(data: Any) -> bool:
     """Daily sends {"test": "test"} when pinless_dialin is configured."""
     return isinstance(data, dict) and bool(data.get("test") or data.get("Test"))
+
+
+def log_timing(event: str, **fields: object) -> float:
+    """Call timeline line, same format as agent_assist_bot.timing (PRD IN-1 test)."""
+    t = time.time()
+    extra = "".join(f" {k}={v}" for k, v in fields.items() if v not in (None, ""))
+    logger.info("[timing] event=%s t=%.3f%s", event, t, extra)
+    return t
 
 
 def compute_signature(secret_b64: str, timestamp: str, body: str) -> str:
@@ -117,11 +126,13 @@ async def daily_dialin_webhook(request: Request) -> dict[str, Any]:
         ) from None
 
     session_id = str(uuid.uuid4())
+    log_timing("webhook_received", session=session_id)
     logger.info("dial-in call received session=%s call_id=%s", session_id, call.call_id)
 
     try:
         daily = _daily_client(request)
         room = await daily.create_dialin_room(caller=call.from_)
+        log_timing("room_created", session=session_id, room=room.name)
         token = await daily.create_meeting_token(room.name)
     except DailyConfigError:
         logger.error("DAILY_API_KEY is not configured")
@@ -139,6 +150,7 @@ async def daily_dialin_webhook(request: Request) -> dict[str, Any]:
             session_id=session_id,
         )
     )
+    log_timing("bot_launched", session=session_id)
     get_queue(request.app).register_session(session_id, room.url)
 
     return {"status": "OK", "sessionId": session_id, "dailyRoom": room.url}

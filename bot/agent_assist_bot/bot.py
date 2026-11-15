@@ -25,7 +25,6 @@ from __future__ import annotations
 import os
 import time
 import uuid
-from dataclasses import dataclass
 
 from loguru import logger
 from pipecat.audio.vad.silero import SileroVADAnalyzer
@@ -41,38 +40,26 @@ from pipecat.processors.aggregators.llm_response_universal import (
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.services.deepgram.tts import DeepgramTTSService
-from pipecat.transports.daily.transport import (
-    DailyDialinSettings,
-    DailyParams,
-    DailyTransport,
-)
+from pipecat.transports.daily.transport import DailyParams, DailyTransport
 from pipecat.workers.runner import WorkerRunner
 
 from agent_assist_bot.calls import CallStore, MemoryCallStore, PostgresCallStore
+from agent_assist_bot.dialin import DEFAULT_DAILY_API_URL as DEFAULT_DAILY_API_URL
+from agent_assist_bot.dialin import DialinConfig as DialinConfig
+from agent_assist_bot.dialin import DialinForwardError, forward_call, sip_uri_from_ready
 from agent_assist_bot.handoff import end_call, handoff_from_env
 from agent_assist_bot.hold import BotGate, HoldController
 from agent_assist_bot.intake import GREETING as GREETING  # re-export (PRD IN-2)
 from agent_assist_bot.intake import ROLE_MESSAGE, HandoffHook, IntakeSession, NoopHandoff
 from agent_assist_bot.llm import create_llm
 from agent_assist_bot.packs import DEFAULT_PACK, Pack, load_pack
+from agent_assist_bot.timing import FirstAudioTimer, log_timing
 
 BOT_NAME = "Vitals Assistant"
 STT_MODEL = "nova-3-general"
 TTS_VOICE = "aura-2-thalia-en"
-DEFAULT_DAILY_API_URL = "https://api.daily.co/v1"
 PACK_ENV = "INTAKE_PACK"
 REQUIRED_KEYS = ("DAILY_API_KEY", "DEEPGRAM_API_KEY", "ANTHROPIC_API_KEY")
-
-
-@dataclass(frozen=True)
-class DialinConfig:
-    """Pinless dial-in call identifiers from Daily's webhook, plus the REST creds the
-    transport needs to forward the call into the room."""
-
-    call_id: str
-    call_domain: str
-    api_key: str
-    api_url: str = DEFAULT_DAILY_API_URL
 
 
 class MissingKeyError(RuntimeError):
@@ -103,23 +90,13 @@ class TurnLogger(FrameProcessor):
         await self.push_frame(frame, direction)
 
 
-def build_transport(
-    room_url: str, token: str | None = None, dialin: DialinConfig | None = None
-) -> DailyTransport:
-    dialin_kwargs = {}
-    if dialin is not None:
-        dialin_kwargs = {
-            "api_url": dialin.api_url,
-            "api_key": dialin.api_key,
-            "dialin_settings": DailyDialinSettings(
-                call_id=dialin.call_id, call_domain=dialin.call_domain
-            ),
-        }
+def build_transport(room_url: str, token: str | None = None) -> DailyTransport:
+    """No `dialin_settings`: for dial-in calls the bot forwards the held call itself
+    (see agent_assist_bot.dialin for why Pipecat's built-in forwarding is not used)."""
     params = DailyParams(
         audio_in_enabled=True,
         audio_out_enabled=True,
         camera_out_enabled=False,
-        **dialin_kwargs,
     )
     return DailyTransport(room_url, token, BOT_NAME, params)
 
@@ -159,13 +136,16 @@ def register_handlers(
     hold: HoldController | None = None,
     handoff: HandoffHook | None = None,
     session_id: str = "",
+    dialin: DialinConfig | None = None,
+    forward=forward_call,
 ) -> None:
     """Start intake for the first participant (the caller); end when they leave.
 
     Queue app messages from the server go to `hold` (QH-5, QH-6). When the caller
     leaves, `handoff.on_call_ended` (QueueHandoff only) tells the queue so a waiting
-    or ringing call is cleared. The dial-in events only fire when the transport has
-    dialin_settings.
+    or ringing call is cleared. For a dial-in call (`dialin` set) the bot forwards the
+    held call into the room when Daily fires dialin-ready. `[timing]` lines mark the
+    call timeline for the IN-1 latency test.
     """
     hold = hold or HoldController(worker.queue_frames)
     handoff = handoff or NoopHandoff()
@@ -173,11 +153,16 @@ def register_handlers(
     # go; only the caller leaving ends the call.
     caller: dict[str, str | None] = {"id": None}
 
+    @transport.event_handler("on_joined")
+    async def on_joined(transport, data):
+        log_timing("bot_joined", session=session_id)
+
     @transport.event_handler("on_first_participant_joined")
     async def on_first_participant_joined(transport, participant):
         name = participant.get("info", {}).get("userName", "")
         caller["id"] = participant.get("id")
-        logger.info(f"[bot] first participant joined: {name!r} t={time.time():.3f}")
+        log_timing("caller_joined", session=session_id)
+        logger.info(f"[bot] first participant joined: {name!r}")
         if on_caller_joined is not None:
             await on_caller_joined()
 
@@ -200,9 +185,26 @@ def register_handlers(
             await on_ended()
 
     @transport.event_handler("on_dialin_ready")
-    async def on_dialin_ready(transport, sip_endpoint):
-        # DailyTransport already POSTs /dialin/pinlessCallUpdate to forward the call.
-        logger.info("[bot] dial-in ready; Daily is forwarding the held call")
+    async def on_dialin_ready(transport, data):
+        log_timing("dialin_ready", session=session_id)
+        if dialin is None:
+            return
+        sip_uri = sip_uri_from_ready(data)
+        if sip_uri is None:
+            logger.error(f"[bot] dial-in ready without a SIP endpoint: {data!r}; ending")
+            await worker.cancel()
+            return
+        try:
+            await forward(dialin, sip_uri)
+        except DialinForwardError as e:
+            logger.error(f"[bot] could not forward the held call: {e}; ending")
+            await worker.cancel()
+            return
+        log_timing("call_forwarded", session=session_id)
+
+    @transport.event_handler("on_dialin_connected")
+    async def on_dialin_connected(transport, data):
+        log_timing("dialin_connected", session=session_id)
 
     @transport.event_handler("on_dialin_error")
     async def on_dialin_error(transport, data):
@@ -224,7 +226,7 @@ def build_worker(
     AGENT_ASSIST_SERVER_URL is set, else NoopHandoff."""
     session_id = session_id or str(uuid.uuid4())
     handoff = handoff or handoff_from_env()
-    transport = build_transport(room_url, token, dialin)
+    transport = build_transport(room_url, token)
     stt = DeepgramSTTService(
         api_key=os.environ["DEEPGRAM_API_KEY"],
         settings=DeepgramSTTService.Settings(model=STT_MODEL),
@@ -252,6 +254,7 @@ def build_worker(
             gate,
             llm,
             tts,
+            FirstAudioTimer(session_id),
             transport.output(),
             aggregators.assistant(),
         ]
@@ -288,6 +291,7 @@ def build_worker(
         hold=HoldController(worker.queue_frames, gate=gate),
         handoff=handoff,
         session_id=session_id,
+        dialin=dialin,
     )
     return worker, transport
 

@@ -1,4 +1,4 @@
-"""Start one bot process per dial-in call.
+"""Start one bot process per call (dial-in or browser caller).
 
 The bot runs as a separate Python process (`python -m agent_assist_bot`), the same
 pattern as Pipecat's Daily dial-in example where the server spawns one bot per room.
@@ -23,27 +23,22 @@ TOKEN_ENV = "DAILY_ROOM_TOKEN"
 
 @dataclass(frozen=True)
 class BotLaunchRequest:
+    """One bot process. call_id/call_domain are set for dial-in calls only; a browser
+    caller (IN-12) leaves them None and the bot joins without dial-in settings."""
+
     room_url: str
     token: str
-    call_id: str
-    call_domain: str
     session_id: str
+    call_id: str | None = None
+    call_domain: str | None = None
 
 
 def build_bot_command(req: BotLaunchRequest, python: str | None = None) -> list[str]:
-    return [
-        python or sys.executable,
-        "-m",
-        BOT_MODULE,
-        "--room-url",
-        req.room_url,
-        "--call-id",
-        req.call_id,
-        "--call-domain",
-        req.call_domain,
-        "--session-id",
-        req.session_id,
-    ]
+    cmd = [python or sys.executable, "-m", BOT_MODULE, "--room-url", req.room_url]
+    if req.call_id:
+        cmd += ["--call-id", req.call_id, "--call-domain", req.call_domain or ""]
+    cmd += ["--session-id", req.session_id]
+    return cmd
 
 
 def build_bot_env(req: BotLaunchRequest, base: dict[str, str] | None = None) -> dict[str, str]:

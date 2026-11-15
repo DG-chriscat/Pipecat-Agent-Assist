@@ -8,6 +8,8 @@ Two ways in, one bot:
 - Daily pinless dial-in (`python -m agent_assist_bot`, started by the server webhook):
   pass a DialinConfig and the transport forwards the held PSTN call into the room
   (`/dialin/pinlessCallUpdate`); the caller is greeted when their leg joins.
+- Browser caller (PRD IN-12, `POST /calls/browser`): same CLI without dial-in args, so
+  no DialinConfig; the caller is greeted when their browser joins.
 
 The greeting is a fixed TTSSpeakFrame queued straight onto the pipeline, so the first
 utterance needs only a TTS round trip (no LLM call) to hit the <2 s target (PRD IN-1).

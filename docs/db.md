@@ -79,3 +79,7 @@ a Postgres 16 service. Each test creates a throwaway `test_<hex>` schema, runs
 migrations and the seed there, and drops it, so the public schema and the demo
 data are never touched. `server/tests/test_db_seed_data.py` checks the seed
 shape in memory and always runs.
+
+## Supabase
+- The demo database is Supabase Postgres (ADR 0002). Connect with the Session pooler URI in `DATABASE_URL` (the direct host is IPv6 only).
+- Migration 0002 enables row level security and revokes the `anon` and `authenticated` roles, so the tables are not readable through the Supabase REST API with the publishable key. Keep it that way for every new table.

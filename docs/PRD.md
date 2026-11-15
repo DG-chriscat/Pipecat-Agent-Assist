@@ -85,11 +85,13 @@ When intake ends, the call joins a first come, first served queue and rings the 
 
 The portal is one screen where agents go available, accept calls, talk to callers, and see live help. It is a React app built on the Pipecat client SDK, with Daily carrying the audio and RTVI messages carrying the updates.
 
-In call layout, from left to right:
+In call layout ("Focus", locked Nov 15, 2026; see [DESIGN.md](DESIGN.md) and [ADR 0001](adr/0001-portal-layout-focus.md)), from left to right:
 
-- **Caller panel:** name, verified badge, reason for the call, intake answers, wait time, and tone.
-- **Live transcript:** caller and agent lines labeled by speaker, with tone badges on caller lines.
-- **Assist feed:** cards that appear as the call goes on, newest on top.
+- **Caller panel:** name, verified badge, member ID and plan, why they called, key facts, calls in the last 30 days, a "before this call" history of the last 3 events, and a mood trend for this call.
+- **Assist column:** one **next best step** in large type with the words to say and one action, then supporting cards (record, call plan, tone tip), and an Ask bar at the bottom.
+- **Live transcript:** caller and agent lines labeled by speaker, with trigger words underlined.
+
+A call island in the top bar shows the caller, verified status, a live waveform, mood, and the call timer. Mute, hold, and end call sit top right.
 
 | ID | Requirement | Priority |
 | --- | --- | --- |
@@ -103,6 +105,11 @@ In call layout, from left to right:
 | AP-8 | The agent can type a question to the assist, such as "Show the last 3 claims." | Should |
 | AP-9 | At wrap up, the assist drafts a call summary and a reason code. The agent edits and saves. | Should |
 | AP-10 | Transfer to another agent or line. | Later |
+| AP-11 | Next best step: the assist shows one ranked suggestion at a time, with the trigger it heard, a one or two sentence reason, a script to say, one primary action, and its source. Accept, dismiss, and "show me why" are one click or one key. | Must |
+| AP-12 | Call plan: the active pack's checklist shows progress, and steps tick themselves when the transcript or an accepted action shows they are done. The agent can tick or untick by hand. | Must |
+| AP-13 | Caller history: the caller panel shows calls in the last 30 days (with a repeat caller flag) and the last 3 events across calls, claims, and referrals. | Must |
+| AP-14 | Mood trend: tone readings for the caller draw a trend line for the whole call, and a tone tip card appears when mood drops two steps. | Should |
+| AP-15 | Every screen follows DESIGN.md: Deepgram 2026 brand fonts, colors, and materials only. | Must |
 
 ## Requirements: real time assist and data
 
@@ -114,6 +121,7 @@ How one card is made:
 2. The assist LLM reads a rolling window of the transcript plus the intake data.
 3. When a trigger fires, it calls a connector tool for the right data system.
 4. The result is shaped into a card and sent as an RTVI message to the agent's portal only.
+5. The assist ranks candidate suggestions and promotes the best one to the next best step. The rest become supporting cards. A new hero replaces the old one only when it ranks higher or the old one is accepted or dismissed.
 
 ### Use case packs keep the design open ended
 
@@ -121,7 +129,7 @@ A use case pack bundles everything one kind of call needs: intake questions, tri
 
 | Pack | Example trigger | Connectors | Cards | v1 |
 | --- | --- | --- | --- | --- |
-| Claim status | "Where is my claim?" | Members, Claims | Claims table, quick guide for denied claims | Yes |
+| Claim status | "Where is my claim?" | Members, Claims, Referrals, Authorizations, Interactions | Claims table, call plan for denied claims, next best step (for example retro authorization review) | Yes |
 | Account and payments | "I was charged twice" | Members, Payments | Payment history, alert on duplicate charge | Yes |
 | General question | Any question not covered above | Knowledge base | Article card | Yes |
 | Benefits check | "Is this covered?" | Plans, Benefits | Coverage summary | Later |
@@ -133,11 +141,14 @@ A use case pack bundles everything one kind of call needs: intake questions, tri
 | --- | --- | --- |
 | DC-1 | Every connector uses one standard shape: search, and get by ID. Each is exposed as an LLM tool through a function call or an MCP server. | Must |
 | DC-2 | Connectors are read only in v1. | Must |
-| DC-3 | v1 connectors read one mock Postgres database seeded with test members, claims, payments, and articles. | Must |
+| DC-3 | v1 connectors read one mock Postgres database seeded with test members, plans, claims (with denial codes), payments, referrals, prior authorizations, past interactions, and articles. | Must |
 | DC-4 | A connector call times out after 2 seconds, and results are cached for the rest of the call. | Should |
 | DC-5 | Every connector call is logged with the call ID, the tool, and the result size. | Must |
 | DC-6 | A card shows on screen within 3 seconds of the words that triggered it. | Should |
 | DC-7 | Assist limits itself to a set number of new cards per minute, so the feed stays readable. | Should |
+| DC-8 | An Interactions connector returns a member's past calls (date, duration, queue, outcome, notes) for caller history and repeat caller detection. | Must |
+| DC-9 | Next best step actions in v1 are simulated: accepting logs the action on the call record and ticks the call plan. Nothing writes back to source systems. | Must |
+| DC-10 | Each pack defines its next best step rules: trigger phrases, required facts, script template, and action. | Must |
 
 ### Guardrails
 

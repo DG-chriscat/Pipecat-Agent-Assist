@@ -60,6 +60,23 @@ def build_dialin_room_body(
     }
 
 
+def build_browser_room_body(*, now: float | None = None, room_name: str | None = None) -> dict:
+    """Body for POST /rooms: a private, short-lived room for a browser caller (IN-12).
+
+    No SIP settings. Private, so only holders of a meeting token can join.
+    """
+    now = time.time() if now is None else now
+    return {
+        "name": room_name or f"caller-{uuid.uuid4().hex[:12]}",
+        "privacy": "private",
+        "properties": {
+            "exp": int(now + ROOM_EXP_SECONDS),
+            "eject_at_room_exp": True,
+            "start_video_off": True,
+        },
+    }
+
+
 def build_token_body(*, room_name: str, now: float | None = None) -> dict:
     """Body for POST /meeting-tokens: owner token for the bot, scoped to one room."""
     now = time.time() if now is None else now
@@ -140,6 +157,10 @@ class DailyRestClient:
             url=data["url"],
             sip_endpoint=(data.get("config") or {}).get("sip_endpoint"),
         )
+
+    async def create_browser_room(self) -> DailyRoom:
+        data = await self._post("/rooms", build_browser_room_body())
+        return DailyRoom(name=data["name"], url=data["url"], sip_endpoint=None)
 
     async def create_meeting_token(self, room_name: str) -> str:
         data = await self._post("/meeting-tokens", build_token_body(room_name=room_name))

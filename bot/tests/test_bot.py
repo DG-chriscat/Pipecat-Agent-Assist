@@ -181,6 +181,34 @@ def test_cli_main_runs_bot_with_dialin(monkeypatch, api_keys):
     assert seen["dialin"] == bot.DialinConfig("c", "d", "fake-daily", bot.DEFAULT_DAILY_API_URL)
 
 
+def test_cli_parse_args_without_dialin(monkeypatch):
+    # IN-12 browser caller: no call_id/call_domain
+    args = cli.parse_args(["--room-url", ROOM, "--session-id", "s1"], env={"DAILY_ROOM_TOKEN": "t"})
+    assert args.call_id is None and args.call_domain is None
+    assert args.session_id == "s1"
+    assert args.dialin_config("daily-key", "https://api.example/v1") is None
+
+
+@pytest.mark.parametrize(
+    "extra", [["--call-id", "c"], ["--call-domain", "d"]], ids=["only-id", "only-domain"]
+)
+def test_cli_rejects_half_dialin(extra):
+    with pytest.raises(SystemExit):
+        cli.parse_args(["--room-url", ROOM, *extra], env={"DAILY_ROOM_TOKEN": "t"})
+
+
+def test_cli_main_runs_bot_without_dialin(monkeypatch, api_keys):
+    seen = {}
+
+    async def fake_run_bot(room_url, token=None, dialin=None):
+        seen.update(room_url=room_url, token=token, dialin=dialin)
+
+    monkeypatch.setenv("DAILY_ROOM_TOKEN", "tok")
+    monkeypatch.setattr(cli, "run_bot", fake_run_bot)
+    assert cli.main(["--room-url", ROOM]) == 0
+    assert seen == {"room_url": ROOM, "token": "tok", "dialin": None}
+
+
 def test_cli_main_missing_keys_exits_2(monkeypatch):
     for k in KEYS:
         monkeypatch.delenv(k, raising=False)

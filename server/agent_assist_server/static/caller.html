@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Agent Assist PoC: caller</title>
+  <script src="https://unpkg.com/@daily-co/daily-js"></script>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 520px; margin: 2rem auto; }
+    button { margin-top: 1rem; margin-right: .5rem; padding: .5rem 1rem; }
+    #status { margin-top: 1rem; color: #555; }
+  </style>
+</head>
+<body>
+  <h1>Call the contact center</h1>
+  <p>PoC browser caller. Mock data only: do not share real personal or health details.</p>
+
+  <button id="start">Start call</button>
+  <button id="mute" disabled>Mute</button>
+  <button id="hangup" disabled>Hang up</button>
+
+  <div id="status">Idle.</div>
+  <div id="audio"></div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    let call = null;
+    let muted = false;
+
+    function setStatus(text) { $("status").textContent = text; }
+
+    function setButtons(inCall) {
+      $("start").disabled = inCall;
+      $("mute").disabled = !inCall;
+      $("hangup").disabled = !inCall;
+    }
+
+    function syncAudio(p) {
+      if (p.local) return;
+      const id = "audio-" + p.session_id;
+      let el = document.getElementById(id);
+      const track = p.tracks.audio.persistentTrack;
+      if (!track) { if (el) el.remove(); return; }
+      if (!el) {
+        el = document.createElement("audio");
+        el.id = id;
+        el.autoplay = true;
+        $("audio").appendChild(el);
+      }
+      if (!el.srcObject || el.srcObject.getAudioTracks()[0] !== track) {
+        el.srcObject = new MediaStream([track]);
+      }
+    }
+
+    function remoteNames() {
+      return Object.values(call.participants())
+        .filter((p) => !p.local)
+        .map((p) => p.user_name || "(no name)");
+    }
+
+    function showConnected() {
+      const names = remoteNames();
+      setStatus(names.length ? "In call with: " + names.join(", ") : "Connected. Waiting for the assistant...");
+    }
+
+    function newCall() {
+      const c = window.Daily.createCallObject({ audioSource: true, videoSource: false });
+      c.on("joined-meeting", showConnected);
+      c.on("participant-joined", (e) => { syncAudio(e.participant); showConnected(); });
+      c.on("participant-updated", (e) => syncAudio(e.participant));
+      c.on("participant-left", (e) => {
+        const el = document.getElementById("audio-" + e.participant.session_id);
+        if (el) el.remove();
+        showConnected();
+      });
+      c.on("left-meeting", async () => {
+        setStatus("Call ended.");
+        $("audio").innerHTML = "";
+        setButtons(false);
+        await c.destroy();
+        call = null;
+      });
+      c.on("error", (e) => setStatus("Call error: " + (e.errorMsg || JSON.stringify(e))));
+      return c;
+    }
+
+    $("start").onclick = async () => {
+      setButtons(true);
+      $("mute").disabled = true;
+      $("hangup").disabled = true;
+      try {
+        setStatus("Starting call...");
+        const resp = await fetch("/calls/browser", { method: "POST" });
+        if (!resp.ok) throw new Error(`start failed: HTTP ${resp.status}`);
+        const { room_url, caller_token } = await resp.json();
+        setStatus("Joining...");
+        call = newCall();
+        await call.join({ url: room_url, token: caller_token, startVideoOff: true });
+        muted = false;
+        $("mute").textContent = "Mute";
+        setButtons(true);
+      } catch (err) {
+        setStatus("Could not start the call: " + err.message);
+        if (call) { await call.destroy(); call = null; }
+        setButtons(false);
+      }
+    };
+
+    $("mute").onclick = () => {
+      muted = !muted;
+      call.setLocalAudio(!muted);
+      $("mute").textContent = muted ? "Unmute" : "Mute";
+    };
+
+    $("hangup").onclick = () => { if (call) call.leave(); };
+  </script>
+</body>
+</html>

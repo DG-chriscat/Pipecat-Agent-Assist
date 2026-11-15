@@ -103,6 +103,31 @@ async def test_start_intake_goes_straight_from_greeting_to_identity():
     assert fm.nodes == ["greeting", "identity"]
 
 
+async def test_start_intake_queues_greeting_before_db_insert():
+    # IN-1 tuning: the calls row insert (1.3 s on the live call) must not delay the
+    # greeting.
+    order = []
+
+    class SlowStore(MemoryCallStore):
+        async def create_call(self, session_id):
+            order.append("create_call")
+            return await super().create_call(session_id)
+
+    class Recording(FakeFlowManager):
+        async def initialize(self, node):
+            order.append(node["name"])
+            await super().initialize(node)
+
+        async def set_node_from_config(self, node):
+            order.append(node["name"])
+            await super().set_node_from_config(node)
+
+    session = IntakeSession(pack=load_pack("claims_status"), store=SlowStore(), session_id="s")
+    await bot.start_intake(session, Recording())
+    assert order == ["greeting", "create_call", "identity"]
+    assert session.call_id is not None
+
+
 async def test_start_intake_survives_db_failure():
     class Down(MemoryCallStore):
         async def create_call(self, session_id):
@@ -135,11 +160,74 @@ async def test_participant_left_ends_session():
     assert worker.cancelled
 
 
-async def test_dialin_ready_does_not_end_session():
+class FakeForwarder:
+    def __init__(self, error: Exception | None = None):
+        self.error = error
+        self.calls = []
+
+    async def warm(self):
+        self.calls.append("warm")
+
+    async def forward(self, sip_uri):
+        self.calls.append(("forward", sip_uri))
+        if self.error:
+            raise self.error
+
+    async def close(self):
+        self.calls.append("close")
+
+
+async def test_dialin_ready_without_dialin_config_does_nothing():
     transport, worker = FakeTransport(), FakeWorker()
     bot.register_handlers(transport, worker)
+    await transport.handlers["on_joined"](transport, {})
     await transport.handlers["on_dialin_ready"](transport, "sip:x@daily")
     assert not worker.cancelled and not worker.queued
+
+
+async def test_dialin_config_builds_a_real_forwarder(monkeypatch):
+    made = []
+    monkeypatch.setattr(bot, "DialinForwarder", lambda cfg: made.append(cfg) or FakeForwarder())
+    bot.register_handlers(FakeTransport(), FakeWorker(), dialin=DIALIN)
+    assert made == [DIALIN]
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"provider": "signalwire", "sipEndpoint": "sip:room.0@daily.signalwire.com"},
+        "sip:room.0@daily.signalwire.com",
+    ],
+    ids=["dict-payload", "string-payload"],
+)
+async def test_dialin_ready_forwards_held_call_with_string_sip_uri(payload):
+    # Live call on Nov 15: daily-python sends a dict here, and Pipecat's built-in
+    # forwarding posted it as sipUri, so Daily answered 400 and the caller was stuck.
+    transport, worker, fwd = FakeTransport(), FakeWorker(), FakeForwarder()
+    bot.register_handlers(transport, worker, dialin=DIALIN, forwarder=fwd)
+    await transport.handlers["on_joined"](transport, {})
+    await transport.handlers["on_dialin_ready"](transport, payload)
+    assert fwd.calls == ["warm", ("forward", "sip:room.0@daily.signalwire.com"), "close"]
+    assert not worker.cancelled
+
+
+async def test_dialin_forward_failure_ends_session():
+    from agent_assist_bot.dialin import DialinForwardError
+
+    transport, worker = FakeTransport(), FakeWorker()
+    fwd = FakeForwarder(DialinForwardError("pinlessCallUpdate returned 400"))
+    bot.register_handlers(transport, worker, dialin=DIALIN, forwarder=fwd)
+    await transport.handlers["on_dialin_ready"](transport, {"sipEndpoint": "sip:x@d"})
+    assert worker.cancelled
+    assert fwd.calls[-1] == "close"
+
+
+async def test_dialin_ready_without_sip_endpoint_ends_session():
+    transport, worker, fwd = FakeTransport(), FakeWorker(), FakeForwarder()
+    bot.register_handlers(transport, worker, dialin=DIALIN, forwarder=fwd)
+    await transport.handlers["on_dialin_ready"](transport, {"provider": "signalwire"})
+    assert worker.cancelled
+    assert not any(isinstance(c, tuple) for c in fwd.calls)
 
 
 async def test_dialin_error_ends_session():
@@ -149,19 +237,10 @@ async def test_dialin_error_ends_session():
     assert worker.cancelled
 
 
-def test_transport_without_dialin_has_no_dialin_settings():
-    params = bot.build_transport(ROOM)._params
+def test_transport_has_no_dialin_settings():
+    # The bot forwards dial-in calls itself, so Pipecat's forwarding stays off.
+    params = bot.build_transport(ROOM, "tok")._params
     assert params.dialin_settings is None
-    assert params.audio_in_enabled and params.audio_out_enabled
-    assert params.camera_out_enabled is False
-
-
-def test_transport_carries_dialin_settings():
-    params = bot.build_transport(ROOM, "tok", DIALIN)._params
-    assert params.dialin_settings.call_id == "call-123"
-    assert params.dialin_settings.call_domain == "domain-456"
-    assert params.api_key == "fake-daily"
-    assert params.api_url == bot.DEFAULT_DAILY_API_URL
     assert params.audio_in_enabled and params.audio_out_enabled
     assert params.camera_out_enabled is False
 
@@ -169,7 +248,14 @@ def test_transport_carries_dialin_settings():
 def test_build_worker_with_dialin(api_keys):
     worker, transport = bot.build_worker(ROOM, "tok", DIALIN)
     assert isinstance(worker, PipelineWorker)
-    assert transport._params.dialin_settings.call_id == "call-123"
+    assert transport._params.dialin_settings is None
+
+
+def test_pipeline_times_first_audio_just_before_output(api_keys):
+    worker, _ = bot.build_worker(ROOM, "tok")
+    inner = next(p for p in worker._pipeline.processors if type(p).__name__ == "Pipeline")
+    names = [type(p).__name__ for p in inner.processors]
+    assert names.index("FirstAudioTimer") == names.index("DailyOutputTransport") - 1
 
 
 async def test_run_bot_passes_dialin_and_runs(monkeypatch):

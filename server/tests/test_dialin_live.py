@@ -14,6 +14,7 @@ import uuid
 
 import httpx
 import pytest
+from agent_assist_bot.bot import BOT_NAME
 from agent_assist_server import dialin
 from agent_assist_server.app import app
 from agent_assist_server.bot_launcher import BotLauncher
@@ -71,6 +72,7 @@ async def test_live_webhook_creates_dialin_room_and_bot_joins(keys_present, monk
                 joined_at = time.monotonic()
                 names = [p.get("userName") for p in presence.get("data", [])]
                 print(f"bot present after {joined_at - t0:.2f}s: {names}")
+                assert BOT_NAME in names, names
                 break
             if proc.returncode is not None:
                 break

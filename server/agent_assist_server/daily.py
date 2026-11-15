@@ -16,6 +16,8 @@ import httpx
 DEFAULT_DAILY_API_URL = "https://api.daily.co/v1"
 ROOM_EXP_SECONDS = 60 * 60
 TOKEN_EXP_SECONDS = 60 * 60
+# Must match agent_assist_bot.bot.BOT_NAME: the token's user_name overrides the bot's own.
+BOT_USER_NAME = "Intake Bot"
 
 
 class DailyAPIError(Exception):
@@ -65,7 +67,7 @@ def build_token_body(*, room_name: str, now: float | None = None) -> dict:
         "properties": {
             "room_name": room_name,
             "is_owner": True,
-            "user_name": "Agent Assist Bot",
+            "user_name": BOT_USER_NAME,
             "exp": int(now + TOKEN_EXP_SECONDS),
             "eject_at_token_exp": True,
         }

@@ -5,22 +5,38 @@ import json
 
 import httpx
 import pytest
-from agent_assist_bot import handoff, hold
+from agent_assist_bot import handoff, hold, intake
 from pipecat.frames.frames import LLMContextFrame, TTSSpeakFrame
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.frame_processor import FrameDirection
 
 # ---- handoff hook -------------------------------------------------------------
 
+HANDOFF = intake.IntakeHandoff(
+    call_id="c-1",
+    session_id="s1",
+    outcome="emergency",
+    summary="Caller Maria Alvarez, calling about: claim denied.",
+    intake={"full_name": "Maria Alvarez", "reason": "claim denied", "emergency": "chest pain"},
+    identity_result="not_verified",
+    member_id=None,
+    flags=("identity_not_verified", "emergency"),
+)
 
-async def test_noop_handoff_does_nothing():
-    h = handoff.NoopHandoff()
-    await h.on_intake_complete("s1", {"reason": "x"})
-    await h.on_call_ended("s1")
+
+def test_one_hook_contract():
+    # P2-3's HandoffHook in intake.py is the only contract; handoff.py re-uses it.
+    assert handoff.HandoffHook is intake.HandoffHook
+    assert handoff.NoopHandoff is intake.NoopHandoff
+    assert isinstance(handoff.QueueHandoff("http://srv"), intake.HandoffHook)
+
+
+async def test_end_call_skips_hooks_without_on_call_ended():
+    await handoff.end_call(intake.NoopHandoff(), "s1")  # no error
 
 
 def test_handoff_from_env_defaults_to_noop():
-    assert isinstance(handoff.handoff_from_env({}), handoff.NoopHandoff)
+    assert isinstance(handoff.handoff_from_env({}), intake.NoopHandoff)
 
 
 def test_handoff_from_env_uses_server_url():
@@ -29,7 +45,7 @@ def test_handoff_from_env_uses_server_url():
     assert h.server_url == "http://127.0.0.1:9"
 
 
-async def test_queue_handoff_posts_summary_then_end():
+async def test_queue_handoff_posts_intake_handoff_then_end():
     seen: list[httpx.Request] = []
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -37,15 +53,25 @@ async def test_queue_handoff_posts_summary_then_end():
         return httpx.Response(200, json={"position": 1})
 
     h = handoff.QueueHandoff("http://srv", transport=httpx.MockTransport(handler))
-    await h.on_intake_complete("s1", {"reason": "claim denied"})
-    await h.on_call_ended("s1")
+    await h.on_intake_complete(HANDOFF)
+    await handoff.end_call(h, "s1")
     assert [(r.method, r.url.path) for r in seen] == [
         ("POST", "/queue/calls"),
         ("POST", "/queue/calls/s1/end"),
     ]
     assert json.loads(seen[0].content) == {
         "session_id": "s1",
-        "summary": {"reason": "claim denied"},
+        "call_id": "c-1",
+        "outcome": "emergency",
+        "summary": {
+            "full_name": "Maria Alvarez",
+            "reason": "claim denied",
+            "emergency": "chest pain",
+            "summary": "Caller Maria Alvarez, calling about: claim denied.",
+        },
+        "identity_result": "not_verified",
+        "member_id": None,
+        "flags": ["identity_not_verified", "emergency"],
     }
 
 
@@ -54,7 +80,7 @@ async def test_queue_handoff_raises_on_server_error():
         "http://srv", transport=httpx.MockTransport(lambda r: httpx.Response(404))
     )
     with pytest.raises(handoff.HandoffError):
-        await h.on_intake_complete("s1", {})
+        await h.on_intake_complete(HANDOFF)
 
 
 async def test_queue_handoff_end_swallows_errors():

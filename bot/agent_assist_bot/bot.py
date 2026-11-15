@@ -1,7 +1,9 @@
-"""Intake bot: joins a Daily room as "Intake Bot", greets, listens, and replies.
+"""Intake bot: joins a Daily room as "Intake Bot" and runs the intake flow.
 
 Pipeline: Daily in -> Deepgram STT (Nova 3) -> user aggregator -> LLM -> Deepgram TTS
-(Aura 2) -> Daily out -> assistant aggregator.
+(Aura 2) -> Daily out -> assistant aggregator. A Pipecat Flow (`intake.py`) drives the
+LLM through the intake steps from the use case pack (PRD IN-3, IN-4) and writes each
+answer to the `calls` row (IN-5).
 
 Two ways in, one bot:
 - Spike S1 (`agent_assist_bot.spike_s1`): plain WebRTC room, greet the first participant.
@@ -11,19 +13,24 @@ Two ways in, one bot:
 - Browser caller (PRD IN-12, `POST /calls/browser`): same CLI without dial-in args, so
   no DialinConfig; the caller is greeted when their browser joins.
 
-The greeting is a fixed TTSSpeakFrame queued straight onto the pipeline, so the first
-utterance needs only a TTS round trip (no LLM call) to hit the <2 s target (PRD IN-1).
+The greeting is the flow's first node: a fixed `tts_say` pre-action with no LLM call,
+so the first utterance needs only a TTS round trip to hit the <2 s target (PRD IN-1).
+
+Env: DATABASE_URL (calls row + identity check; in memory when unset),
+INTAKE_PACK (pack id, default claims_status).
 """
 
 from __future__ import annotations
 
 import os
 import time
+import uuid
 from dataclasses import dataclass
 
 from loguru import logger
 from pipecat.audio.vad.silero import SileroVADAnalyzer
-from pipecat.frames.frames import Frame, TranscriptionFrame, TTSSpeakFrame
+from pipecat.flows import FlowManager
+from pipecat.frames.frames import Frame, TranscriptionFrame
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
@@ -41,25 +48,19 @@ from pipecat.transports.daily.transport import (
 )
 from pipecat.workers.runner import WorkerRunner
 
-from agent_assist_bot.handoff import HandoffHook, NoopHandoff, handoff_from_env
+from agent_assist_bot.calls import CallStore, MemoryCallStore, PostgresCallStore
+from agent_assist_bot.handoff import end_call, handoff_from_env
 from agent_assist_bot.hold import BotGate, HoldController
+from agent_assist_bot.intake import GREETING as GREETING  # re-export (PRD IN-2)
+from agent_assist_bot.intake import ROLE_MESSAGE, HandoffHook, IntakeSession, NoopHandoff
 from agent_assist_bot.llm import create_llm
+from agent_assist_bot.packs import DEFAULT_PACK, Pack, load_pack
 
 BOT_NAME = "Intake Bot"
 STT_MODEL = "nova-3-general"
 TTS_VOICE = "aura-2-thalia-en"
 DEFAULT_DAILY_API_URL = "https://api.daily.co/v1"
-# PRD IN-2: tell the caller they are speaking with an AI assistant and a person will join.
-GREETING = (
-    "Hi, thanks for calling. You're speaking with an AI assistant. "
-    "I'll ask a few quick questions, and then a person will join the call to help you."
-)
-SYSTEM_INSTRUCTION = (
-    "You are the intake assistant for an insurance contact center. You are an AI, and a "
-    "person will join the call shortly. You are speaking on a phone call, so reply in one "
-    "or two short sentences of plain speech with no lists, markdown, or emoji. Ask one "
-    "question at a time."
-)
+PACK_ENV = "INTAKE_PACK"
 REQUIRED_KEYS = ("DAILY_API_KEY", "DEEPGRAM_API_KEY", "ANTHROPIC_API_KEY")
 
 
@@ -102,10 +103,6 @@ class TurnLogger(FrameProcessor):
         await self.push_frame(frame, direction)
 
 
-def greeting_frames() -> list[Frame]:
-    return [TTSSpeakFrame(GREETING)]
-
-
 def build_transport(
     room_url: str, token: str | None = None, dialin: DialinConfig | None = None
 ) -> DailyTransport:
@@ -127,19 +124,48 @@ def build_transport(
     return DailyTransport(room_url, token, BOT_NAME, params)
 
 
+def call_store_from_env(env: dict[str, str] | None = None) -> CallStore:
+    """Postgres when DATABASE_URL is set (ADR 0002), otherwise in memory (logged)."""
+    store = PostgresCallStore.from_env(env)
+    if store is None:
+        logger.warning("[bot] DATABASE_URL not set: call record kept in memory only")
+        return MemoryCallStore()
+    return store
+
+
+async def start_intake(session: IntakeSession, flow_manager) -> None:
+    """Create the calls row, speak the greeting, then enter identity.
+
+    The greeting node is TTS only (no LLM call). Identity follows at once, so its
+    question is generated while the greeting plays and is spoken right after it, and
+    the caller's first answer lands in a node that offers verify_identity.
+    """
+    try:
+        await session.start()
+    except Exception as e:  # noqa: BLE001 - the caller still gets intake
+        logger.error(f"[bot] could not create call record: {type(e).__name__}: {e}")
+        session.store = MemoryCallStore()
+        await session.start()
+    await flow_manager.initialize(session.greeting_node())
+    await flow_manager.set_node_from_config(session.identity_node())
+
+
 def register_handlers(
     transport,
     worker,
+    on_caller_joined=None,
+    on_ended=None,
     *,
     hold: HoldController | None = None,
     handoff: HandoffHook | None = None,
     session_id: str = "",
 ) -> None:
-    """Greet the first participant (the caller); end the session when they leave.
+    """Start intake for the first participant (the caller); end when they leave.
 
     Queue app messages from the server go to `hold` (QH-5, QH-6). When the caller
-    leaves, `handoff` tells the queue so a waiting or ringing call is cleared.
-    The dial-in events only fire when the transport has dialin_settings.
+    leaves, `handoff.on_call_ended` (QueueHandoff only) tells the queue so a waiting
+    or ringing call is cleared. The dial-in events only fire when the transport has
+    dialin_settings.
     """
     hold = hold or HoldController(worker.queue_frames)
     handoff = handoff or NoopHandoff()
@@ -152,7 +178,8 @@ def register_handlers(
         name = participant.get("info", {}).get("userName", "")
         caller["id"] = participant.get("id")
         logger.info(f"[bot] first participant joined: {name!r} t={time.time():.3f}")
-        await worker.queue_frames(greeting_frames())
+        if on_caller_joined is not None:
+            await on_caller_joined()
 
     @transport.event_handler("on_app_message")
     async def on_app_message(transport, message, sender):
@@ -167,8 +194,10 @@ def register_handlers(
         logger.info(f"[bot] caller left ({reason}); ending")
         hold.stop()
         if session_id:
-            await handoff.on_call_ended(session_id)
+            await end_call(handoff, session_id)
         await worker.cancel()
+        if on_ended is not None:
+            await on_ended()
 
     @transport.event_handler("on_dialin_ready")
     async def on_dialin_ready(transport, sip_endpoint):
@@ -185,10 +214,16 @@ def build_worker(
     room_url: str,
     token: str | None = None,
     dialin: DialinConfig | None = None,
-    *,
     session_id: str = "",
+    *,
+    pack: Pack | None = None,
+    store: CallStore | None = None,
     handoff: HandoffHook | None = None,
 ) -> tuple[PipelineWorker, DailyTransport]:
+    """`handoff` defaults to handoff_from_env(): QueueHandoff when
+    AGENT_ASSIST_SERVER_URL is set, else NoopHandoff."""
+    session_id = session_id or str(uuid.uuid4())
+    handoff = handoff or handoff_from_env()
     transport = build_transport(room_url, token, dialin)
     stt = DeepgramSTTService(
         api_key=os.environ["DEEPGRAM_API_KEY"],
@@ -198,7 +233,7 @@ def build_worker(
         api_key=os.environ["DEEPGRAM_API_KEY"],
         settings=DeepgramTTSService.Settings(voice=TTS_VOICE),
     )
-    llm = create_llm(system_instruction=SYSTEM_INSTRUCTION)
+    llm = create_llm(system_instruction=ROLE_MESSAGE)
 
     context = LLMContext()
     aggregators = LLMContextAggregatorPair(
@@ -226,11 +261,32 @@ def build_worker(
         params=PipelineParams(enable_metrics=True),
         idle_timeout_secs=120,
     )
+
+    # Intake (PRD IN-3 to IN-9): a Pipecat Flow driven by the use case pack. When it
+    # ends (completed, request_person, or emergency) the hook enqueues the call.
+    session = IntakeSession(
+        pack=pack or load_pack(os.environ.get(PACK_ENV) or DEFAULT_PACK),
+        store=store or call_store_from_env(),
+        session_id=session_id,
+        handoff=handoff,
+    )
+    flow_manager = FlowManager(
+        llm=llm, context_aggregator=aggregators, worker=worker, transport=transport
+    )
+
+    async def on_caller_joined() -> None:
+        await start_intake(session, flow_manager)
+
+    async def on_ended() -> None:
+        await session.store.close()
+
     register_handlers(
         transport,
         worker,
+        on_caller_joined=on_caller_joined,
+        on_ended=on_ended,
         hold=HoldController(worker.queue_frames, gate=gate),
-        handoff=handoff or handoff_from_env(),
+        handoff=handoff,
         session_id=session_id,
     )
     return worker, transport
@@ -242,7 +298,9 @@ async def run_bot(
     dialin: DialinConfig | None = None,
     session_id: str = "",
 ) -> None:
-    worker, _ = build_worker(room_url, token, dialin, session_id=session_id)
+    worker, _ = build_worker(
+        room_url, token, dialin, session_id=session_id, handoff=handoff_from_env()
+    )
     # SIGTERM too: the server stops per-call bot processes with terminate().
     runner = WorkerRunner(handle_sigint=True, handle_sigterm=True)
     await runner.add_workers(worker)

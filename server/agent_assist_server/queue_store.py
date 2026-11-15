@@ -34,11 +34,15 @@ ON CONFLICT (agent_id) DO UPDATE SET
 """
 
 # The bot (P2-3) may have created the row during intake: merge the summary into its
-# intake jsonb instead of replacing it, and keep identity_result/member_id/flags.
+# intake jsonb instead of replacing it. Flags are merged (the bot's own add_flag writes
+# stay), identity_result/member_id only fill in or overwrite with a non-null value.
+# member_id is a foreign key, so an unknown id is dropped rather than failing the write.
 UPSERT_CALL = """
-INSERT INTO calls (session_id, status, intake, queued_at, answered_at, ended_at, agent_id)
+INSERT INTO calls (session_id, status, intake, queued_at, answered_at, ended_at, agent_id,
+                   identity_result, member_id, flags)
 VALUES (%(session_id)s, %(status)s, %(summary)s, %(queued_at)s, %(answered_at)s,
-        %(ended_at)s, %(agent_id)s)
+        %(ended_at)s, %(agent_id)s, %(identity_result)s,
+        (SELECT member_id FROM members WHERE member_id = %(member_id)s), %(flags)s)
 ON CONFLICT (session_id) DO UPDATE SET
     status = EXCLUDED.status,
     intake = calls.intake || EXCLUDED.intake,
@@ -46,6 +50,11 @@ ON CONFLICT (session_id) DO UPDATE SET
     answered_at = EXCLUDED.answered_at,
     ended_at = EXCLUDED.ended_at,
     agent_id = EXCLUDED.agent_id,
+    identity_result = COALESCE(EXCLUDED.identity_result, calls.identity_result),
+    member_id = COALESCE(EXCLUDED.member_id, calls.member_id),
+    flags = calls.flags || ARRAY(
+        SELECT f FROM unnest(EXCLUDED.flags) AS f WHERE NOT (f = ANY(calls.flags))
+    ),
     updated_at = now()
 """
 
@@ -75,6 +84,9 @@ class QueueStore:
                     "answered_at": _ts(c["answered_at"]),
                     "ended_at": _ts(c["ended_at"]),
                     "agent_id": c["agent_id"],
+                    "identity_result": c.get("identity_result"),
+                    "member_id": c.get("member_id"),
+                    "flags": list(c.get("flags") or []),
                 },
             )
 

@@ -90,6 +90,50 @@ async def test_write_through_keeps_intake_written_by_the_bot(schema):
     assert got == [("queued", {"dob": "1984-03-12", "reason": "billing"}, "verified")]
 
 
+async def test_write_through_merges_intake_flags_and_identity(schema):
+    """Flags and identity from the bot handoff reach calls; the bot's own flags stay."""
+    from agent_assist_server.db import seed
+    from agent_assist_server.queue_service import IntakeInfo
+
+    async with await connect(schema=schema) as c:
+        await seed.load_seed(c)
+        member = (await (await c.execute("SELECT member_id FROM members LIMIT 1")).fetchone())[0]
+        await c.execute(
+            "INSERT INTO calls (session_id, status, flags) "
+            "VALUES ('sess-4', 'ready_for_queue', ARRAY['asked_for_person'])"
+        )
+    store = QueueStore(schema=schema)
+    svc = QueueService(mint_token=mint)
+    svc.subscribe(store.on_event)
+    info = IntakeInfo(
+        outcome="emergency",
+        identity_result="not_verified",
+        member_id=member,
+        flags=("asked_for_person", "emergency", "identity_not_verified"),
+    )
+    svc.enqueue_call("sess-4", "https://x.daily.co/caller-4", {"reason": "x"}, info)
+    # A fresh call (no bot row) with an unknown member id: the FK must not fail the write.
+    svc.enqueue_call(
+        "sess-5",
+        "https://x.daily.co/caller-5",
+        {},
+        IntakeInfo(identity_result="not_found", member_id="NOPE000", flags=("emergency",)),
+    )
+    await store.drain()
+    got = await rows(
+        schema, "SELECT session_id, identity_result, member_id, flags FROM calls ORDER BY 1"
+    )
+    assert got == [
+        (
+            "sess-4",
+            "not_verified",
+            member,
+            ["asked_for_person", "emergency", "identity_not_verified"],
+        ),
+        ("sess-5", "not_found", None, ["emergency"]),
+    ]
+
+
 async def test_seed_clears_agents(schema):
     from agent_assist_server.db import seed
 

@@ -3,7 +3,9 @@
 import pytest
 from agent_assist_bot import __main__ as cli
 from agent_assist_bot import bot
-from pipecat.frames.frames import TTSSpeakFrame
+from agent_assist_bot.calls import MemoryCallStore, PostgresCallStore
+from agent_assist_bot.intake import IntakeSession
+from agent_assist_bot.packs import load_pack
 from pipecat.pipeline.worker import PipelineWorker
 
 KEYS = {
@@ -51,18 +53,77 @@ def test_greeting_identifies_ai_and_human_handoff():
     assert "person will join" in bot.GREETING
 
 
-async def test_greeting_queued_on_first_participant_joined():
+async def test_first_participant_joined_starts_intake_once():
     transport, worker = FakeTransport(), FakeWorker()
-    bot.register_handlers(transport, worker)
+    started = []
+
+    async def start():
+        started.append(True)
+
+    bot.register_handlers(transport, worker, on_caller_joined=start)
     await transport.handlers["on_first_participant_joined"](transport, {"id": "caller"})
-    assert len(worker.queued) == 1
-    frame = worker.queued[0]
-    assert isinstance(frame, TTSSpeakFrame)
-    assert frame.text == bot.GREETING
+    assert started == [True]
 
 
-def test_greeting_is_tts_only_no_llm_frames():
-    assert [type(f) for f in bot.greeting_frames()] == [TTSSpeakFrame]
+class FakeFlowManager:
+    def __init__(self):
+        self.initialized_with = None
+        self.nodes = []
+
+    async def initialize(self, node):
+        self.initialized_with = node
+        self.nodes.append(node["name"])
+
+    async def set_node_from_config(self, node):
+        self.nodes.append(node["name"])
+
+
+async def test_start_intake_creates_call_row_and_greets_with_tts_only():
+    # IN-1/IN-2: the greeting is a fixed tts_say pre-action, no LLM round trip.
+    store = MemoryCallStore()
+    session = IntakeSession(pack=load_pack("claims_status"), store=store, session_id="s-9")
+    fm = FakeFlowManager()
+    await bot.start_intake(session, fm)
+    assert [r.session_id for r in store.calls.values()] == ["s-9"]
+    node = fm.initialized_with
+    assert node["name"] == "greeting"
+    assert node["pre_actions"][0] == {"type": "tts_say", "text": bot.GREETING}
+    assert node["respond_immediately"] is False
+
+
+async def test_start_intake_goes_straight_from_greeting_to_identity():
+    # The caller's first answer must land in the identity node, which has verify_identity.
+    session = IntakeSession(
+        pack=load_pack("claims_status"), store=MemoryCallStore(), session_id="s"
+    )
+    fm = FakeFlowManager()
+    await bot.start_intake(session, fm)
+    assert fm.nodes == ["greeting", "identity"]
+
+
+async def test_start_intake_survives_db_failure():
+    class Down(MemoryCallStore):
+        async def create_call(self, session_id):
+            raise OSError("db down")
+
+    session = IntakeSession(pack=load_pack("claims_status"), store=Down(), session_id="s")
+    fm = FakeFlowManager()
+    await bot.start_intake(session, fm)
+    assert fm.initialized_with["name"] == "greeting"
+
+
+def test_call_store_from_env_picks_postgres_or_memory():
+    assert isinstance(bot.call_store_from_env({}), MemoryCallStore)
+    store = bot.call_store_from_env({"DATABASE_URL": "postgresql://u@h/db"})
+    assert isinstance(store, PostgresCallStore)
+    assert "postgresql" not in repr(store)
+
+
+def test_call_store_from_env_honours_schema():
+    store = bot.call_store_from_env(
+        {"DATABASE_URL": "postgresql://u@h/db", "DATABASE_SCHEMA": "t1"}
+    )
+    assert store._schema == "t1"
 
 
 async def test_participant_left_ends_session():
@@ -125,14 +186,14 @@ async def test_run_bot_passes_dialin_and_runs(monkeypatch):
     sentinel = object()
     seen = {}
 
-    def fake_build_worker(room_url, token=None, dialin=None, **kwargs):
-        seen.update(room_url=room_url, token=token, dialin=dialin)
+    def fake_build_worker(room_url, token=None, dialin=None, session_id="", **kwargs):
+        seen.update(room_url=room_url, token=token, dialin=dialin, session_id=session_id)
         return sentinel, None
 
     monkeypatch.setattr(bot, "WorkerRunner", FakeRunner)
     monkeypatch.setattr(bot, "build_worker", fake_build_worker)
-    await bot.run_bot(ROOM, "tok", DIALIN)
-    assert seen == {"room_url": ROOM, "token": "tok", "dialin": DIALIN}
+    await bot.run_bot(ROOM, "tok", DIALIN, session_id="sess-7")
+    assert seen == {"room_url": ROOM, "token": "tok", "dialin": DIALIN, "session_id": "sess-7"}
     assert calls[0][1]["handle_sigterm"] is True
     assert calls[1] == ("add", (sentinel,))
     assert calls[2] == ("run",)
@@ -201,12 +262,24 @@ def test_cli_main_runs_bot_without_dialin(monkeypatch, api_keys):
     seen = {}
 
     async def fake_run_bot(room_url, token=None, dialin=None, session_id=""):
-        seen.update(room_url=room_url, token=token, dialin=dialin)
+        seen.update(room_url=room_url, token=token, dialin=dialin, session_id=session_id)
+
+    monkeypatch.setenv("DAILY_ROOM_TOKEN", "tok")
+    monkeypatch.setattr(cli, "run_bot", fake_run_bot)
+    assert cli.main(["--room-url", ROOM, "--session-id", "s-1"]) == 0
+    assert seen == {"room_url": ROOM, "token": "tok", "dialin": None, "session_id": "s-1"}
+
+
+def test_cli_main_without_session_id_makes_one(monkeypatch, api_keys):
+    seen = {}
+
+    async def fake_run_bot(room_url, token=None, dialin=None, session_id=""):
+        seen["session_id"] = session_id
 
     monkeypatch.setenv("DAILY_ROOM_TOKEN", "tok")
     monkeypatch.setattr(cli, "run_bot", fake_run_bot)
     assert cli.main(["--room-url", ROOM]) == 0
-    assert seen == {"room_url": ROOM, "token": "tok", "dialin": None}
+    assert seen["session_id"]
 
 
 def test_cli_main_missing_keys_exits_2(monkeypatch):
@@ -222,9 +295,10 @@ def test_cli_main_missing_keys_exits_2(monkeypatch):
 class RecordingHandoff:
     def __init__(self):
         self.ended = []
+        self.completed = []
 
-    async def on_intake_complete(self, session_id, summary):
-        pass
+    async def on_intake_complete(self, handoff):
+        self.completed.append(handoff)
 
     async def on_call_ended(self, session_id):
         self.ended.append(session_id)
@@ -283,3 +357,99 @@ async def test_agent_leaving_does_not_end_the_call():
     await transport.handlers["on_participant_left"](transport, caller, "leftCall")
     assert worker.cancelled
     assert h.ended == ["s1"]
+
+
+def test_build_worker_gives_one_hook_to_intake_and_handlers(monkeypatch, api_keys):
+    """The intake Flow enqueues via the hook; the caller leaving ends via the same hook."""
+    seen = {}
+    real_session = bot.IntakeSession
+
+    def spy_session(**kwargs):
+        seen["intake"] = kwargs["handoff"]
+        seen["session_id"] = kwargs["session_id"]
+        return real_session(**kwargs)
+
+    def spy_handlers(transport, worker, on_caller_joined=None, on_ended=None, **kwargs):
+        seen.update(handlers=kwargs["handoff"], handlers_session=kwargs["session_id"])
+
+    monkeypatch.setattr(bot, "IntakeSession", spy_session)
+    monkeypatch.setattr(bot, "register_handlers", spy_handlers)
+    h = RecordingHandoff()
+    bot.build_worker(ROOM, "tok", session_id="s-5", store=MemoryCallStore(), handoff=h)
+    assert seen["intake"] is h and seen["handlers"] is h
+    assert seen["session_id"] == seen["handlers_session"] == "s-5"
+
+
+def test_build_worker_defaults_to_queue_handoff_from_env(monkeypatch, api_keys):
+    from agent_assist_bot.handoff import SERVER_URL_ENV, QueueHandoff
+    from agent_assist_bot.intake import NoopHandoff
+
+    seen = []
+    real_session = bot.IntakeSession
+
+    def spy_session(**kwargs):
+        seen.append(kwargs["handoff"])
+        return real_session(**kwargs)
+
+    monkeypatch.setattr(bot, "IntakeSession", spy_session)
+    monkeypatch.delenv(SERVER_URL_ENV, raising=False)
+    bot.build_worker(ROOM, "tok", store=MemoryCallStore())
+    monkeypatch.setenv(SERVER_URL_ENV, "http://127.0.0.1:8000")
+    bot.build_worker(ROOM, "tok", store=MemoryCallStore())
+    assert isinstance(seen[0], NoopHandoff)
+    assert isinstance(seen[1], QueueHandoff)
+    assert seen[1].server_url == "http://127.0.0.1:8000"
+
+
+async def test_run_bot_passes_queue_handoff_from_env(monkeypatch):
+    from agent_assist_bot.handoff import SERVER_URL_ENV, QueueHandoff
+
+    seen = {}
+
+    class FakeRunner:
+        def __init__(self, **kwargs):
+            pass
+
+        async def add_workers(self, *workers):
+            pass
+
+        async def run(self):
+            pass
+
+    def fake_build_worker(room_url, token=None, dialin=None, session_id="", **kwargs):
+        seen.update(kwargs)
+        return object(), None
+
+    monkeypatch.setenv(SERVER_URL_ENV, "http://srv")
+    monkeypatch.setattr(bot, "WorkerRunner", FakeRunner)
+    monkeypatch.setattr(bot, "build_worker", fake_build_worker)
+    await bot.run_bot(ROOM, "tok", None, session_id="s")
+    assert isinstance(seen["handoff"], QueueHandoff)
+
+
+async def test_intake_end_enqueues_through_queue_handoff():
+    """request_person mid intake posts the handoff (with flags) to the queue API."""
+    import json
+
+    import httpx
+    from agent_assist_bot.handoff import QueueHandoff
+
+    posted = []
+
+    def handler(req):
+        posted.append((req.url.path, json.loads(req.content or b"{}")))
+        return httpx.Response(200, json={"position": 1})
+
+    h = QueueHandoff("http://srv", transport=httpx.MockTransport(handler))
+    session = IntakeSession(
+        pack=load_pack("claims_status"), store=MemoryCallStore(), session_id="s-q", handoff=h
+    )
+    await session.start()
+    _, node = await session._on_request_person({}, None)
+    assert node["name"] == "handoff"
+    assert [p for p, _ in posted] == ["/queue/calls"]
+    body = posted[0][1]
+    assert body["session_id"] == "s-q"
+    assert body["outcome"] == "asked_for_person"
+    assert body["flags"] == ["asked_for_person"]
+    assert body["summary"]["summary"]

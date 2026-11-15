@@ -6,7 +6,8 @@ REST:
     POST /agents/{agent_id}/accept       {session_id}          -> {token, room_url, summary}
     POST /agents/{agent_id}/decline      {session_id}
     GET  /queue                                                -> snapshot
-    POST /queue/calls                    {session_id, summary} -> {position}  (bot handoff)
+    POST /queue/calls                    {session_id, summary, outcome, identity_result,
+                                          member_id, flags}    -> {position}  (bot handoff)
     POST /queue/calls/{session_id}/end                         (caller left)
 
 Websocket /ws/queue: on connect, a {"type": "snapshot", ...} message, then every queue
@@ -26,7 +27,7 @@ import asyncio
 import json
 import logging
 import os
-from typing import Any
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
@@ -37,6 +38,7 @@ from agent_assist_server.queue_service import (
     AcceptResult,
     Agent,
     Event,
+    IntakeInfo,
     QueueError,
     QueueService,
     TokenError,
@@ -149,8 +151,25 @@ class OfferRequest(BaseModel):
 
 
 class EnqueueRequest(BaseModel):
+    """Bot handoff body: QueueHandoff posts the P2-3 IntakeHandoff fields."""
+
     session_id: str
     summary: dict[str, Any] = Field(default_factory=dict)
+    call_id: str | None = None
+    outcome: Literal["completed", "asked_for_person", "emergency"] | None = None
+    identity_result: Literal["verified", "not_verified", "not_found"] | None = None
+    member_id: str | None = Field(default=None, max_length=64)
+    flags: list[Annotated[str, Field(min_length=1, max_length=64)]] = Field(
+        default_factory=list, max_length=20
+    )
+
+    def info(self) -> IntakeInfo:
+        return IntakeInfo(
+            outcome=self.outcome,
+            identity_result=self.identity_result,
+            member_id=self.member_id,
+            flags=tuple(self.flags),
+        )
 
 
 def _accept_dict(res: AcceptResult) -> dict[str, Any]:
@@ -160,6 +179,10 @@ def _accept_dict(res: AcceptResult) -> dict[str, Any]:
         "token": res.token,
         "expires_at": res.expires_at,
         "summary": res.summary,
+        "outcome": res.outcome,
+        "identity_result": res.identity_result,
+        "member_id": res.member_id,
+        "flags": list(res.flags),
     }
 
 
@@ -213,7 +236,7 @@ async def enqueue_call(body: EnqueueRequest, request: Request) -> dict[str, Any]
     if room_url is None:
         raise HTTPException(status_code=404, detail="unknown session")
     try:
-        call = svc.enqueue_call(body.session_id, room_url, body.summary)
+        call = svc.enqueue_call(body.session_id, room_url, body.summary, body.info())
     except QueueError as e:
         raise _conflict(e) from None
     position = [c.session_id for c in svc.waiting_calls()].index(call.session_id) + 1

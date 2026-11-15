@@ -20,8 +20,9 @@ stay in their rooms with their bots; agents sign in again). Moving state into Po
 is the path if we ever run more than one server process.
 
 Migration `0003_queue_agents.sql` adds `agents` (RLS enabled, like every table) and
-`calls.agent_id`. The call upsert merges the intake summary into `calls.intake` and keeps
-fields the bot already wrote during intake (identity_result, member_id, flags).
+`calls.agent_id`. The call upsert merges the intake summary into `calls.intake`, merges
+the handoff flags into `calls.flags`, and only overwrites identity_result/member_id with
+non-null values, so fields the bot already wrote during intake are kept.
 
 ## Agent states (QH-1)
 
@@ -59,10 +60,10 @@ REST:
 | --- | --- | --- | --- |
 | POST | `/agents/sign-in` | `{name}` | agent (demo sign in, AP-1: same name, same agent) |
 | POST | `/agents/{agent_id}/status` | `{state}` | agent |
-| POST | `/agents/{agent_id}/accept` | `{session_id}` | `{session_id, room_url, token, expires_at, summary}` |
+| POST | `/agents/{agent_id}/accept` | `{session_id}` | `{session_id, room_url, token, expires_at, summary, outcome, identity_result, member_id, flags}` |
 | POST | `/agents/{agent_id}/decline` | `{session_id}` | `{status}` |
 | GET | `/queue` | | snapshot: `queue`, `active`, `agents`, `offer_timeout_secs` |
-| POST | `/queue/calls` | `{session_id, summary}` | `{session_id, status, position}` (bot handoff) |
+| POST | `/queue/calls` | `{session_id, summary, outcome?, identity_result?, member_id?, flags?}` | `{session_id, status, position}` (bot handoff) |
 | POST | `/queue/calls/{session_id}/end` | | caller left |
 
 Invalid commands return 409 with a message; a Daily token failure on accept returns
@@ -86,17 +87,36 @@ No auth beyond the demo sign in (AP-1). Do not expose this server publicly as is
 
 ## Bot side (QH-5, QH-6)
 
-Handoff hook (`bot/agent_assist_bot/handoff.py`), for P2-3's intake Flow to call:
+One hook contract: P2-3's `HandoffHook` in `bot/agent_assist_bot/intake.py`.
 
 ```
 class HandoffHook(Protocol):
-    async def on_intake_complete(self, session_id: str, summary: dict) -> None: ...
-    async def on_call_ended(self, session_id: str) -> None: ...
+    async def on_intake_complete(self, handoff: IntakeHandoff) -> None: ...
 ```
 
-`handoff_from_env()` returns `QueueHandoff` (POSTs to the server) when
-`AGENT_ASSIST_SERVER_URL` is set, otherwise `NoopHandoff`. The bot already calls
-`on_call_ended` when the caller leaves.
+The intake Flow calls it once per call when intake ends: read back confirmed
+(`completed`), `request_person` (`asked_for_person`), or `report_emergency`
+(`emergency`). `QueueHandoff` (`bot/agent_assist_bot/handoff.py`) implements it by
+posting to `POST /queue/calls`:
+
+```
+{"session_id": "...", "call_id": "...", "outcome": "completed",
+ "summary": {<captured intake fields>, "summary": "<one line summary>"},
+ "identity_result": "verified" | "not_verified" | "not_found" | null,
+ "member_id": "EVM100231" | null,
+ "flags": ["identity_not_verified", "emergency", ...]}
+```
+
+`outcome`, `identity_result`, `member_id`, and `flags` are stored on the queued call
+and appear in every call dict (snapshot, `offer`, `call_*` events) and in the accept
+reply, so the portal can show them. With `QUEUE_PERSIST=1` they are also written to
+`calls` (flags merged with the ones the bot already wrote; an unknown member id is
+stored as null because of the foreign key).
+
+`QueueHandoff` also has `on_call_ended(session_id)`, which the bot calls when the
+caller leaves (`NoopHandoff` has no such method and is skipped).
+`handoff_from_env()` returns `QueueHandoff` when `AGENT_ASSIST_SERVER_URL` is set,
+otherwise `NoopHandoff`; `run_bot` (the CLI path) passes it to `build_worker`.
 
 The server tells the bot about queue changes with Daily app messages sent through the
 REST API (`/rooms/{room}/send-app-message`; receivers see sender `"api"`, and the bot

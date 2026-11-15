@@ -21,12 +21,18 @@ source = { editable = "bot" }
 dependencies = [
     { name = "httpx" },
     { name = "pipecat-ai", extra = ["anthropic", "daily", "deepgram"] },
+    { name = "psycopg", extra = ["binary"] },
+    { name = "pydantic" },
+    { name = "pyyaml" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "httpx", specifier = ">=0.27" },
     { name = "pipecat-ai", extras = ["daily", "deepgram", "anthropic", "silero"], specifier = "==1.15.0" },
+    { name = "psycopg", extras = ["binary"], specifier = ">=3.2" },
+    { name = "pydantic", specifier = ">=2" },
+    { name = "pyyaml", specifier = ">=6" },
 ]
 
 [[package]]

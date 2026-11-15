@@ -139,6 +139,56 @@ def test_accept_returns_token_room_and_summary(client, daily):
     assert props["user_name"] == "Agent Ana"
 
 
+INTAKE_HANDOFF = {
+    "session_id": "s1",
+    "call_id": "c-1",
+    "outcome": "emergency",
+    "summary": {"reason": "claim denied", "summary": "Caller described chest pain."},
+    "identity_result": "not_verified",
+    "member_id": "EVM100231",
+    "flags": ["identity_not_verified", "emergency"],
+}
+
+
+def test_enqueue_accepts_intake_handoff_and_flags_reach_the_call(client):
+    """P2-3 IntakeHandoff fields from QueueHandoff land on the queued call record."""
+    r = client.post("/queue/calls", json=INTAKE_HANDOFF)
+    assert r.status_code == 200, r.text
+    call = client.get("/queue").json()["queue"][0]
+    assert call["outcome"] == "emergency"
+    assert call["identity_result"] == "not_verified"
+    assert call["member_id"] == "EVM100231"
+    assert call["flags"] == ["identity_not_verified", "emergency"]
+    assert call["summary"] == INTAKE_HANDOFF["summary"]
+
+
+def test_offer_and_accept_carry_flags(client):
+    agent_id = sign_in(client, "Agent Ana")
+    client.post("/queue/calls", json=INTAKE_HANDOFF)
+    with client.websocket_connect("/ws/queue") as ws:
+        assert ws.receive_json()["type"] == "snapshot"
+        make_available(client, agent_id)
+        while (msg := ws.receive_json())["type"] != "offer":
+            pass
+        assert msg["call"]["flags"] == ["identity_not_verified", "emergency"]
+    body = client.post(f"/agents/{agent_id}/accept", json={"session_id": "s1"}).json()
+    assert body["flags"] == ["identity_not_verified", "emergency"]
+    assert body["identity_result"] == "not_verified"
+    assert body["outcome"] == "emergency"
+
+
+def test_enqueue_rejects_bad_identity_result(client):
+    r = client.post("/queue/calls", json={**INTAKE_HANDOFF, "identity_result": "maybe"})
+    assert r.status_code == 422
+
+
+def test_enqueue_old_shape_still_works(client):
+    r = enqueue(client, "s1", {"reason": "x"})
+    assert r.status_code == 200
+    call = client.get("/queue").json()["queue"][0]
+    assert call["flags"] == [] and call["identity_result"] is None
+
+
 def test_accept_without_offer_is_409(client):
     agent_id = sign_in(client)
     enqueue(client)

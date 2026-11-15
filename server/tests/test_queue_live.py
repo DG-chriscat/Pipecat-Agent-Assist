@@ -4,10 +4,11 @@ Run locally with keys in the environment:
     uv run pytest -m live server/tests/test_queue_live.py -s -v
 
 The real server runs under uvicorn on a local port, so the bot subprocess reaches the
-queue API through AGENT_ASSIST_SERVER_URL exactly as in production. P2-3's intake Flow
-is not merged yet, so the test calls the bot's handoff hook (QueueHandoff) itself
-where intake would end. The caller and agent are daily-python clients (S1 harness);
-the agent's control channel is a websocket client on /ws/queue.
+queue API through AGENT_ASSIST_SERVER_URL exactly as in production. Driving the full
+intake Flow by voice is P2-5; here the test calls the bot's hook (QueueHandoff, the
+intake HandoffHook) itself with an IntakeHandoff, where the Flow would call it when
+intake ends. The caller and agent are daily-python clients (S1 harness); the agent's
+control channel is a websocket client on /ws/queue.
 
 Checks: the bot gets the "queued" message and gives a hold update about 60 s later
 (QH-5); the agent ws client gets the offer with the intake summary and a 20 s expiry
@@ -27,7 +28,8 @@ import pytest
 import uvicorn
 import websockets
 from agent_assist_bot.bot import BOT_NAME
-from agent_assist_bot.handoff import SERVER_URL_ENV, QueueHandoff
+from agent_assist_bot.handoff import SERVER_URL_ENV, QueueHandoff, enqueue_payload
+from agent_assist_bot.intake import IntakeHandoff
 from agent_assist_server import browser_call
 from agent_assist_server.app import app
 from agent_assist_server.bot_launcher import BotLauncher
@@ -40,12 +42,24 @@ pytestmark = pytest.mark.live
 REQUIRED = ("DAILY_API_KEY", "DEEPGRAM_API_KEY", "ANTHROPIC_API_KEY")
 SPEECH_RMS = 300.0
 AGENT_NAME = "Agent Ana"
-SUMMARY = {
-    "name": "Maria Alvarez",
-    "member_id": "EVM100231",
-    "identity": "verified",
-    "reason": "MRI claim CLM-900001 denied, CO-197",
-}
+FLAGS = ["identity_not_verified"]
+
+
+def intake_handoff(session_id: str) -> IntakeHandoff:
+    return IntakeHandoff(
+        call_id="live-call",
+        session_id=session_id,
+        outcome="completed",
+        summary="Maria Alvarez, MRI claim CLM-900001 denied with CO-197.",
+        intake={
+            "full_name": "Maria Alvarez",
+            "member_id": "EVM100231",
+            "reason": "MRI claim CLM-900001 denied, CO-197",
+        },
+        identity_result="not_verified",
+        member_id=None,
+        flags=tuple(FLAGS),
+    )
 
 
 @pytest.fixture
@@ -85,10 +99,24 @@ async def wait_speech_after(rec, t: float, timeout: float) -> float | None:
     return None
 
 
+async def wait_quiet(rec, after: float, quiet: float = 4.0, timeout: float = 40) -> float:
+    """Wait until the bot has been silent for `quiet` s (greeting + identity question)."""
+    end = time.time() + timeout
+    while time.time() < end:
+        segs = [s for s in rec.segments(threshold=SPEECH_RMS) if s[1] >= after]
+        last = segs[-1][1] if segs else after
+        if time.time() - last >= quiet:
+            return last
+        await asyncio.sleep(0.2)
+    raise AssertionError("bot never went quiet")
+
+
 async def test_live_browser_call_queue_offer_accept_join(keys_present, monkeypatch):
     port = free_port()
     base = f"http://127.0.0.1:{port}"
     monkeypatch.setenv(SERVER_URL_ENV, base)  # inherited by the bot subprocess
+    # The bot runs the real intake Flow; keep its calls row in memory, off the shared DB.
+    monkeypatch.delenv("DATABASE_URL", raising=False)
     launcher = BotLauncher()
     app.state.bot_launcher = launcher
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
@@ -117,14 +145,18 @@ async def test_live_browser_call_queue_offer_accept_join(keys_present, monkeypat
                 greet = await wait_speech_after(bot_rec, bot.joined_at, 10)
                 assert greet is not None, "bot never greeted"
                 log(t0, f"bot greeting audio at +{greet - bot.joined_at:.2f}s after bot joined")
-                await asyncio.sleep(9)  # let the greeting finish
+                last = await wait_quiet(bot_rec, greet)
+                log(t0, f"bot quiet after greeting + identity question ({last - greet:.1f}s)")
 
-                # Intake ends: the bot's handoff hook enqueues the call (P2-3 will call this).
+                # Intake ends: the Flow would call the hook here (full voice intake: P2-5).
                 queued_at = time.time()
-                await QueueHandoff(base).on_intake_complete(session_id, SUMMARY)
+                handoff = intake_handoff(session_id)
+                summary = enqueue_payload(handoff)["summary"]
+                await QueueHandoff(base).on_intake_complete(handoff)
                 snap = (await http.get("/queue")).json()
                 assert [c["session_id"] for c in snap["queue"]] == [session_id]
-                log(t0, f"call enqueued: position 1, queue={len(snap['queue'])}")
+                assert snap["queue"][0]["flags"] == FLAGS
+                log(t0, f"call enqueued: position 1, flags={snap['queue'][0]['flags']}")
 
                 # QH-5: about 60 s on hold, the bot gives a short update.
                 hold = await wait_speech_after(bot_rec, queued_at + 1, 75)
@@ -151,7 +183,9 @@ async def test_live_browser_call_queue_offer_accept_join(keys_present, monkeypat
                     offer = await recv_type(ws, "offer", 5)
                     log(t0, f"agent ws got offer {time.time() - available_at:.3f}s after available")
                     assert offer["call"]["session_id"] == session_id
-                    assert offer["call"]["summary"] == SUMMARY
+                    assert offer["call"]["summary"] == summary
+                    assert offer["call"]["flags"] == FLAGS
+                    assert offer["call"]["identity_result"] == "not_verified"
                     assert 19 <= offer["expires_at"] - time.time() <= 20.5
 
                     accept_at = time.time()
@@ -167,7 +201,8 @@ async def test_live_browser_call_queue_offer_accept_join(keys_present, monkeypat
                     accepted = await recv_type(ws, "accepted", 10)
                     log(t0, f"accept -> token in {time.time() - accept_at:.3f}s")
                     assert accepted["room_url"] == out["room_url"]
-                    assert accepted["summary"] == SUMMARY
+                    assert accepted["summary"] == summary
+                    assert accepted["flags"] == FLAGS
                     assert accepted["token"]
 
                     async with HarnessParticipant(AGENT_NAME) as agent_client:

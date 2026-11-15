@@ -131,6 +131,11 @@ class Call:
     agent_id: str | None = None
     answered_at: float | None = None
     ended_at: float | None = None
+    # From the bot's intake handoff (P2-3): shown to the agent (portal) with the summary.
+    outcome: str | None = None
+    identity_result: str | None = None
+    member_id: str | None = None
+    flags: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -138,6 +143,10 @@ class Call:
             "room_url": self.room_url,
             "room_name": self.room_name,
             "summary": self.summary,
+            "outcome": self.outcome,
+            "identity_result": self.identity_result,
+            "member_id": self.member_id,
+            "flags": list(self.flags),
             "status": self.status.value,
             "queued_at": self.queued_at,
             "offered_to": self.offered_to,
@@ -148,12 +157,26 @@ class Call:
 
 
 @dataclass(frozen=True)
+class IntakeInfo:
+    """Handoff details beyond the summary (P2-3 IntakeHandoff), all optional."""
+
+    outcome: str | None = None
+    identity_result: str | None = None
+    member_id: str | None = None
+    flags: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class AcceptResult:
     session_id: str
     room_url: str
     token: str
     expires_at: int
     summary: dict[str, Any]
+    outcome: str | None = None
+    identity_result: str | None = None
+    member_id: str | None = None
+    flags: tuple[str, ...] = ()
 
 
 def room_name_from_url(room_url: str) -> str:
@@ -291,14 +314,23 @@ class QueueService:
 
     # ---- calls -------------------------------------------------------------
 
-    def enqueue_call(self, session_id: str, room_url: str, summary: dict[str, Any]) -> Call:
-        """Put a call at the back of the queue (PRD QH-2). Re-sending updates the summary."""
+    def enqueue_call(
+        self,
+        session_id: str,
+        room_url: str,
+        summary: dict[str, Any],
+        info: IntakeInfo | None = None,
+    ) -> Call:
+        """Put a call at the back of the queue (PRD QH-2). Re-sending updates the summary
+        and intake details (flags are merged, never dropped)."""
+        info = info or IntakeInfo()
         room_name = room_name_from_url(room_url)
         existing = self._calls.get(session_id)
         if existing is not None:
             if existing.status is not CallStatus.QUEUED:
                 raise QueueError(f"call {session_id!r} is already {existing.status.value}")
             existing.summary = dict(summary)
+            self._apply_info(existing, info)
             self._emit({"type": "call_updated", "call": existing.to_dict()})
             return existing
         call = Call(
@@ -309,12 +341,22 @@ class QueueService:
             seq=self._next_seq(),
             queued_at=self._clock.now(),
         )
+        self._apply_info(call, info)
         self._calls[session_id] = call
         self._emit(
             {"type": "call_queued", "call": call.to_dict(), "position": self._position(call)}
         )
         self._dispatch()
         return call
+
+    @staticmethod
+    def _apply_info(call: Call, info: IntakeInfo) -> None:
+        call.outcome = info.outcome or call.outcome
+        call.identity_result = info.identity_result or call.identity_result
+        call.member_id = info.member_id or call.member_id
+        for flag in info.flags:
+            if flag not in call.flags:
+                call.flags.append(flag)
 
     def _position(self, call: Call) -> int:
         return [c.session_id for c in self.waiting_calls()].index(call.session_id) + 1
@@ -465,4 +507,8 @@ class QueueService:
             token=token,
             expires_at=expires_at,
             summary=call.summary,
+            outcome=call.outcome,
+            identity_result=call.identity_result,
+            member_id=call.member_id,
+            flags=tuple(call.flags),
         )

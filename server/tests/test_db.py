@@ -13,6 +13,8 @@ import uuid
 import pytest
 from agent_assist_server.db import connect, migrate, seed
 
+ALL_MIGRATIONS = [p.stem for p in migrate.migration_files()]
+
 pytestmark = pytest.mark.skipif(not os.environ.get("DATABASE_URL"), reason="DATABASE_URL not set")
 
 AS_OF = dt.date(2026, 11, 15)
@@ -60,7 +62,7 @@ async def test_connect_sets_search_path_to_schema_only(conn, schema):
 
 async def test_migrate_creates_all_tables_in_schema_not_public(conn, schema):
     applied = await migrate.apply_migrations(conn)
-    assert applied == ["0001_init"]
+    assert applied == ALL_MIGRATIONS
     cur = await conn.execute(
         "SELECT table_schema, table_name FROM information_schema.tables WHERE table_name = ANY(%s)",
         (TABLES + ["schema_migrations"],),
@@ -71,7 +73,7 @@ async def test_migrate_creates_all_tables_in_schema_not_public(conn, schema):
 
 
 async def test_migrate_is_idempotent(conn):
-    assert await migrate.apply_migrations(conn) == ["0001_init"]
+    assert await migrate.apply_migrations(conn) == ALL_MIGRATIONS
     assert await migrate.apply_migrations(conn) == []
 
 
@@ -184,3 +186,13 @@ async def test_cli_migrate_then_seed(schema):
     assert r2.returncode == 0, r2.stderr
     assert "members" in r2.stdout
     assert os.environ["DATABASE_URL"] not in r1.stdout + r1.stderr + r2.stdout + r2.stderr
+
+
+async def test_all_tables_have_row_level_security(conn, schema):
+    await migrate.apply_migrations(conn)
+    cur = await conn.execute(
+        "SELECT relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+        "WHERE n.nspname = %s AND c.relkind = 'r' AND NOT c.relrowsecurity",
+        (schema,),
+    )
+    assert await cur.fetchall() == []

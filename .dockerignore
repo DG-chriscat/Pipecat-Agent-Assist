@@ -1,0 +1,14 @@
+.git
+.github
+.venv
+**/.venv
+.worktrees
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+.env
+.env.*
+!.env.example
+docs
+**/tests
+portal/node_modules

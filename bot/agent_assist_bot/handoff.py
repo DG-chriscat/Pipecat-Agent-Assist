@@ -24,6 +24,9 @@ from agent_assist_bot.intake import HandoffHook, IntakeHandoff, NoopHandoff
 logger = logging.getLogger(__name__)
 
 SERVER_URL_ENV = "AGENT_ASSIST_SERVER_URL"
+# Set by the server's bot launcher when login (APP_PASSWORD) is on; sent as a Bearer
+# token so the queue endpoints accept the handoff.
+BOT_KEY_ENV = "AGENT_ASSIST_BOT_KEY"
 
 
 class HandoffError(RuntimeError):
@@ -50,14 +53,19 @@ class QueueHandoff:
         *,
         transport: httpx.AsyncBaseTransport | None = None,
         timeout: float = 10.0,
+        bot_key: str | None = None,
     ):
         self.server_url = server_url.rstrip("/")
         self._transport = transport
         self._timeout = timeout
+        self._headers = {"authorization": f"Bearer {bot_key}"} if bot_key else {}
 
     def _client(self) -> httpx.AsyncClient:
         return httpx.AsyncClient(
-            base_url=self.server_url, transport=self._transport, timeout=self._timeout
+            base_url=self.server_url,
+            transport=self._transport,
+            timeout=self._timeout,
+            headers=self._headers,
         )
 
     async def on_intake_complete(self, handoff: IntakeHandoff) -> None:
@@ -93,4 +101,6 @@ async def end_call(handoff: HandoffHook, session_id: str) -> None:
 def handoff_from_env(env: dict[str, str] | None = None) -> HandoffHook:
     env = dict(os.environ) if env is None else env
     url = env.get(SERVER_URL_ENV, "").strip()
-    return QueueHandoff(url) if url else NoopHandoff()
+    if not url:
+        return NoopHandoff()
+    return QueueHandoff(url, bot_key=env.get(BOT_KEY_ENV, "").strip() or None)

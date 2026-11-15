@@ -1,17 +1,33 @@
+import os
+from collections.abc import Callable, Mapping
+
 from fastapi import FastAPI
 
+from agent_assist_server import auth
 from agent_assist_server.agent_token import router as agent_token_router
 from agent_assist_server.browser_call import router as browser_call_router
 from agent_assist_server.dialin import router as dialin_router
 from agent_assist_server.queue_api import router as queue_router
 
-app = FastAPI(title="Agent Assist Server")
-app.include_router(dialin_router)
-app.include_router(agent_token_router)
-app.include_router(browser_call_router)
-app.include_router(queue_router)
 
-
-@app.get("/healthz")
 def healthz() -> dict[str, str]:
     return {"status": "ok", "service": "agent-assist-server"}
+
+
+def create_app(
+    env: Mapping[str, str] | None = None, clock: Callable[[], float] | None = None
+) -> FastAPI:
+    """Build the server. Login (P2-6) is on when APP_PASSWORD is set in env."""
+    env = os.environ if env is None else env
+    config = auth.config_from_env(env, clock=clock) if clock else auth.config_from_env(env)
+    app = FastAPI(title="Agent Assist Server")
+    app.include_router(dialin_router)
+    app.include_router(agent_token_router)
+    app.include_router(browser_call_router)
+    app.include_router(queue_router)
+    app.add_api_route("/healthz", healthz, methods=["GET"])
+    auth.install(app, config)
+    return app
+
+
+app = create_app()

@@ -2,7 +2,7 @@
 name = "agent-assist-bot"
 version = "0.0.0"
 requires-python = ">=3.12"
-dependencies = []  # pipecat-ai==1.15.* added in spike S1
+dependencies = ["pipecat-ai[daily,deepgram,anthropic,silero]==1.15.0"]
 
 [build-system]
 requires = ["hatchling"]

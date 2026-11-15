@@ -75,6 +75,35 @@ async def test_queue_handoff_posts_intake_handoff_then_end():
     }
 
 
+async def test_queue_handoff_sends_bot_key_from_env():
+    # P2-6: with APP_PASSWORD on, the server gives its bots AGENT_ASSIST_BOT_KEY.
+    seen: list[httpx.Request] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen.append(req)
+        return httpx.Response(200, json={"position": 1})
+
+    h = handoff.handoff_from_env(
+        {handoff.SERVER_URL_ENV: "http://srv", handoff.BOT_KEY_ENV: "k123"}
+    )
+    h._transport = httpx.MockTransport(handler)
+    await h.on_intake_complete(HANDOFF)
+    await h.on_call_ended("s1")
+    assert [r.headers.get("authorization") for r in seen] == ["Bearer k123"] * 2
+
+
+async def test_queue_handoff_no_auth_header_without_key():
+    seen: list[httpx.Request] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen.append(req)
+        return httpx.Response(200, json={"position": 1})
+
+    h = handoff.QueueHandoff("http://srv", transport=httpx.MockTransport(handler))
+    await h.on_intake_complete(HANDOFF)
+    assert "authorization" not in seen[0].headers
+
+
 async def test_queue_handoff_raises_on_server_error():
     h = handoff.QueueHandoff(
         "http://srv", transport=httpx.MockTransport(lambda r: httpx.Response(404))

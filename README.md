@@ -39,3 +39,26 @@ Live test (real Daily room + bot, no phone call): `uv run --env-file .env pytest
 ## Mock database (PRD DC-3, DC-8)
 Postgres via `DATABASE_URL`. `uv run --env-file .env python -m agent_assist_server.db migrate`
 then `... seed`. Tables and demo personas: [docs/db.md](docs/db.md).
+
+## Login (P2-6)
+Set `APP_PASSWORD` to put the whole app behind one shared password. Every page, API,
+and the `/ws/queue` websocket then needs a session cookie; `/healthz` and
+`POST /daily/dialin` (own HMAC) stay open. `SESSION_SECRET` is required with it, or the
+server refuses to start. Leave `APP_PASSWORD` unset for local dev (a warning is logged).
+
+```
+# local: add to .env
+APP_PASSWORD=<pick one>
+SESSION_SECRET=<output of: python -c 'import secrets; print(secrets.token_urlsafe(32))'>
+
+# Fly.io
+fly secrets set APP_PASSWORD='<pick one>' \
+  SESSION_SECRET="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')" \
+  TRUSTED_CLIENT_IP_HEADER=Fly-Client-IP
+```
+
+Open any page and you land on `/login`, then go back where you were. Sessions last 12
+hours and are per browser, so a caller on `/caller` and an agent on another machine
+can both sign in. `/logout` signs out. Ten wrong passwords from one IP in 10 minutes
+return 429. Changing `SESSION_SECRET` signs everyone out. The server passes its bots a
+derived key (`AGENT_ASSIST_BOT_KEY`) for the queue handoff, never the password.

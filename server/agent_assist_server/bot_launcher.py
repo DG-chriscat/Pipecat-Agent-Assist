@@ -15,6 +15,8 @@ import os
 import sys
 from dataclasses import dataclass
 
+from agent_assist_server import auth
+
 logger = logging.getLogger(__name__)
 
 BOT_MODULE = "agent_assist_bot"
@@ -44,6 +46,13 @@ def build_bot_command(req: BotLaunchRequest, python: str | None = None) -> list[
 def build_bot_env(req: BotLaunchRequest, base: dict[str, str] | None = None) -> dict[str, str]:
     env = dict(os.environ if base is None else base)
     env[TOKEN_ENV] = req.token
+    # Login (P2-6): the bot gets a key for the queue handoff endpoints, never the
+    # app password or the session secret itself.
+    password = env.pop(auth.PASSWORD_ENV, "")
+    secret = env.pop(auth.SECRET_ENV, "")
+    env.pop(auth.BOT_KEY_ENV, None)
+    if password and secret:
+        env[auth.BOT_KEY_ENV] = auth.bot_key(secret)
     return env
 
 

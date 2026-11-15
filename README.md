@@ -36,6 +36,19 @@ Save the `hmac` Daily returns as `DAILY_DIALIN_HMAC` to enable signature checks.
 
 Live test (real Daily room + bot, no phone call): `uv run --env-file .env pytest -m live -s`
 
+Live call test (IN-1, against a deployed server):
+```
+DIALIN_TEST_SIP_URI=<pinless sip_uri from GET /domain-dialin-config> \
+  DIALIN_TEST_SERVER_LOG=<server log file, optional> \
+  uv run --env-file .env pytest -m live server/tests/test_dialin_call_live.py -s
+```
+A throwaway room dials the number's pinless SIP URI (same webhook, hold, and forward
+path as a phone call). The caller leg is recorded and transcribed to find when the
+greeting was heard. With `DIALIN_TEST_SERVER_LOG` the test also reads the server and bot
+`[timing] event=... t=...` lines and asserts greeting first audio minus bot joined
+under 2 s. `DIALIN_TEST_PSTN=1` dials the real number (needs PSTN dial-out on the
+domain); `DIALIN_TEST_WAIT_SECS=N` waits for a person to call.
+
 ## Mock database (PRD DC-3, DC-8)
 Postgres via `DATABASE_URL`. `uv run --env-file .env python -m agent_assist_server.db migrate`
 then `... seed`. Tables and demo personas: [docs/db.md](docs/db.md).

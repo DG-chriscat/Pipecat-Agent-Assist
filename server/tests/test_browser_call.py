@@ -163,3 +163,10 @@ def test_bot_command_without_dialin_omits_call_args():
         "--session-id",
         "sid",
     ]
+
+
+def test_browser_call_registers_session_with_queue(launcher):
+    from agent_assist_server.queue_api import get_queue
+
+    out = _client(DailyMock(), launcher).post(browser_call.BROWSER_CALL_PATH).json()
+    assert get_queue(app).room_for(out["session_id"]) == out["room_url"]

@@ -1,0 +1,279 @@
+"""Queue REST + websocket API (PRD QH-3 to QH-7) and the bot notifier (QH-5, QH-6).
+
+REST:
+    POST /agents/sign-in                 {name}                -> agent (AP-1 demo sign in)
+    POST /agents/{agent_id}/status       {state}               -> agent
+    POST /agents/{agent_id}/accept       {session_id}          -> {token, room_url, summary}
+    POST /agents/{agent_id}/decline      {session_id}
+    GET  /queue                                                -> snapshot
+    POST /queue/calls                    {session_id, summary} -> {position}  (bot handoff)
+    POST /queue/calls/{session_id}/end                         (caller left)
+
+Websocket /ws/queue: on connect, a {"type": "snapshot", ...} message, then every queue
+event (call_queued, call_updated, call_ended, call_accepted, agent_updated, offer,
+offer_missed). The same socket takes commands: sign_in, set_status, accept, decline.
+Replies are {"type": "signed_in"|"status_set"|"accepted"|"declined"|"error", ...}.
+The meeting token only appears in the "accepted" reply to the socket that accepted.
+
+Bot notifier: queue events for a call become Daily app messages in that call's room
+(REST /rooms/{room}/send-app-message, sender "api"), so the bot knows it is queued and
+when an agent accepted. Message data: {"type": BOT_MESSAGE_TYPE, "event": ...}.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import os
+from typing import Any
+
+from fastapi import APIRouter, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel, Field
+
+from agent_assist_server.agent_token import mint_agent_token
+from agent_assist_server.daily import DailyRestClient
+from agent_assist_server.queue_service import (
+    AcceptResult,
+    Agent,
+    Event,
+    QueueError,
+    QueueService,
+    TokenError,
+)
+
+logger = logging.getLogger(__name__)
+
+BOT_MESSAGE_TYPE = "agent_assist.queue"
+PERSIST_ENV = "QUEUE_PERSIST"
+
+router = APIRouter()
+
+
+def _daily_factory(app: FastAPI):
+    factory = getattr(app.state, "daily_client_factory", None)
+    return factory or DailyRestClient.from_env
+
+
+def get_queue(app: FastAPI) -> QueueService:
+    """The process wide queue service, created on first use."""
+    svc = getattr(app.state, "queue_service", None)
+    if svc is None:
+
+        async def mint(room_name: str, user_name: str) -> tuple[str, int]:
+            return await mint_agent_token(_daily_factory(app)(), room_name, user_name)
+
+        svc = QueueService(mint_token=mint)
+        svc.subscribe(BotNotifier(svc, lambda: _daily_factory(app)()).on_event)
+        if os.environ.get(PERSIST_ENV) == "1":
+            from agent_assist_server.queue_store import QueueStore
+
+            svc.subscribe(QueueStore().on_event)
+        app.state.queue_service = svc
+    return svc
+
+
+class SerialWorker:
+    """Runs async jobs one at a time, in submit order, on the running loop."""
+
+    def __init__(self, name: str):
+        self._name = name
+        self._jobs: asyncio.Queue | None = None
+        self._task: asyncio.Task | None = None
+
+    def submit(self, job) -> None:
+        if self._task is None or self._task.done():
+            self._jobs = asyncio.Queue()
+            self._task = asyncio.get_running_loop().create_task(self._run())
+        self._jobs.put_nowait(job)
+
+    async def _run(self) -> None:
+        while True:
+            job = await self._jobs.get()
+            try:
+                await job()
+            except Exception as e:
+                logger.error("%s job failed: %s", self._name, e)
+
+
+class BotNotifier:
+    """Turns queue events into Daily app messages for the call's bot."""
+
+    def __init__(self, svc: QueueService, daily_factory):
+        self._svc = svc
+        self._daily_factory = daily_factory
+        self._worker = SerialWorker("bot notifier")
+
+    def _send(self, room_name: str, data: dict[str, Any]) -> None:
+        payload = {"type": BOT_MESSAGE_TYPE, **data}
+
+        async def job():
+            await self._daily_factory().send_app_message(room_name, payload)
+
+        self._worker.submit(job)
+
+    def on_event(self, event: Event) -> None:
+        kind = event["type"]
+        if kind == "call_queued":
+            self._send(
+                event["call"]["room_name"], {"event": "queued", "position": event["position"]}
+            )
+        elif kind == "call_accepted":
+            agent = self._svc.get_agent(event["agent_id"])
+            self._send(
+                event["call"]["room_name"], {"event": "agent_accepted", "agent_name": agent.name}
+            )
+            self._send_positions()
+        elif kind == "call_ended":
+            self._send_positions()
+
+    def _send_positions(self) -> None:
+        """A call left the line: tell the callers behind it their new place."""
+        for i, call in enumerate(self._svc.waiting_calls(), start=1):
+            self._send(call.room_name, {"event": "position", "position": i})
+
+
+# ---- REST -----------------------------------------------------------------------
+
+
+class SignInRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+
+
+class StatusRequest(BaseModel):
+    state: str
+
+
+class OfferRequest(BaseModel):
+    session_id: str
+
+
+class EnqueueRequest(BaseModel):
+    session_id: str
+    summary: dict[str, Any] = Field(default_factory=dict)
+
+
+def _accept_dict(res: AcceptResult) -> dict[str, Any]:
+    return {
+        "session_id": res.session_id,
+        "room_url": res.room_url,
+        "token": res.token,
+        "expires_at": res.expires_at,
+        "summary": res.summary,
+    }
+
+
+def _conflict(e: QueueError) -> HTTPException:
+    return HTTPException(status_code=502 if isinstance(e, TokenError) else 409, detail=str(e))
+
+
+@router.get("/queue")
+async def queue_snapshot(request: Request) -> dict[str, Any]:
+    return get_queue(request.app).snapshot()
+
+
+@router.post("/agents/sign-in")
+async def agent_sign_in(body: SignInRequest, request: Request) -> dict[str, Any]:
+    try:
+        return get_queue(request.app).sign_in(body.name).to_dict()
+    except QueueError as e:
+        raise _conflict(e) from None
+
+
+@router.post("/agents/{agent_id}/status")
+async def agent_set_status(agent_id: str, body: StatusRequest, request: Request) -> dict[str, Any]:
+    try:
+        return get_queue(request.app).set_status(agent_id, body.state).to_dict()
+    except QueueError as e:
+        raise _conflict(e) from None
+
+
+@router.post("/agents/{agent_id}/accept")
+async def agent_accept(agent_id: str, body: OfferRequest, request: Request) -> dict[str, Any]:
+    try:
+        return _accept_dict(await get_queue(request.app).accept(agent_id, body.session_id))
+    except QueueError as e:
+        raise _conflict(e) from None
+
+
+@router.post("/agents/{agent_id}/decline")
+async def agent_decline(agent_id: str, body: OfferRequest, request: Request) -> dict[str, str]:
+    try:
+        get_queue(request.app).decline(agent_id, body.session_id)
+    except QueueError as e:
+        raise _conflict(e) from None
+    return {"status": "declined"}
+
+
+@router.post("/queue/calls")
+async def enqueue_call(body: EnqueueRequest, request: Request) -> dict[str, Any]:
+    """Bot handoff: intake is done, put the call in line. Only for bots this server started."""
+    svc = get_queue(request.app)
+    room_url = svc.room_for(body.session_id)
+    if room_url is None:
+        raise HTTPException(status_code=404, detail="unknown session")
+    try:
+        call = svc.enqueue_call(body.session_id, room_url, body.summary)
+    except QueueError as e:
+        raise _conflict(e) from None
+    position = [c.session_id for c in svc.waiting_calls()].index(call.session_id) + 1
+    return {"session_id": call.session_id, "status": call.status.value, "position": position}
+
+
+@router.post("/queue/calls/{session_id}/end")
+async def end_call(session_id: str, request: Request) -> dict[str, str]:
+    get_queue(request.app).end_call(session_id)
+    return {"status": "ok"}
+
+
+# ---- websocket --------------------------------------------------------------------
+
+
+async def _handle_command(svc: QueueService, msg: Any) -> dict[str, Any]:
+    if not isinstance(msg, dict):
+        raise QueueError("command must be a JSON object")
+    kind = msg.get("type")
+    if kind == "sign_in":
+        agent: Agent = svc.sign_in(str(msg.get("name", "")))
+        return {"type": "signed_in", "agent": agent.to_dict()}
+    if kind == "set_status":
+        agent = svc.set_status(str(msg.get("agent_id")), str(msg.get("state")))
+        return {"type": "status_set", "agent": agent.to_dict()}
+    if kind == "accept":
+        res = await svc.accept(str(msg.get("agent_id")), str(msg.get("session_id")))
+        return {"type": "accepted", **_accept_dict(res)}
+    if kind == "decline":
+        svc.decline(str(msg.get("agent_id")), str(msg.get("session_id")))
+        return {"type": "declined", "session_id": msg.get("session_id")}
+    raise QueueError(f"unknown command {kind!r}")
+
+
+@router.websocket("/ws/queue")
+async def queue_ws(ws: WebSocket) -> None:
+    svc = get_queue(ws.app)
+    await ws.accept()
+    outbox: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+    listener = outbox.put_nowait
+    svc.subscribe(listener)
+    await outbox.put({"type": "snapshot", **svc.snapshot()})
+
+    async def pump() -> None:
+        while True:
+            await ws.send_json(await outbox.get())
+
+    sender = asyncio.create_task(pump())
+    try:
+        while True:
+            text = await ws.receive_text()
+            try:
+                reply = await _handle_command(svc, json.loads(text))
+            except json.JSONDecodeError:
+                reply = {"type": "error", "message": "invalid JSON"}
+            except QueueError as e:
+                reply = {"type": "error", "message": str(e)}
+            await outbox.put(reply)
+    except WebSocketDisconnect:
+        pass
+    finally:
+        svc.unsubscribe(listener)
+        sender.cancel()

@@ -24,6 +24,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from agent_assist_server.bot_launcher import BotLauncher, BotLaunchRequest
 from agent_assist_server.daily import DailyAPIError, DailyConfigError, DailyRestClient
+from agent_assist_server.queue_api import get_queue
 
 logger = logging.getLogger(__name__)
 
@@ -138,5 +139,6 @@ async def daily_dialin_webhook(request: Request) -> dict[str, Any]:
             session_id=session_id,
         )
     )
+    get_queue(request.app).register_session(session_id, room.url)
 
     return {"status": "OK", "sessionId": session_id, "dailyRoom": room.url}

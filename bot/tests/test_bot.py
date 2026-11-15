@@ -125,7 +125,7 @@ async def test_run_bot_passes_dialin_and_runs(monkeypatch):
     sentinel = object()
     seen = {}
 
-    def fake_build_worker(room_url, token=None, dialin=None):
+    def fake_build_worker(room_url, token=None, dialin=None, **kwargs):
         seen.update(room_url=room_url, token=token, dialin=dialin)
         return sentinel, None
 
@@ -169,7 +169,7 @@ def test_cli_requires_token():
 def test_cli_main_runs_bot_with_dialin(monkeypatch, api_keys):
     seen = {}
 
-    async def fake_run_bot(room_url, token=None, dialin=None):
+    async def fake_run_bot(room_url, token=None, dialin=None, session_id=""):
         seen.update(room_url=room_url, token=token, dialin=dialin)
 
     monkeypatch.setenv("DAILY_ROOM_TOKEN", "tok")
@@ -200,7 +200,7 @@ def test_cli_rejects_half_dialin(extra):
 def test_cli_main_runs_bot_without_dialin(monkeypatch, api_keys):
     seen = {}
 
-    async def fake_run_bot(room_url, token=None, dialin=None):
+    async def fake_run_bot(room_url, token=None, dialin=None, session_id=""):
         seen.update(room_url=room_url, token=token, dialin=dialin)
 
     monkeypatch.setenv("DAILY_ROOM_TOKEN", "tok")
@@ -214,3 +214,72 @@ def test_cli_main_missing_keys_exits_2(monkeypatch):
         monkeypatch.delenv(k, raising=False)
     monkeypatch.setenv("DAILY_ROOM_TOKEN", "tok")
     assert cli.main(["--room-url", ROOM, "--call-id", "c", "--call-domain", "d"]) == 2
+
+
+# ---- queue hold and handoff wiring (QH-5, QH-6) -------------------------------------
+
+
+class RecordingHandoff:
+    def __init__(self):
+        self.ended = []
+
+    async def on_intake_complete(self, session_id, summary):
+        pass
+
+    async def on_call_ended(self, session_id):
+        self.ended.append(session_id)
+
+
+async def test_app_message_from_server_accept_speaks_connecting_line():
+    from agent_assist_bot import hold
+
+    transport, worker = FakeTransport(), FakeWorker()
+    ctl = hold.HoldController(worker.queue_frames)
+    bot.register_handlers(transport, worker, hold=ctl)
+    msg = {"type": hold.MESSAGE_TYPE, "event": "agent_accepted", "agent_name": "Ana"}
+    await transport.handlers["on_app_message"](transport, msg, "api")
+    assert [f.text for f in worker.queued] == [hold.CONNECTING_LINE]
+    assert not ctl.gate.open
+
+
+async def test_participant_left_tells_queue_call_ended():
+    transport, worker, h = FakeTransport(), FakeWorker(), RecordingHandoff()
+    bot.register_handlers(transport, worker, handoff=h, session_id="s1")
+    await transport.handlers["on_participant_left"](transport, {"id": "caller"}, "hangup")
+    assert h.ended == ["s1"]
+    assert worker.cancelled
+
+
+def test_pipeline_has_gate_before_llm(api_keys):
+    from agent_assist_bot.hold import BotGate
+
+    worker, _ = bot.build_worker(ROOM, "tok")
+    inner = next(p for p in worker._pipeline.processors if type(p).__name__ == "Pipeline")
+    names = [type(p).__name__ for p in inner.processors]
+    assert names.index(BotGate.__name__) == names.index("AnthropicLLMService") - 1
+
+
+def test_cli_passes_session_id(monkeypatch, api_keys):
+    seen = {}
+
+    async def fake_run_bot(room_url, token=None, dialin=None, session_id=""):
+        seen.update(session_id=session_id)
+
+    monkeypatch.setenv("DAILY_ROOM_TOKEN", "tok")
+    monkeypatch.setattr(cli, "run_bot", fake_run_bot)
+    assert cli.main(["--room-url", ROOM, "--session-id", "s9"]) == 0
+    assert seen == {"session_id": "s9"}
+
+
+async def test_agent_leaving_does_not_end_the_call():
+    transport, worker, h = FakeTransport(), FakeWorker(), RecordingHandoff()
+    bot.register_handlers(transport, worker, handoff=h, session_id="s1")
+    caller = {"id": "caller-id", "info": {"userName": "caller"}}
+    agent = {"id": "agent-id", "info": {"userName": "Agent Ana"}}
+    await transport.handlers["on_first_participant_joined"](transport, caller)
+    await transport.handlers["on_participant_left"](transport, agent, "leftCall")
+    assert not worker.cancelled
+    assert h.ended == []
+    await transport.handlers["on_participant_left"](transport, caller, "leftCall")
+    assert worker.cancelled
+    assert h.ended == ["s1"]

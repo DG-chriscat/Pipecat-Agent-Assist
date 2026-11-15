@@ -78,7 +78,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     api_url = os.environ.get("DAILY_API_URL", DEFAULT_DAILY_API_URL)
     dialin = args.dialin_config(keys["DAILY_API_KEY"], api_url)
-    asyncio.run(run_bot(args.room_url, args.token, dialin))
+    asyncio.run(run_bot(args.room_url, args.token, dialin, session_id=args.session_id))
     return 0
 
 

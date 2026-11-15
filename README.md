@@ -35,3 +35,7 @@ Daily sends `{"test": "test"}` to verify the URL; the endpoint answers `{"status
 Save the `hmac` Daily returns as `DAILY_DIALIN_HMAC` to enable signature checks.
 
 Live test (real Daily room + bot, no phone call): `uv run --env-file .env pytest -m live -s`
+
+## Mock database (PRD DC-3, DC-8)
+Postgres via `DATABASE_URL`. `uv run --env-file .env python -m agent_assist_server.db migrate`
+then `... seed`. Tables and demo personas: [docs/db.md](docs/db.md).

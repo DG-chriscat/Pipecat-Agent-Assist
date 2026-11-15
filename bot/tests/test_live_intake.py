@@ -26,35 +26,25 @@ import sys
 import time
 import uuid
 
-import httpx
 import pytest
 from agent_assist_bot.bot import BOT_NAME
 from agent_assist_bot.calls import PostgresCallStore
+from harness.intake_script import MARIA_ALVAREZ as SCRIPT
+from harness.intake_script import next_line
 from harness.participant import SAMPLE_RATE, HarnessParticipant
 from harness.tts import synthesize
+from harness.turns import audio_slice as _slice
+from harness.turns import transcribe as _transcribe
+from harness.turns import wait_bot_turn as _wait_bot_turn
 
 pytestmark = pytest.mark.live
 
 REQUIRED = ("DAILY_API_KEY", "DEEPGRAM_API_KEY", "ANTHROPIC_API_KEY", "DATABASE_URL")
-SPEECH_RMS = 300.0
 INTAKE_BUDGET_SECS = 120.0
 MAX_TURNS = 14
 
 # Maria Alvarez, demo persona 1: MRI claim CLM-900001 denied CO-197.
 SESSION_ID = f"live-intake-{uuid.uuid4().hex[:8]}"
-SCRIPT = {
-    "identity": (
-        "Sure. My name is Maria Alvarez. My date of birth is March twelfth, nineteen "
-        "eighty four. And my member ID is E V M, one zero zero, two three one."
-    ),
-    "reason": "I'm calling about a claim for my MRI. It was denied and I don't know why.",
-    "claim_number": "Yes, the claim number is C L M, nine zero zero, zero zero one.",
-    "service_date": "It was about a month ago, at Riverside Imaging Center.",
-    "claim_concern": "It was denied. The letter said something about no prior authorization.",
-    "readback": "Yes, that's right. Thank you.",
-}
-ORDER = ["full_name", "reason", "claim_number", "service_date", "claim_concern"]
-LINE_FOR = {"full_name": "identity"}
 
 
 @pytest.fixture
@@ -129,49 +119,6 @@ async def _stop(proc) -> None:
             await proc.wait()
 
 
-async def _wait_bot_turn(rec, after: float, start_timeout: float = 25, quiet: float = 1.2):
-    """Wait for the bot to start speaking after `after`, then to go quiet. (start, end)."""
-    deadline = time.time() + start_timeout
-    start = None
-    while start is None:
-        start = rec.first_speech_after(after, threshold=SPEECH_RMS)
-        if start is None:
-            if time.time() > deadline:
-                return None
-            await asyncio.sleep(0.05)
-    while True:
-        segs = [s for s in rec.segments(threshold=SPEECH_RMS) if s[1] > start]
-        if segs and time.time() - segs[-1][1] >= quiet:
-            return start, segs[-1][1]
-        if time.time() - start > 60:  # never wait forever on a dead connection
-            return start, segs[-1][1] if segs else start
-        await asyncio.sleep(0.1)
-
-
-async def _transcribe(pcm: bytes) -> str:
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.post(
-            "https://api.deepgram.com/v1/listen",
-            params={"model": "nova-3", "encoding": "linear16", "sample_rate": SAMPLE_RATE},
-            headers={"Authorization": f"Token {os.environ['DEEPGRAM_API_KEY']}"},
-            content=pcm,
-        )
-    resp.raise_for_status()
-    return resp.json()["results"]["channels"][0]["alternatives"][0]["transcript"]
-
-
-def _slice(rec, start: float, end: float) -> bytes:
-    return b"".join(c for t, c in rec.chunks if start - 0.05 <= t <= end + 0.05)
-
-
-def _next_line(row: dict | None) -> str:
-    intake = (row or {}).get("intake") or {}
-    for key in ORDER:
-        if not intake.get(key):
-            return LINE_FOR.get(key, key)
-    return "readback"
-
-
 async def test_live_intake_maria_alvarez(schema):
     from agent_assist_server.daily import DailyRestClient
 
@@ -202,7 +149,7 @@ async def test_live_intake_maria_alvarez(schema):
                 row = await _call_row(store)
                 if row and row["status"] == "ready_for_queue":
                     break
-                key = _next_line(row)
+                key = next_line((row or {}).get("intake"))
                 # write_frames never completes if the call dropped; don't hang on it.
                 s, e = await asyncio.wait_for(caller.play(audio[key]), 60)
                 transcript.append(("caller", (s, SCRIPT[key])))

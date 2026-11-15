@@ -186,7 +186,7 @@ async def test_run_bot_passes_dialin_and_runs(monkeypatch):
     sentinel = object()
     seen = {}
 
-    def fake_build_worker(room_url, token=None, dialin=None, session_id=""):
+    def fake_build_worker(room_url, token=None, dialin=None, session_id="", **kwargs):
         seen.update(room_url=room_url, token=token, dialin=dialin, session_id=session_id)
         return sentinel, None
 
@@ -287,3 +287,169 @@ def test_cli_main_missing_keys_exits_2(monkeypatch):
         monkeypatch.delenv(k, raising=False)
     monkeypatch.setenv("DAILY_ROOM_TOKEN", "tok")
     assert cli.main(["--room-url", ROOM, "--call-id", "c", "--call-domain", "d"]) == 2
+
+
+# ---- queue hold and handoff wiring (QH-5, QH-6) -------------------------------------
+
+
+class RecordingHandoff:
+    def __init__(self):
+        self.ended = []
+        self.completed = []
+
+    async def on_intake_complete(self, handoff):
+        self.completed.append(handoff)
+
+    async def on_call_ended(self, session_id):
+        self.ended.append(session_id)
+
+
+async def test_app_message_from_server_accept_speaks_connecting_line():
+    from agent_assist_bot import hold
+
+    transport, worker = FakeTransport(), FakeWorker()
+    ctl = hold.HoldController(worker.queue_frames)
+    bot.register_handlers(transport, worker, hold=ctl)
+    msg = {"type": hold.MESSAGE_TYPE, "event": "agent_accepted", "agent_name": "Ana"}
+    await transport.handlers["on_app_message"](transport, msg, "api")
+    assert [f.text for f in worker.queued] == [hold.CONNECTING_LINE]
+    assert not ctl.gate.open
+
+
+async def test_participant_left_tells_queue_call_ended():
+    transport, worker, h = FakeTransport(), FakeWorker(), RecordingHandoff()
+    bot.register_handlers(transport, worker, handoff=h, session_id="s1")
+    await transport.handlers["on_participant_left"](transport, {"id": "caller"}, "hangup")
+    assert h.ended == ["s1"]
+    assert worker.cancelled
+
+
+def test_pipeline_has_gate_before_llm(api_keys):
+    from agent_assist_bot.hold import BotGate
+
+    worker, _ = bot.build_worker(ROOM, "tok")
+    inner = next(p for p in worker._pipeline.processors if type(p).__name__ == "Pipeline")
+    names = [type(p).__name__ for p in inner.processors]
+    assert names.index(BotGate.__name__) == names.index("AnthropicLLMService") - 1
+
+
+def test_cli_passes_session_id(monkeypatch, api_keys):
+    seen = {}
+
+    async def fake_run_bot(room_url, token=None, dialin=None, session_id=""):
+        seen.update(session_id=session_id)
+
+    monkeypatch.setenv("DAILY_ROOM_TOKEN", "tok")
+    monkeypatch.setattr(cli, "run_bot", fake_run_bot)
+    assert cli.main(["--room-url", ROOM, "--session-id", "s9"]) == 0
+    assert seen == {"session_id": "s9"}
+
+
+async def test_agent_leaving_does_not_end_the_call():
+    transport, worker, h = FakeTransport(), FakeWorker(), RecordingHandoff()
+    bot.register_handlers(transport, worker, handoff=h, session_id="s1")
+    caller = {"id": "caller-id", "info": {"userName": "caller"}}
+    agent = {"id": "agent-id", "info": {"userName": "Agent Ana"}}
+    await transport.handlers["on_first_participant_joined"](transport, caller)
+    await transport.handlers["on_participant_left"](transport, agent, "leftCall")
+    assert not worker.cancelled
+    assert h.ended == []
+    await transport.handlers["on_participant_left"](transport, caller, "leftCall")
+    assert worker.cancelled
+    assert h.ended == ["s1"]
+
+
+def test_build_worker_gives_one_hook_to_intake_and_handlers(monkeypatch, api_keys):
+    """The intake Flow enqueues via the hook; the caller leaving ends via the same hook."""
+    seen = {}
+    real_session = bot.IntakeSession
+
+    def spy_session(**kwargs):
+        seen["intake"] = kwargs["handoff"]
+        seen["session_id"] = kwargs["session_id"]
+        return real_session(**kwargs)
+
+    def spy_handlers(transport, worker, on_caller_joined=None, on_ended=None, **kwargs):
+        seen.update(handlers=kwargs["handoff"], handlers_session=kwargs["session_id"])
+
+    monkeypatch.setattr(bot, "IntakeSession", spy_session)
+    monkeypatch.setattr(bot, "register_handlers", spy_handlers)
+    h = RecordingHandoff()
+    bot.build_worker(ROOM, "tok", session_id="s-5", store=MemoryCallStore(), handoff=h)
+    assert seen["intake"] is h and seen["handlers"] is h
+    assert seen["session_id"] == seen["handlers_session"] == "s-5"
+
+
+def test_build_worker_defaults_to_queue_handoff_from_env(monkeypatch, api_keys):
+    from agent_assist_bot.handoff import SERVER_URL_ENV, QueueHandoff
+    from agent_assist_bot.intake import NoopHandoff
+
+    seen = []
+    real_session = bot.IntakeSession
+
+    def spy_session(**kwargs):
+        seen.append(kwargs["handoff"])
+        return real_session(**kwargs)
+
+    monkeypatch.setattr(bot, "IntakeSession", spy_session)
+    monkeypatch.delenv(SERVER_URL_ENV, raising=False)
+    bot.build_worker(ROOM, "tok", store=MemoryCallStore())
+    monkeypatch.setenv(SERVER_URL_ENV, "http://127.0.0.1:8000")
+    bot.build_worker(ROOM, "tok", store=MemoryCallStore())
+    assert isinstance(seen[0], NoopHandoff)
+    assert isinstance(seen[1], QueueHandoff)
+    assert seen[1].server_url == "http://127.0.0.1:8000"
+
+
+async def test_run_bot_passes_queue_handoff_from_env(monkeypatch):
+    from agent_assist_bot.handoff import SERVER_URL_ENV, QueueHandoff
+
+    seen = {}
+
+    class FakeRunner:
+        def __init__(self, **kwargs):
+            pass
+
+        async def add_workers(self, *workers):
+            pass
+
+        async def run(self):
+            pass
+
+    def fake_build_worker(room_url, token=None, dialin=None, session_id="", **kwargs):
+        seen.update(kwargs)
+        return object(), None
+
+    monkeypatch.setenv(SERVER_URL_ENV, "http://srv")
+    monkeypatch.setattr(bot, "WorkerRunner", FakeRunner)
+    monkeypatch.setattr(bot, "build_worker", fake_build_worker)
+    await bot.run_bot(ROOM, "tok", None, session_id="s")
+    assert isinstance(seen["handoff"], QueueHandoff)
+
+
+async def test_intake_end_enqueues_through_queue_handoff():
+    """request_person mid intake posts the handoff (with flags) to the queue API."""
+    import json
+
+    import httpx
+    from agent_assist_bot.handoff import QueueHandoff
+
+    posted = []
+
+    def handler(req):
+        posted.append((req.url.path, json.loads(req.content or b"{}")))
+        return httpx.Response(200, json={"position": 1})
+
+    h = QueueHandoff("http://srv", transport=httpx.MockTransport(handler))
+    session = IntakeSession(
+        pack=load_pack("claims_status"), store=MemoryCallStore(), session_id="s-q", handoff=h
+    )
+    await session.start()
+    _, node = await session._on_request_person({}, None)
+    assert node["name"] == "handoff"
+    assert [p for p, _ in posted] == ["/queue/calls"]
+    body = posted[0][1]
+    assert body["session_id"] == "s-q"
+    assert body["outcome"] == "asked_for_person"
+    assert body["flags"] == ["asked_for_person"]
+    assert body["summary"]["summary"]

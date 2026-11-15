@@ -1044,7 +1044,7 @@ _TABLES: list[tuple[str, str]] = [
     ("interactions", "interactions"),
     ("kb_articles", "kb_articles"),
 ]
-_ALL_TABLES = [t for t, _ in _TABLES] + ["calls", "transcript_lines"]
+_ALL_TABLES = [t for t, _ in _TABLES] + ["agents", "calls", "transcript_lines"]
 
 
 async def load_seed(

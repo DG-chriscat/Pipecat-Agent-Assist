@@ -175,6 +175,10 @@ class DailyRestClient:
             raise DailyAPIError("POST /meeting-tokens returned no token")
         return token
 
+    async def send_app_message(self, room_name: str, data: dict) -> None:
+        """Send `data` to everyone in the room. Receivers see sender "api" (REST)."""
+        await self._post(f"/rooms/{room_name}/send-app-message", {"data": data, "recipient": "*"})
+
     async def delete_room(self, room_name: str) -> None:
         async with self._client() as client:
             r = await client.delete(f"/rooms/{room_name}")

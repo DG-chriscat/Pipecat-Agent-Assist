@@ -314,3 +314,11 @@ def test_bot_env_carries_token_and_inherits_keys():
     assert env[TOKEN_ENV] == "secret-token"
     assert env["DEEPGRAM_API_KEY"] == "x"
     assert env["PATH"] == "/bin"
+
+
+def test_dialin_registers_session_with_queue(client, launcher, daily_mock):
+    from agent_assist_server.app import app
+    from agent_assist_server.queue_api import get_queue
+
+    out = client.post(dialin.DIALIN_WEBHOOK_PATH, json=CALL).json()
+    assert get_queue(app).room_for(out["sessionId"]) == out["dailyRoom"]

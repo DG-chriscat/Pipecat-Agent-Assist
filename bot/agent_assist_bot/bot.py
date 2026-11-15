@@ -49,8 +49,10 @@ from pipecat.transports.daily.transport import (
 from pipecat.workers.runner import WorkerRunner
 
 from agent_assist_bot.calls import CallStore, MemoryCallStore, PostgresCallStore
+from agent_assist_bot.handoff import end_call, handoff_from_env
+from agent_assist_bot.hold import BotGate, HoldController
 from agent_assist_bot.intake import GREETING as GREETING  # re-export (PRD IN-2)
-from agent_assist_bot.intake import ROLE_MESSAGE, HandoffHook, IntakeSession
+from agent_assist_bot.intake import ROLE_MESSAGE, HandoffHook, IntakeSession, NoopHandoff
 from agent_assist_bot.llm import create_llm
 from agent_assist_bot.packs import DEFAULT_PACK, Pack, load_pack
 
@@ -148,22 +150,51 @@ async def start_intake(session: IntakeSession, flow_manager) -> None:
     await flow_manager.set_node_from_config(session.identity_node())
 
 
-def register_handlers(transport, worker, on_caller_joined=None, on_ended=None) -> None:
+def register_handlers(
+    transport,
+    worker,
+    on_caller_joined=None,
+    on_ended=None,
+    *,
+    hold: HoldController | None = None,
+    handoff: HandoffHook | None = None,
+    session_id: str = "",
+) -> None:
     """Start intake for the first participant (the caller); end when they leave.
 
-    The dial-in events only fire when the transport has dialin_settings.
+    Queue app messages from the server go to `hold` (QH-5, QH-6). When the caller
+    leaves, `handoff.on_call_ended` (QueueHandoff only) tells the queue so a waiting
+    or ringing call is cleared. The dial-in events only fire when the transport has
+    dialin_settings.
     """
+    hold = hold or HoldController(worker.queue_frames)
+    handoff = handoff or NoopHandoff()
+    # The first participant is the caller. Others (the agent after accept) may come and
+    # go; only the caller leaving ends the call.
+    caller: dict[str, str | None] = {"id": None}
 
     @transport.event_handler("on_first_participant_joined")
     async def on_first_participant_joined(transport, participant):
         name = participant.get("info", {}).get("userName", "")
+        caller["id"] = participant.get("id")
         logger.info(f"[bot] first participant joined: {name!r} t={time.time():.3f}")
         if on_caller_joined is not None:
             await on_caller_joined()
 
+    @transport.event_handler("on_app_message")
+    async def on_app_message(transport, message, sender):
+        await hold.on_app_message(message, sender)
+
     @transport.event_handler("on_participant_left")
     async def on_participant_left(transport, participant, reason):
-        logger.info(f"[bot] participant left ({reason}); ending")
+        if caller["id"] is not None and participant.get("id") != caller["id"]:
+            name = participant.get("info", {}).get("userName", "")
+            logger.info(f"[bot] {name!r} left ({reason}); caller still on the line")
+            return
+        logger.info(f"[bot] caller left ({reason}); ending")
+        hold.stop()
+        if session_id:
+            await end_call(handoff, session_id)
         await worker.cancel()
         if on_ended is not None:
             await on_ended()
@@ -189,6 +220,10 @@ def build_worker(
     store: CallStore | None = None,
     handoff: HandoffHook | None = None,
 ) -> tuple[PipelineWorker, DailyTransport]:
+    """`handoff` defaults to handoff_from_env(): QueueHandoff when
+    AGENT_ASSIST_SERVER_URL is set, else NoopHandoff."""
+    session_id = session_id or str(uuid.uuid4())
+    handoff = handoff or handoff_from_env()
     transport = build_transport(room_url, token, dialin)
     stt = DeepgramSTTService(
         api_key=os.environ["DEEPGRAM_API_KEY"],
@@ -206,12 +241,15 @@ def build_worker(
         user_params=LLMUserAggregatorParams(vad_analyzer=SileroVADAnalyzer()),
     )
 
+    # After an agent accepts, the gate stops caller turns reaching the LLM (QH-6).
+    gate = BotGate()
     pipeline = Pipeline(
         [
             transport.input(),
             stt,
             TurnLogger("caller", TranscriptionFrame),
             aggregators.user(),
+            gate,
             llm,
             tts,
             transport.output(),
@@ -224,11 +262,12 @@ def build_worker(
         idle_timeout_secs=120,
     )
 
-    # Intake (PRD IN-3 to IN-9): a Pipecat Flow driven by the use case pack.
+    # Intake (PRD IN-3 to IN-9): a Pipecat Flow driven by the use case pack. When it
+    # ends (completed, request_person, or emergency) the hook enqueues the call.
     session = IntakeSession(
         pack=pack or load_pack(os.environ.get(PACK_ENV) or DEFAULT_PACK),
         store=store or call_store_from_env(),
-        session_id=session_id or str(uuid.uuid4()),
+        session_id=session_id,
         handoff=handoff,
     )
     flow_manager = FlowManager(
@@ -241,7 +280,15 @@ def build_worker(
     async def on_ended() -> None:
         await session.store.close()
 
-    register_handlers(transport, worker, on_caller_joined=on_caller_joined, on_ended=on_ended)
+    register_handlers(
+        transport,
+        worker,
+        on_caller_joined=on_caller_joined,
+        on_ended=on_ended,
+        hold=HoldController(worker.queue_frames, gate=gate),
+        handoff=handoff,
+        session_id=session_id,
+    )
     return worker, transport
 
 
@@ -251,7 +298,9 @@ async def run_bot(
     dialin: DialinConfig | None = None,
     session_id: str = "",
 ) -> None:
-    worker, _ = build_worker(room_url, token, dialin, session_id=session_id)
+    worker, _ = build_worker(
+        room_url, token, dialin, session_id=session_id, handoff=handoff_from_env()
+    )
     # SIGTERM too: the server stops per-call bot processes with terminate().
     runner = WorkerRunner(handle_sigint=True, handle_sigterm=True)
     await runner.add_workers(worker)

@@ -13,6 +13,7 @@ Source: docs/PRD.md (Nov 14, 2026)
 
 ## CI (GitHub Actions, every PR)
 - Python: ruff lint + format check, pytest (unit; live Daily/Deepgram tests skipped without keys).
+- Portal job (eslint, tsc, vitest, build) is added by Dutch when portal/ lands; job level hashFiles() is invalid in Actions.
 - Portal: eslint, tsc, vitest, build.
 - Merge rule (policy, Free plan): green CI + Dutch review, squash only.
 

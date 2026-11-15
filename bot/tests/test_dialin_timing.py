@@ -61,6 +61,23 @@ async def test_forward_call_network_error():
         await dialin.forward_call(CFG, "sip:x", transport=httpx.MockTransport(handler))
 
 
+async def test_forwarder_warm_reuses_one_client_and_ignores_warm_errors():
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.method, request.url.path))
+        if request.method == "GET":
+            raise httpx.ConnectError("warm-up failed")
+        return httpx.Response(200, json={"ok": "true"})
+
+    fwd = dialin.DialinForwarder(CFG, transport=httpx.MockTransport(handler))
+    await fwd.warm()  # must not raise
+    await fwd.forward("sip:room.0@x")
+    await fwd.close()
+    assert seen == [("GET", "/v1/"), ("POST", "/v1/dialin/pinlessCallUpdate")]
+    assert "fake-key" not in repr(fwd)
+
+
 def test_timing_line_round_trips():
     line = "2026-11-15 | INFO | x - " + timing.format_timing(
         "bot_joined", 1794779110.75812, session="s1"

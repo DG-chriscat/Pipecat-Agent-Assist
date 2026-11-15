@@ -118,6 +118,7 @@ async def test_bot_greets_and_replies(tmp_path: Path):
                 joined_at = caller.joined_at
                 assert joined_at is not None
                 await caller.wait_for_participant(BOT_NAME, timeout=10)
+                print(f"bot joined as {BOT_NAME!r}")
                 bot_rec = caller.recording_for(BOT_NAME)
 
                 # 1. Greeting latency: caller join -> first audible bot audio.

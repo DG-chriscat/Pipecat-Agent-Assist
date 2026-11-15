@@ -7,7 +7,7 @@ wall-clock timestamps so tests can measure when someone started talking.
 Usage:
     async with HarnessParticipant("caller") as caller:
         await caller.join(room_url)
-        bot_id = await caller.wait_for_participant("Intake Bot")
+        bot_id = await caller.wait_for_participant("Vitals Assistant")
         ...
         await caller.play(pcm)
 """

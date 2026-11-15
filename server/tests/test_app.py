@@ -3,7 +3,7 @@ from fastapi.testclient import TestClient
 
 
 def test_app_title():
-    assert app.title == "Agent Assist Server"
+    assert app.title == "Deepgram Vitals"
 
 
 def test_healthz_returns_ok():

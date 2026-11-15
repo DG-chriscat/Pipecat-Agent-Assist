@@ -37,7 +37,7 @@ def _audio(user_id: str) -> UserAudioRawFrame:
         ("caller", "caller"),
         ("Agent", "agent"),
         (" agent ", "agent"),
-        ("Intake Bot", None),
+        ("Vitals Assistant", None),
         ("", None),
         (None, None),
     ],

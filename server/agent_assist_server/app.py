@@ -20,7 +20,7 @@ def create_app(
     """Build the server. Login (P2-6) is on when APP_PASSWORD is set in env."""
     env = os.environ if env is None else env
     config = auth.config_from_env(env, clock=clock) if clock else auth.config_from_env(env)
-    app = FastAPI(title="Agent Assist Server")
+    app = FastAPI(title="Deepgram Vitals")
     app.include_router(dialin_router)
     app.include_router(agent_token_router)
     app.include_router(browser_call_router)

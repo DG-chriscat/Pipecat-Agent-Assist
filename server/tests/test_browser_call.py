@@ -97,7 +97,7 @@ def test_browser_call_creates_room_tokens_and_starts_bot(launcher):
     bot_body, caller_body = (b["properties"] for b in mock.bodies("/meeting-tokens"))
     assert bot_body["room_name"] == room_body["name"]
     assert bot_body["is_owner"] is True
-    assert bot_body["user_name"] == "Intake Bot"
+    assert bot_body["user_name"] == "Vitals Assistant"
     assert caller_body["room_name"] == room_body["name"]
     assert caller_body["is_owner"] is False
     assert caller_body["user_name"] == "caller"

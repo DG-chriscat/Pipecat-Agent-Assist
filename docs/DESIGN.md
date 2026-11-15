@@ -1,4 +1,4 @@
-# DESIGN.md: Agent portal design system
+# DESIGN.md: Deepgram Vitals agent portal design system
 
 Status: locked, Nov 15, 2026 (Chris chose concept 1, "Focus").
 Reference build: [design/in-call-focus.html](design/in-call-focus.html) and [design/in-call-focus.png](design/in-call-focus.png). When this file and the mockup disagree, this file wins. Open the HTML in a browser to inspect exact CSS.
@@ -59,7 +59,7 @@ Three columns, 18 px gaps, 22 px page padding:
 ```
 
 ### Top bar
-- Left: D tile, wordmark, divider, "Agent assist".
+- Left: D tile, wordmark, divider, "Vitals" (product name: Deepgram Vitals).
 - Center, the **call island** (pill, black glass): verified dot, caller name, Verified chip, live waveform (fuchsia to LED), mood chip, timer.
 - Right: mute, hold (40 px round glass), End (clay pill). Positions never change.
 

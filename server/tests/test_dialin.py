@@ -273,7 +273,7 @@ def test_room_body_defaults():
 def test_token_body():
     body = build_token_body(room_name="r1", now=1000.0)
     assert body["properties"]["room_name"] == "r1"
-    assert body["properties"]["user_name"] == "Intake Bot"
+    assert body["properties"]["user_name"] == "Vitals Assistant"
     assert body["properties"]["exp"] == 1000 + 3600
 
 

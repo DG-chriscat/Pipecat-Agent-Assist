@@ -25,3 +25,32 @@ jobs:
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run pytest
+
+  portal:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: has
+        run: |
+          if [ -f portal/package.json ]; then echo "portal=true" >> "$GITHUB_OUTPUT"; else echo "portal=false" >> "$GITHUB_OUTPUT"; fi
+      - if: steps.has.outputs.portal == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: portal/package-lock.json
+      - if: steps.has.outputs.portal == 'true'
+        working-directory: portal
+        run: npm ci
+      - if: steps.has.outputs.portal == 'true'
+        working-directory: portal
+        run: npm run lint
+      - if: steps.has.outputs.portal == 'true'
+        working-directory: portal
+        run: npm run typecheck
+      - if: steps.has.outputs.portal == 'true'
+        working-directory: portal
+        run: npm test
+      - if: steps.has.outputs.portal == 'true'
+        working-directory: portal
+        run: npm run build

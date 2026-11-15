@@ -3,7 +3,9 @@
 import pytest
 from agent_assist_bot import __main__ as cli
 from agent_assist_bot import bot
-from pipecat.frames.frames import TTSSpeakFrame
+from agent_assist_bot.calls import MemoryCallStore, PostgresCallStore
+from agent_assist_bot.intake import IntakeSession
+from agent_assist_bot.packs import load_pack
 from pipecat.pipeline.worker import PipelineWorker
 
 KEYS = {
@@ -51,18 +53,77 @@ def test_greeting_identifies_ai_and_human_handoff():
     assert "person will join" in bot.GREETING
 
 
-async def test_greeting_queued_on_first_participant_joined():
+async def test_first_participant_joined_starts_intake_once():
     transport, worker = FakeTransport(), FakeWorker()
-    bot.register_handlers(transport, worker)
+    started = []
+
+    async def start():
+        started.append(True)
+
+    bot.register_handlers(transport, worker, on_caller_joined=start)
     await transport.handlers["on_first_participant_joined"](transport, {"id": "caller"})
-    assert len(worker.queued) == 1
-    frame = worker.queued[0]
-    assert isinstance(frame, TTSSpeakFrame)
-    assert frame.text == bot.GREETING
+    assert started == [True]
 
 
-def test_greeting_is_tts_only_no_llm_frames():
-    assert [type(f) for f in bot.greeting_frames()] == [TTSSpeakFrame]
+class FakeFlowManager:
+    def __init__(self):
+        self.initialized_with = None
+        self.nodes = []
+
+    async def initialize(self, node):
+        self.initialized_with = node
+        self.nodes.append(node["name"])
+
+    async def set_node_from_config(self, node):
+        self.nodes.append(node["name"])
+
+
+async def test_start_intake_creates_call_row_and_greets_with_tts_only():
+    # IN-1/IN-2: the greeting is a fixed tts_say pre-action, no LLM round trip.
+    store = MemoryCallStore()
+    session = IntakeSession(pack=load_pack("claims_status"), store=store, session_id="s-9")
+    fm = FakeFlowManager()
+    await bot.start_intake(session, fm)
+    assert [r.session_id for r in store.calls.values()] == ["s-9"]
+    node = fm.initialized_with
+    assert node["name"] == "greeting"
+    assert node["pre_actions"][0] == {"type": "tts_say", "text": bot.GREETING}
+    assert node["respond_immediately"] is False
+
+
+async def test_start_intake_goes_straight_from_greeting_to_identity():
+    # The caller's first answer must land in the identity node, which has verify_identity.
+    session = IntakeSession(
+        pack=load_pack("claims_status"), store=MemoryCallStore(), session_id="s"
+    )
+    fm = FakeFlowManager()
+    await bot.start_intake(session, fm)
+    assert fm.nodes == ["greeting", "identity"]
+
+
+async def test_start_intake_survives_db_failure():
+    class Down(MemoryCallStore):
+        async def create_call(self, session_id):
+            raise OSError("db down")
+
+    session = IntakeSession(pack=load_pack("claims_status"), store=Down(), session_id="s")
+    fm = FakeFlowManager()
+    await bot.start_intake(session, fm)
+    assert fm.initialized_with["name"] == "greeting"
+
+
+def test_call_store_from_env_picks_postgres_or_memory():
+    assert isinstance(bot.call_store_from_env({}), MemoryCallStore)
+    store = bot.call_store_from_env({"DATABASE_URL": "postgresql://u@h/db"})
+    assert isinstance(store, PostgresCallStore)
+    assert "postgresql" not in repr(store)
+
+
+def test_call_store_from_env_honours_schema():
+    store = bot.call_store_from_env(
+        {"DATABASE_URL": "postgresql://u@h/db", "DATABASE_SCHEMA": "t1"}
+    )
+    assert store._schema == "t1"
 
 
 async def test_participant_left_ends_session():
@@ -125,14 +186,14 @@ async def test_run_bot_passes_dialin_and_runs(monkeypatch):
     sentinel = object()
     seen = {}
 
-    def fake_build_worker(room_url, token=None, dialin=None):
-        seen.update(room_url=room_url, token=token, dialin=dialin)
+    def fake_build_worker(room_url, token=None, dialin=None, session_id=""):
+        seen.update(room_url=room_url, token=token, dialin=dialin, session_id=session_id)
         return sentinel, None
 
     monkeypatch.setattr(bot, "WorkerRunner", FakeRunner)
     monkeypatch.setattr(bot, "build_worker", fake_build_worker)
-    await bot.run_bot(ROOM, "tok", DIALIN)
-    assert seen == {"room_url": ROOM, "token": "tok", "dialin": DIALIN}
+    await bot.run_bot(ROOM, "tok", DIALIN, session_id="sess-7")
+    assert seen == {"room_url": ROOM, "token": "tok", "dialin": DIALIN, "session_id": "sess-7"}
     assert calls[0][1]["handle_sigterm"] is True
     assert calls[1] == ("add", (sentinel,))
     assert calls[2] == ("run",)
@@ -169,7 +230,7 @@ def test_cli_requires_token():
 def test_cli_main_runs_bot_with_dialin(monkeypatch, api_keys):
     seen = {}
 
-    async def fake_run_bot(room_url, token=None, dialin=None):
+    async def fake_run_bot(room_url, token=None, dialin=None, session_id=""):
         seen.update(room_url=room_url, token=token, dialin=dialin)
 
     monkeypatch.setenv("DAILY_ROOM_TOKEN", "tok")
@@ -200,13 +261,25 @@ def test_cli_rejects_half_dialin(extra):
 def test_cli_main_runs_bot_without_dialin(monkeypatch, api_keys):
     seen = {}
 
-    async def fake_run_bot(room_url, token=None, dialin=None):
-        seen.update(room_url=room_url, token=token, dialin=dialin)
+    async def fake_run_bot(room_url, token=None, dialin=None, session_id=""):
+        seen.update(room_url=room_url, token=token, dialin=dialin, session_id=session_id)
+
+    monkeypatch.setenv("DAILY_ROOM_TOKEN", "tok")
+    monkeypatch.setattr(cli, "run_bot", fake_run_bot)
+    assert cli.main(["--room-url", ROOM, "--session-id", "s-1"]) == 0
+    assert seen == {"room_url": ROOM, "token": "tok", "dialin": None, "session_id": "s-1"}
+
+
+def test_cli_main_without_session_id_makes_one(monkeypatch, api_keys):
+    seen = {}
+
+    async def fake_run_bot(room_url, token=None, dialin=None, session_id=""):
+        seen["session_id"] = session_id
 
     monkeypatch.setenv("DAILY_ROOM_TOKEN", "tok")
     monkeypatch.setattr(cli, "run_bot", fake_run_bot)
     assert cli.main(["--room-url", ROOM]) == 0
-    assert seen == {"room_url": ROOM, "token": "tok", "dialin": None}
+    assert seen["session_id"]
 
 
 def test_cli_main_missing_keys_exits_2(monkeypatch):

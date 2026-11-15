@@ -1,0 +1,38 @@
+# Use case pack: claim status (PRD IN-4, pack table "Claim status").
+# The intake steps are fixed (IN-3): greeting, identity, reason, these questions,
+# read back. Edit the wording or the questions here; no code changes needed.
+# Each question's `key` is saved on calls.intake as soon as the caller answers (IN-5).
+id: claims_status
+name: Claim status
+
+identity:
+  prompt: >-
+    Ask for the caller's full name, date of birth, and member ID. You may ask for
+    them together or one at a time. If something is unclear, ask them to repeat it
+    once. The member ID looks like three letters and six digits, for example EVM100231.
+
+reason:
+  prompt: >-
+    Ask, in one short question, what they are calling about today.
+
+questions:
+  - key: claim_number
+    ask: Do you have the claim number? It's on your explanation of benefits.
+    description: >-
+      The claim number as the caller said it, for example CLM-900001, or "unknown"
+      if they do not have it.
+  - key: service_date
+    ask: About when was the service, and who was the provider?
+    description: >-
+      Approximate date of service and provider name in the caller's words, or
+      "unknown".
+  - key: claim_concern
+    ask: What is the problem with the claim, for example denied, still pending, or a bill you didn't expect?
+    description: >-
+      Short description of the problem, such as denied, pending, or unexpected bill.
+
+readback:
+  prompt: >-
+    Read back a short summary in one or two sentences: their name, why they called,
+    and the claim details you have. Then ask if that is right. If they correct
+    something, fix it and confirm.

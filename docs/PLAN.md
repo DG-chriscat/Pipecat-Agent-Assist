@@ -1,4 +1,4 @@
-# Pipecat Agent Assist: Build Plan (draft for Chris)
+# Deepgram Vitals: build plan (draft for Chris)
 
 Source: docs/PRD.md (Nov 14, 2026)
 

@@ -51,6 +51,8 @@ def test_greeting_identifies_ai_and_human_handoff():
     # PRD IN-2
     assert "AI assistant" in bot.GREETING
     assert "person will join" in bot.GREETING
+    assert "Deepgram Vitals" in bot.GREETING
+    assert "!" not in bot.GREETING  # DESIGN.md brand copy: no exclamation points
 
 
 async def test_first_participant_joined_starts_intake_once():

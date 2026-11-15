@@ -11,4 +11,4 @@ def test_build_worker_wires_pipeline_without_network(monkeypatch):
 
     assert isinstance(worker, PipelineWorker)
     assert isinstance(transport, DailyTransport)
-    assert BOT_NAME == "Intake Bot"
+    assert BOT_NAME == "Vitals Assistant"

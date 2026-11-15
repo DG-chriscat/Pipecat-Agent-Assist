@@ -17,7 +17,7 @@ DEFAULT_DAILY_API_URL = "https://api.daily.co/v1"
 ROOM_EXP_SECONDS = 60 * 60
 TOKEN_EXP_SECONDS = 60 * 60
 # Must match agent_assist_bot.bot.BOT_NAME: the token's user_name overrides the bot's own.
-BOT_USER_NAME = "Intake Bot"
+BOT_USER_NAME = "Vitals Assistant"
 
 
 class DailyAPIError(Exception):

@@ -89,6 +89,10 @@ def test_greeting_speaks_fixed_line_then_waits(session):
     node = session.greeting_node()
     assert node["pre_actions"][0] == {"type": "tts_say", "text": intake.GREETING}
     assert "AI assistant" in intake.GREETING and "person will join" in intake.GREETING
+    assert intake.GREETING == (
+        "Hi, thanks for calling. You're speaking with Deepgram Vitals, an AI assistant. "
+        "I'll ask a few quick questions, and then a person will join the call to help you."
+    )
     assert node["respond_immediately"] is False
 
 

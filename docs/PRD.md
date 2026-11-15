@@ -1,10 +1,10 @@
-# Healthcare Voice Agent Assist PRD
+# Deepgram Vitals: healthcare voice agent assist PRD
 
 Nov 14, 2026 · @Christopher Catalano
 
 ## Summary
 
-We will build a demo of a healthcare voice agent assist on Pipecat 1.15 and Daily. A bot answers the phone, asks intake questions, then hands the caller to a human agent picked from a queue. The agent works in a web portal that shows what the caller already said, then keeps feeding live help: claim history, payment history, account details, and knowledge base articles.
+We will build Deepgram Vitals, a demo of a healthcare voice agent assist on Pipecat 1.15 and Daily. A bot answers the phone, asks intake questions, then hands the caller to a human agent picked from a queue. The agent works in a web portal that shows what the caller already said, then keeps feeding live help: claim history, payment history, account details, and knowledge base articles.
 
 The v1 goal is to prove the full loop works on one Daily phone number with mock data, in a demo a customer can watch. What happens after the handoff stays open ended. New use cases plug in as packs, so the core does not change.
 

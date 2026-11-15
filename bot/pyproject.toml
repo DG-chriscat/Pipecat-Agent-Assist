@@ -1,6 +1,7 @@
 [project]
 name = "agent-assist-bot"
 version = "0.0.0"
+description = "Deepgram Vitals intake and listen-only assist bot (Pipecat)"
 requires-python = ">=3.12"
 dependencies = [
     # Includes Pipecat Flows as `pipecat.flows` (the standalone pipecat-ai-flows

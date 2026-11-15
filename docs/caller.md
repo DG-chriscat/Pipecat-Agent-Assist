@@ -10,7 +10,7 @@ just without dial-in settings.
    Hang up, and a status line. It loads `@daily-co/daily-js` from the unpkg CDN.
 2. Start call does `POST /calls/browser` (`server/agent_assist_server/browser_call.py`):
    - creates a private Daily room (`caller-<id>`, expires in 1 hour, ejects at expiry),
-   - mints an owner token for the bot (`user_name` "Intake Bot") and a non-owner token for the
+   - mints an owner token for the bot (`user_name` "Vitals Assistant") and a non-owner token for the
      caller (`user_name` "caller"),
    - starts the bot through `BotLauncher`: `python -m agent_assist_bot --room-url ... --session-id ...`
      with no `--call-id`/`--call-domain`; the bot token goes in `DAILY_ROOM_TOKEN`, not argv,
@@ -34,7 +34,7 @@ uv run uvicorn agent_assist_server.app:app --port 8000
 ```
 
 Open http://localhost:8000/caller in Chrome (getUserMedia needs `localhost` or HTTPS), click
-Start call, and allow the microphone. The status shows "In call with: Intake Bot" and you hear
+Start call, and allow the microphone. The status shows "In call with: Vitals Assistant" and you hear
 the greeting. Talk to it, use Mute, then Hang up. The bot process exits after you leave.
 
 Without the page:

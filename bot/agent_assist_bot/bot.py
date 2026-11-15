@@ -1,4 +1,4 @@
-"""Intake bot: joins a Daily room as "Intake Bot" and runs the intake flow.
+"""Intake bot: joins a Daily room as "Vitals Assistant" and runs the intake flow.
 
 Pipeline: Daily in -> Deepgram STT (Nova 3) -> user aggregator -> LLM -> Deepgram TTS
 (Aura 2) -> Daily out -> assistant aggregator. A Pipecat Flow (`intake.py`) drives the
@@ -56,7 +56,7 @@ from agent_assist_bot.intake import ROLE_MESSAGE, HandoffHook, IntakeSession, No
 from agent_assist_bot.llm import create_llm
 from agent_assist_bot.packs import DEFAULT_PACK, Pack, load_pack
 
-BOT_NAME = "Intake Bot"
+BOT_NAME = "Vitals Assistant"
 STT_MODEL = "nova-3-general"
 TTS_VOICE = "aura-2-thalia-en"
 DEFAULT_DAILY_API_URL = "https://api.daily.co/v1"

@@ -38,5 +38,13 @@ Source: docs/PRD.md (Nov 14, 2026)
 - P2-4 Queue service, agent states, offers over websocket (QH-1 to QH-5, QH-10).
 - Exit: a browser call finishes intake, waits in the queue, and rings an agent.
 
-## Phases 2 to 5
-Broken into cards after the spike, per PRD milestones: intake and queue, portal and handoff, assist and connectors, demo polish.
+## Phase 3: Portal and handoff (DESIGN.md is binding)
+- P3-1 Portal scaffold: React + Vite + TS in portal/, DESIGN.md tokens, served by the server at /agent behind the shared login, Docker build stage. Sign in and status toggle (AP-1, AP-2).
+- P3-2 Incoming call and in-call shell: offer card with 20 s countdown (AP-3), accept joins the Daily room, call island and controls (AP-4), three column layout with empty assist hero.
+- P3-3 Caller panel and caller history: intake summary on accept (AP-5), calls in 30 days, repeat flag, last 3 events (AP-13, DC-8).
+- P3-4 Live transcript: bot goes listen only after accept, per person lines to the agent's portal only (S2 approach), trigger word underline ready.
+- P3-5 Wrap up and Phase 3 exit: end call to wrap_up to available, live test ring to wrap up.
+- Exit: a full call goes from ring to wrap up in the portal, matching docs/design/in-call-focus.png.
+
+## Phases 4 and 5
+Carded after Phase 3 exit: assist and connectors (next best step, packs, cards), then demo polish.

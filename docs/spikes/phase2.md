@@ -48,18 +48,23 @@ appearing in the queue (`queued_at`). Accept to agent joined runs from the agent
 | 3 | fail: intake over 120 s | 132.4 | not_verified | 10.5 | 0.007 | 0.30 | 1.74 | 1.16 |
 | 4 | pass | 104.1 | not_verified | 11.1 | 0.004 | 0.35 | 1.90 | 1.79 |
 | 5 | fail: Daily transport | - | - | - | - | - | - | - |
+| 6 | pass | 108.5 | verified | 10.7 | 0.01 | 0.41 | 1.58 | 1.30 |
+| 7 | pass | 105.5 | verified | 10.4 | 0.00 | 0.31 | 1.67 | 1.39 |
+
+Runs 1 to 5 were on the development revision. Runs 6 and 7 were on the PR commit, after
+`test_e2e_live.py` stopped requiring a verified identity.
 
 Queue wait = 5 s with no agent + the time for the agent to sign in and go available + the
 time to read the offer. The test holds 5 s on purpose.
 
-Queue to agent leg (runs 1, 3, 4): offer under 10 ms after the agent goes available,
-token under 0.5 s after accept, agent in the room 1.5 to 1.9 s after accept, connecting
-line 1.1 to 1.8 s after accept. The 20 s offer window was never at risk.
+Queue to agent leg (runs 1, 3, 4, 6, 7): offer under 10 ms after the agent goes
+available, token under 0.5 s after accept, agent in the room 1.5 to 1.9 s after accept,
+connecting line 1.1 to 1.8 s after accept. The 20 s offer window was never at risk.
 
-Intake leg: 100 to 132 s against the PRD's 2 minute target. P2-3 measured 111.5 s. The
-fixed parts are long. The greeting is about 9 s, the read back alone is about 19 s
-(the bot spells out the claim number), and the handoff line is about 4 s. One re-ask
-pushes intake over 120 s (run 3).
+Intake leg: 100 to 132 s against the PRD's 2 minute target (100 to 110 s when nothing is
+re-asked). P2-3 measured 111.5 s. The fixed parts are long. The greeting is about 9 s,
+the read back alone is about 19 s (the bot spells out the claim number), and the handoff
+line is about 4 s. One re-ask pushes intake over 120 s (run 3).
 
 ## Failures
 
@@ -82,9 +87,13 @@ so a slow intake fails the run (run 3).
 
 ## Open items
 
-- Identity by voice is fragile with spelled member IDs (2 of 5 runs misheard the ID, and
-  1 of 5 misheard the name). Candidates: Deepgram keyterms or `numerals` for the identity
-  step, a longer endpointing window while the identity node is active, or a confirm-back
-  of the member ID before `verify_identity`.
+- Identity by voice is fragile with spelled member IDs. In the 7 e2e runs, STT misheard
+  the member ID twice and the name once. `bot/tests/test_live_intake.py`, re-run once on
+  the PR commit after its script and turn helpers moved into the harness, finished intake
+  in 105.4 s but failed its `verified` assertion: STT heard "Marie Alvarez" and
+  "e d m one zero zero two three one", so the result was `not_found`. Candidates:
+  Deepgram keyterms or `numerals` for the identity step, a longer endpointing window
+  while the identity node is active, or a confirm-back of the member ID before
+  `verify_identity`.
 - Intake runs close to the 2 minute target. A shorter read back (no spelled-out claim
   number) would save about 10 s.

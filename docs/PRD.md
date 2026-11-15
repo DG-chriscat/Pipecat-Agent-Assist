@@ -20,7 +20,7 @@ These answers are still open, so the PRD uses the assumptions below. Change any 
 
 | Open question | Working assumption | Why it matters |
 | --- | --- | --- |
-| Which data systems are in scope? | One mock Postgres database with members, claims, payments, and knowledge base articles | Sets what the connectors read and what cards can show |
+| Which data systems are in scope? | One mock Postgres database on Supabase (ADR 0002) with members, claims, payments, and knowledge base articles | Sets what the connectors read and what cards can show |
 | Who calls in? | Patients or health plan members calling a billing and claims line | Shapes intake questions and use case packs |
 | How do callers prove who they are? | Full name, date of birth, and member ID, matched against the mock database | Drives the identity step and the verified badge |
 | Where does it run? | Pipecat Cloud for the bot; portal and APIs on standard cloud hosting | Affects deploy steps and the phone webhook setup |
@@ -63,6 +63,7 @@ The bot greets the caller, checks who they are, and learns why they called, all 
 | IN-9 | The bot gives no medical advice. If the caller describes an emergency, it tells them to hang up and call 911, and flags the call. | Must |
 | IN-10 | Pipecat Tone reads the caller's tone on each turn, and the reading is saved with the transcript. | Should |
 | IN-11 | Speech to text and text to speech use Deepgram. Expressive conversation may be turned on for a warmer bot voice. | Should |
+| IN-12 | For the PoC a caller can start a call from a browser page. The server creates the room, starts the same bot as the phone path, and the caller hears the greeting within 2 seconds of the bot joining. Live phone verification of IN-1 waits until a number is bought (ADR 0002). | Must |
 
 ## Requirements: queue and handoff
 
@@ -171,7 +172,7 @@ One bot per call does intake, then switches to listen only assist in the same ro
 | Tone | Pipecat Tone reader | Feeds tone badges and alerts |
 | Portal | React with the Pipecat client SDK | Audio over WebRTC, cards over RTVI |
 | Queue | In house service with Redis or Postgres | Pushes state over a websocket |
-| Data | Mock Postgres behind connectors | Real systems later, same connector shape |
+| Data | Mock Postgres on Supabase behind connectors (ADR 0002) | Real systems later, same connector shape |
 
 ### Where RCS fits, and where it does not
 

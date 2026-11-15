@@ -28,5 +28,8 @@ Source: docs/PRD.md (Nov 14, 2026)
 - S4 Bare browser page joins the same room with a meeting token.
 - Exit: live call with caller and browser lines transcribed separately.
 
+## Design
+- Locked: docs/DESIGN.md (concept Focus), ADR 0001. Every portal card must cite DESIGN.md.
+
 ## Phases 2 to 5
 Broken into cards after the spike, per PRD milestones: intake and queue, portal and handoff, assist and connectors, demo polish.

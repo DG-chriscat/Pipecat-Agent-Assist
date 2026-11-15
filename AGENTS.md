@@ -5,7 +5,7 @@
 - Dutch (manager): scopes, reviews, squash merges, releases.
 
 ## Source of truth
-- Product: docs/PRD.md. Plan: docs/PLAN.md. Decisions: docs/adr/. Spike results: docs/spikes/.
+- Product: docs/PRD.md. Design: docs/DESIGN.md (binding for all portal UI). Plan: docs/PLAN.md. Decisions: docs/adr/. Spike results: docs/spikes/.
 - If a card conflicts with the PRD, block the card and ask. Do not guess.
 
 ## Stack

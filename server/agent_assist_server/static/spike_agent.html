@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Spike S4: agent joins call room</title>
+  <script src="https://unpkg.com/@daily-co/daily-js"></script>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 640px; margin: 2rem auto; }
+    label { display: block; margin-top: .75rem; }
+    input { width: 100%; padding: .4rem; box-sizing: border-box; }
+    button { margin-top: 1rem; margin-right: .5rem; padding: .5rem 1rem; }
+    #status { margin-top: 1rem; color: #555; }
+    #participants li { padding: .2rem 0; }
+  </style>
+</head>
+<body>
+  <h1>Spike S4: agent browser join</h1>
+  <p>Mock data only. Paste a Daily room URL, pick a display name, and join.</p>
+
+  <label>Room URL
+    <input id="room-url" placeholder="https://dg-chriscat.daily.co/my-room">
+  </label>
+  <label>Agent name
+    <input id="user-name" value="Agent Spike">
+  </label>
+  <button id="join">Join</button>
+  <button id="mute" disabled>Mute</button>
+  <button id="leave" disabled>Leave</button>
+
+  <div id="status">Not joined.</div>
+  <h2>Participants</h2>
+  <ul id="participants"></ul>
+  <div id="audio"></div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const call = window.Daily.createCallObject({ audioSource: true, videoSource: false });
+    let muted = false;
+
+    function setStatus(text) { $("status").textContent = text; }
+
+    function roomNameFromUrl(url) {
+      return new URL(url).pathname.replace(/^\/+|\/+$/g, "");
+    }
+
+    function renderParticipants() {
+      const list = $("participants");
+      list.innerHTML = "";
+      for (const p of Object.values(call.participants())) {
+        const li = document.createElement("li");
+        const who = p.user_name || "(no name)";
+        const mic = p.tracks.audio.state === "playable" ? "mic on" : "mic " + p.tracks.audio.state;
+        li.textContent = `${who}${p.local ? " (you)" : ""} - ${mic}`;
+        list.appendChild(li);
+      }
+    }
+
+    function syncAudio(p) {
+      if (p.local) return;
+      const id = "audio-" + p.session_id;
+      let el = document.getElementById(id);
+      const track = p.tracks.audio.persistentTrack;
+      if (!track) { if (el) el.remove(); return; }
+      if (!el) {
+        el = document.createElement("audio");
+        el.id = id;
+        el.autoplay = true;
+        $("audio").appendChild(el);
+      }
+      if (!el.srcObject || el.srcObject.getAudioTracks()[0] !== track) {
+        el.srcObject = new MediaStream([track]);
+      }
+    }
+
+    call.on("joined-meeting", () => { setStatus("Joined."); renderParticipants(); });
+    call.on("participant-joined", (e) => { syncAudio(e.participant); renderParticipants(); });
+    call.on("participant-updated", (e) => { syncAudio(e.participant); renderParticipants(); });
+    call.on("participant-left", (e) => {
+      const el = document.getElementById("audio-" + e.participant.session_id);
+      if (el) el.remove();
+      renderParticipants();
+    });
+    call.on("left-meeting", () => {
+      setStatus("Left.");
+      $("participants").innerHTML = "";
+      $("audio").innerHTML = "";
+      $("join").disabled = false;
+      $("mute").disabled = true;
+      $("leave").disabled = true;
+    });
+    call.on("error", (e) => setStatus("Daily error: " + (e.errorMsg || JSON.stringify(e))));
+
+    $("join").onclick = async () => {
+      const url = $("room-url").value.trim();
+      const userName = $("user-name").value.trim();
+      if (!url || !userName) { setStatus("Room URL and agent name are required."); return; }
+      $("join").disabled = true;
+      try {
+        setStatus("Fetching token...");
+        const room = encodeURIComponent(roomNameFromUrl(url));
+        const resp = await fetch(`/rooms/${room}/agent-token`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ user_name: userName }),
+        });
+        if (!resp.ok) throw new Error(`token request failed: HTTP ${resp.status}`);
+        const { token } = await resp.json();
+        setStatus("Joining...");
+        await call.join({ url, token });
+        muted = false;
+        $("mute").textContent = "Mute";
+        $("mute").disabled = false;
+        $("leave").disabled = false;
+      } catch (err) {
+        setStatus("Join failed: " + err.message);
+        $("join").disabled = false;
+      }
+    };
+
+    $("mute").onclick = () => {
+      muted = !muted;
+      call.setLocalAudio(!muted);
+      $("mute").textContent = muted ? "Unmute" : "Mute";
+    };
+
+    $("leave").onclick = () => call.leave();
+  </script>
+</body>
+</html>

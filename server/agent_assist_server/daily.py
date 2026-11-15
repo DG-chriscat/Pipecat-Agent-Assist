@@ -74,6 +74,18 @@ def build_token_body(*, room_name: str, now: float | None = None) -> dict:
     }
 
 
+def build_agent_token_body(*, room_name: str, user_name: str, exp: int) -> dict:
+    """Body for POST /meeting-tokens: non-owner token for an agent's browser (spike S4)."""
+    return {
+        "properties": {
+            "room_name": room_name,
+            "user_name": user_name,
+            "is_owner": False,
+            "exp": exp,
+        }
+    }
+
+
 class DailyRestClient:
     def __init__(
         self,
@@ -132,6 +144,15 @@ class DailyRestClient:
     async def create_meeting_token(self, room_name: str) -> str:
         data = await self._post("/meeting-tokens", build_token_body(room_name=room_name))
         return data["token"]
+
+    async def create_agent_token(self, room_name: str, user_name: str, exp: int) -> str:
+        """Mint a non-owner meeting token for a human agent joining `room_name`."""
+        body = build_agent_token_body(room_name=room_name, user_name=user_name, exp=exp)
+        data = await self._post("/meeting-tokens", body)
+        token = data.get("token")
+        if not token:
+            raise DailyAPIError("POST /meeting-tokens returned no token")
+        return token
 
     async def delete_room(self, room_name: str) -> None:
         async with self._client() as client:

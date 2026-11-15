@@ -31,5 +31,12 @@ Source: docs/PRD.md (Nov 14, 2026)
 ## Design
 - Locked: docs/DESIGN.md (concept Focus), ADR 0001. Every portal card must cite DESIGN.md.
 
+## Phase 2: Intake and queue (browser caller, ADR 0002)
+- P2-1 Browser caller page starts the bot (IN-12).
+- P2-2 Mock DB on Supabase Postgres: schema, migrations, seed (DC-3, DC-8).
+- P2-3 Intake Flow with identity check and a pack config (IN-3 to IN-9).
+- P2-4 Queue service, agent states, offers over websocket (QH-1 to QH-5, QH-10).
+- Exit: a browser call finishes intake, waits in the queue, and rings an agent.
+
 ## Phases 2 to 5
 Broken into cards after the spike, per PRD milestones: intake and queue, portal and handoff, assist and connectors, demo polish.

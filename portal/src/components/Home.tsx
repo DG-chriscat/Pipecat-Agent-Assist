@@ -44,6 +44,8 @@ const DROPPED =
 const SAVED = "Call saved. You are available.";
 /** Clock tick while ringing or on a call. */
 const TICK_MS = 250;
+/** P5-1: how often the wrap up view is read again while the summary draft is coming. */
+const WRAP_POLL_MS = 1000;
 
 const errorText = (e: unknown, fallback: string) => (e instanceof Error && e.message ? e.message : fallback);
 
@@ -167,13 +169,24 @@ export function Home({ agent: signedIn, theme, onTheme, createSocket, createMedi
       return;
     }
     let current = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     setWrap({ sessionId: wrapSession, info: null, error: null });
-    getWrapUp(wrapSession, agentId).then(
-      (info) => current && setWrap({ sessionId: wrapSession, info, error: null }),
-      (e) => current && setWrap({ sessionId: wrapSession, info: null, error: errorText(e, "Could not load the call.") }),
-    );
+    // P5-1: the bot writes the summary draft when the call ends; read the view again
+    // while the server says it is still coming.
+    const load = () =>
+      getWrapUp(wrapSession, agentId).then(
+        (info) => {
+          if (!current) return;
+          setWrap({ sessionId: wrapSession, info, error: null });
+          if (info.draft_pending) timer = setTimeout(load, WRAP_POLL_MS);
+        },
+        (e) =>
+          current && setWrap({ sessionId: wrapSession, info: null, error: errorText(e, "Could not load the call.") }),
+      );
+    void load();
     return () => {
       current = false;
+      clearTimeout(timer);
     };
   }, [wrapSession, agentId, wrapAttempt]);
 
@@ -269,12 +282,12 @@ export function Home({ agent: signedIn, theme, onTheme, createSocket, createMedi
     await leave();
   }
 
-  async function saveWrap(reasonCode: string, notes: string) {
+  async function saveWrap(reasonCode: string, notes: string, summary: string) {
     if (!wrapSession || saving) return;
     setSaving(true);
     setSaveError(null);
     try {
-      await saveWrapUp(agentId, wrapSession, reasonCode, notes);
+      await saveWrapUp(agentId, wrapSession, reasonCode, notes, summary);
       setNotice(SAVED);
       setError(null);
     } catch (e) {
@@ -384,7 +397,7 @@ export function Home({ agent: signedIn, theme, onTheme, createSocket, createMedi
             loadError={wrapView?.error ?? null}
             saving={saving}
             saveError={saveError}
-            onSave={(code, notes) => void saveWrap(code, notes)}
+            onSave={(code, notes, summary) => void saveWrap(code, notes, summary)}
             onRetry={() => setWrapAttempt((n) => n + 1)}
           />
         ) : offer ? (

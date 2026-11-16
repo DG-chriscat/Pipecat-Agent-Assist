@@ -818,10 +818,32 @@
 .wrapup-name { font-size: 24px; font-weight: 500; letter-spacing: -.02em; line-height: 1.2; }
 .wrapup-loading { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; padding: 8px 0; }
 .wrapup-draft { padding: 16px 18px; border-radius: 18px; border: 1px solid rgba(224,66,255,.45); background: var(--ai-bg); }
-.wrapup-draft.is-empty { border-style: dashed; border-color: rgba(224,66,255,.35); background: transparent; }
-.wrapup-draft.is-empty p { color: var(--text-faint); }
+.wrapup-draft.is-empty, .wrapup-draft.is-pending { border-style: dashed; border-color: rgba(224,66,255,.35); background: transparent; }
+.wrapup-draft.is-pending .wrapup-draft-head .label { animation: ask-pulse 1.4s ease-in-out infinite; }
 .wrapup-draft-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .wrapup-draft p { font-size: 14px; }
+/* P5-1: the draft is edited in place; the box is the outline, the editor has none. */
+.wrapup-summary {
+  display: block;
+  width: 100%;
+  min-height: 112px;
+  max-height: 260px;
+  field-sizing: content; /* the whole draft shows without scrolling (capped) */
+  resize: vertical;
+  border: 0;
+  outline: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.55;
+}
+.wrapup-summary::placeholder { color: var(--text-faint); }
+.wrapup-draft:focus-within { border-color: rgba(224,66,255,.6); box-shadow: 0 0 0 3px rgba(224,66,255,.18); }
+.reason-tag { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; color: var(--ai); opacity: .85; }
+.reason-tag svg { width: 11px; height: 11px; }
+@media (prefers-reduced-motion: reduce) { .wrapup-draft.is-pending .wrapup-draft-head .label { animation: none; } }
 .wrapup-field { display: flex; flex-direction: column; gap: 8px; }
 .reason-codes { display: flex; flex-wrap: wrap; gap: 8px; }
 .reason {

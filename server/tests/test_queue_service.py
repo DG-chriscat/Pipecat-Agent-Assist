@@ -3,6 +3,7 @@
 import pytest
 from agent_assist_server.queue_service import (
     AGENT_DROP_GRACE_SECS,
+    MAX_SUMMARY,
     OFFER_TIMEOUT_SECS,
     AgentState,
     CallStatus,
@@ -546,6 +547,7 @@ async def test_save_wrap_up_stores_it_on_the_call_then_agent_is_available(svc, c
     assert call.wrap_up == {
         "reason_code": "claim_explained",
         "notes": "Explained the denial.",
+        "summary": "",
         "saved_at": clock.now(),
     }
     assert call.to_dict()["wrap_up"] == call.wrap_up
@@ -695,3 +697,51 @@ async def test_phi_reveal_rejects_unknown_fields(svc, clock):
     a = await on_call(svc, clock)
     with pytest.raises(QueueError):
         svc.log_phi_reveal(a.agent_id, "s1", "ssn")
+
+
+# ---- P5-1: wrap up draft (AP-9) ------------------------------------------------------
+
+DRAFT = {
+    "summary": "Maria called. The agent explained. A review was requested.",
+    "reason_code": "appeal_started",
+    "pack_id": "claims_status",
+    "source": "llm",
+}
+
+
+async def test_wrap_up_draft_is_kept_on_the_call(svc, clock):
+    await on_call(svc, clock)
+    svc.end_call("s1")
+    svc.events.clear()
+    call = svc.set_wrap_up_draft("s1", DRAFT)
+    assert call.wrap_up_draft == {**DRAFT, "drafted_at": clock.now()}
+    assert call.to_dict()["wrap_up_draft"] == call.wrap_up_draft
+    assert types(svc.events) == ["call_updated"]
+
+
+async def test_wrap_up_draft_while_still_on_the_call_is_kept(svc, clock):
+    await on_call(svc, clock)
+    assert svc.set_wrap_up_draft("s1", DRAFT).wrap_up_draft["reason_code"] == "appeal_started"
+
+
+def test_wrap_up_draft_needs_an_accepted_call(svc, clock):
+    enqueue(svc, 1)
+    with pytest.raises(QueueError, match="no agent"):
+        svc.set_wrap_up_draft("s1", DRAFT)
+    with pytest.raises(QueueError, match="unknown"):
+        svc.set_wrap_up_draft("nope", DRAFT)
+
+
+async def test_save_wrap_up_keeps_the_agents_summary(svc, clock):
+    a = await on_call(svc, clock)
+    svc.end_call("s1")
+    call = svc.save_wrap_up(a.agent_id, "s1", "appeal_started", " n ", summary="  Edited.  ")
+    assert call.wrap_up["summary"] == "Edited."
+    assert call.wrap_up["notes"] == "n"
+
+
+async def test_save_wrap_up_rejects_a_long_summary(svc, clock):
+    a = await on_call(svc, clock)
+    svc.end_call("s1")
+    with pytest.raises(QueueError, match="summary"):
+        svc.save_wrap_up(a.agent_id, "s1", "other", "", summary="x" * (MAX_SUMMARY + 1))

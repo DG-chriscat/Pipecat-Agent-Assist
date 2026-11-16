@@ -435,3 +435,26 @@ async def test_hold_update_ducks_the_real_mixer(spoken, tmp_path):
     await mixer.mix(silence)  # the ramp down chunk
     assert await mixer.mix(silence) == silence
     c.stop()
+
+
+async def test_queue_handoff_posts_the_wrap_up_draft():
+    seen: list[httpx.Request] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen.append(req)
+        return httpx.Response(200, json={"status": "ok"})
+
+    h = handoff.QueueHandoff("http://srv", transport=httpx.MockTransport(handler))
+    body = {"summary": "x", "reason_code": "other", "pack_id": "claims_status", "source": "llm"}
+    await handoff.post_wrap_up_draft(h, "s1", body)
+    assert [(r.method, r.url.path) for r in seen] == [("POST", "/queue/calls/s1/wrap-up-draft")]
+    assert json.loads(seen[0].content) == body
+
+
+async def test_wrap_up_draft_post_swallows_errors_and_skips_noop():
+    def boom(req):
+        raise httpx.ConnectError("down")
+
+    h = handoff.QueueHandoff("http://srv", transport=httpx.MockTransport(boom))
+    await handoff.post_wrap_up_draft(h, "s1", {"summary": "x"})
+    await handoff.post_wrap_up_draft(intake.NoopHandoff(), "s1", {"summary": "x"})

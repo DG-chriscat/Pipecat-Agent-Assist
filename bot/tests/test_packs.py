@@ -131,3 +131,34 @@ def test_invalid_wrap_up_codes_rejected(tmp_path, codes, match):
 def test_every_v1_pack_has_wrap_up_codes_ending_in_other(pack_id):
     codes = [c.code for c in load_pack(pack_id).wrap_up.reason_codes]
     assert len(codes) >= 3 and codes[-1] == "other"
+
+
+# ---- P5-1: accepted actions suggest a reason code (AP-9) --------------------------
+
+
+def test_reason_code_actions_default_empty(tmp_path):
+    text = MINIMAL + "wrap_up:\n  reason_codes:\n    - {code: resolved, label: Resolved}\n"
+    assert load_pack(_write(tmp_path, text)).wrap_up.reason_codes[0].actions == []
+
+
+def test_reason_code_actions_must_be_pack_actions(tmp_path):
+    text = (
+        MINIMAL
+        + "wrap_up:\n  reason_codes:\n    - {code: resolved, label: Resolved, actions: [nope]}\n"
+    )
+    with pytest.raises(PackError, match="unknown action 'nope'"):
+        load_pack(_write(tmp_path, text))
+
+
+@pytest.mark.parametrize("pack_id", ["claims_status", "account_payments"])
+def test_every_pack_action_suggests_a_reason_code(pack_id):
+    pack = load_pack(pack_id)
+    mapped = {a for c in pack.wrap_up.reason_codes for a in c.actions}
+    assert {r.action.id for r in pack.next_best_steps} <= mapped
+
+
+def test_claims_status_action_codes():
+    by_code = {c.code: c.actions for c in load_pack("claims_status").wrap_up.reason_codes}
+    assert "request_retro_auth_review" in by_code["appeal_started"]
+    assert "start_network_appeal" in by_code["appeal_started"]
+    assert "contact_provider_for_info" in by_code["callback_needed"]

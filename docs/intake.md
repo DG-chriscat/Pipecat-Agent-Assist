@@ -52,7 +52,8 @@ Env: `DATABASE_URL` (in memory when unset), optional `DATABASE_SCHEMA`,
 case questions (IN-4). Each question needs a snake_case `key` (not one of
 `full_name`, `dob`, `member_id`, `reason`, `summary`), the `ask` text, and a
 `description` the LLM uses to fill the answer. Edit the YAML; no code changes. The
-loader validates on start (`load_pack`).
+loader validates on start (`load_pack`). The assist sections of a pack (triggers,
+connectors, cards, call plan, next best steps, keyterms) are in docs/packs.md.
 
 ## Tests
 

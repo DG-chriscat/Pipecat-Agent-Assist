@@ -426,9 +426,9 @@ def test_reader_reads_the_caller_only_after_each_stt(monkeypatch):
     worker, _ = bot.build_worker("https://x.daily.co/r", "tok", store=MemoryCallStore())
     names = [[type(x).__name__ for x in b.processors] for b in _branches(worker)]
     intake, caller, agent = names
-    # P5-7: intake runs Flux by default, the listen branches Nova-3; the reader follows
-    # whichever STT runs (both push a final TranscriptionFrame per caller turn).
-    assert intake[intake.index("ChunkedFluxSTTService") + 1] == "CallerToneReader"
+    # P5-7: the reader follows whichever intake STT runs (Nova-3 by default; Flux
+    # also pushes one final TranscriptionFrame per caller turn).
+    assert intake[intake.index("DeepgramSTTService") + 1] == "CallerToneReader"
     assert intake[intake.index("CallerToneReader") + 1] == "IntakeToneTap"
     assert caller[caller.index("DeepgramSTTService") + 1] == "CallerToneReader"
     assert caller[caller.index("CallerToneReader") + 1] == "TranscriptRelay"

@@ -18,7 +18,7 @@ const DEFAULTS: SettingsValues = {
   identity_read_back: true,
   hold_update_text: "Thanks for waiting. {place} A person will be with you shortly.",
   hold_update_secs: 60,
-  stt_intake_model: "flux-general-en",
+  stt_intake_model: "nova-3-general",
   stt_assist_model: "nova-3-general",
 };
 
@@ -41,7 +41,7 @@ function response(values: Partial<SettingsValues> = {}, isDefault = true): Setti
     ],
     limits: { greeting_text: 400, hold_update_text: 300, hold_update_secs: [5, 600] },
     stt_models: {
-      intake: ["flux-general-en", "nova-3-general"],
+      intake: ["nova-3-general", "flux-general-en"],
       assist: ["nova-3-general", "nova-3-medical", "flux-general-en"],
     },
   };
@@ -223,27 +223,27 @@ describe("Settings Listening group (P5-7, IN-14)", () => {
     await setup();
     const listening = screen.getByRole("group", { name: /listening/i });
     expect(within(listening).getByText(/speech to text/i)).toBeInTheDocument();
-    expect(within(intake()).getAllByRole("radio").map((r) => r.textContent)).toEqual(["Flux", "Nova-3"]);
+    expect(within(intake()).getAllByRole("radio").map((r) => r.textContent)).toEqual(["Nova-3", "Flux"]);
     expect(within(assist()).getAllByRole("radio").map((r) => r.textContent)).toEqual([
       "Nova-3",
       "Nova-3 Medical",
       "Flux",
     ]);
-    expect(picked(intake())).toEqual(["Flux"]);
+    expect(picked(intake())).toEqual(["Nova-3"]);
     expect(picked(assist())).toEqual(["Nova-3"]);
-    expect(screen.getByText(/flux decides when the caller has finished/i)).toBeInTheDocument();
+    expect(screen.getByText(/flux decides when the caller is done/i)).toBeInTheDocument();
     expect(screen.getByText(/transcribes the caller and the agent/i)).toBeInTheDocument();
   });
 
   it("saves the picked models", async () => {
     const { api } = await setup();
-    fireEvent.click(within(intake()).getByRole("radio", { name: "Nova-3" }));
+    fireEvent.click(within(intake()).getByRole("radio", { name: "Flux" }));
     fireEvent.click(within(assist()).getByRole("radio", { name: "Nova-3 Medical" }));
-    expect(picked(intake())).toEqual(["Nova-3"]);
+    expect(picked(intake())).toEqual(["Flux"]);
     expect(picked(assist())).toEqual(["Nova-3 Medical"]);
     await act(async () => fireEvent.click(screen.getByRole("button", { name: /^save$/i })));
     expect(api.save).toHaveBeenCalledWith(
-      { ...DEFAULTS, stt_intake_model: "nova-3-general", stt_assist_model: "nova-3-medical" },
+      { ...DEFAULTS, stt_intake_model: "flux-general-en", stt_assist_model: "nova-3-medical" },
       "Ana Ruiz",
     );
   });
@@ -253,25 +253,25 @@ describe("Settings Listening group (P5-7, IN-14)", () => {
       get: vi.fn(
         async (): Promise<SettingsResponse> => ({
           ...response(),
-          stt_models: { intake: ["flux-general-en"], assist: ["nova-3-general", "flux-general-en"] },
+          stt_models: { intake: ["nova-3-general"], assist: ["nova-3-general", "flux-general-en"] },
         }),
       ),
     });
     await setup(api);
-    expect(within(intake()).getAllByRole("radio").map((r) => r.textContent)).toEqual(["Flux"]);
+    expect(within(intake()).getAllByRole("radio").map((r) => r.textContent)).toEqual(["Nova-3"]);
     expect(within(assist()).getAllByRole("radio").map((r) => r.textContent)).toEqual(["Nova-3", "Flux"]);
   });
 
   it("shows the server's error on a model it refuses", async () => {
     const api = fakeApi({
       save: vi.fn(async () => {
-        throw new SettingsInvalid({ stt_intake_model: "Pick one of flux-general-en, nova-3-general." });
+        throw new SettingsInvalid({ stt_intake_model: "Pick one of nova-3-general, flux-general-en." });
       }),
     });
     await setup(api);
-    fireEvent.click(within(intake()).getByRole("radio", { name: "Nova-3" }));
+    fireEvent.click(within(intake()).getByRole("radio", { name: "Flux" }));
     await act(async () => fireEvent.click(screen.getByRole("button", { name: /^save$/i })));
-    expect(await screen.findByText(/pick one of flux-general-en/i)).toBeInTheDocument();
+    expect(await screen.findByText(/pick one of nova-3-general/i)).toBeInTheDocument();
   });
 });
 

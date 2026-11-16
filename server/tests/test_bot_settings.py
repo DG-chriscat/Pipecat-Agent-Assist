@@ -197,9 +197,11 @@ async def test_defaults_are_read_when_asked_not_frozen_at_start():
     assert (await store.get()).values["hold_update_secs"] == 9
 
 
-def test_stt_defaults_are_flux_intake_and_nova_3_assist():
+def test_stt_defaults_are_nova_3_on_both_sides_after_the_flux_identity_test():
+    # docs/spikes/stt-flux-intake.md: Flux intake missed Linda Nguyen's name 5 of 5
+    # (identity 8 of 10 vs Nova-3 10 of 10), so Nova-3 stays the intake default.
     d = bs.defaults({})
-    assert d["stt_intake_model"] == "flux-general-en"
+    assert d["stt_intake_model"] == "nova-3-general"
     assert d["stt_assist_model"] == "nova-3-general"
 
 

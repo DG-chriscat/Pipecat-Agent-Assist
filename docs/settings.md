@@ -17,7 +17,7 @@ always takes the agent back to Calls.
 | `identity_read_back` | on | on: read the name and member ID back before the identity check; off: check right after they are given |
 | `hold_update_text` | `Thanks for waiting. {place} A person will be with you shortly.` | 1 to 300 characters; `{place}` is the only placeholder ("You're next in line.") |
 | `hold_update_secs` | `HOLD_UPDATE_SECS` or 60 | whole seconds, 5 to 600 |
-| `stt_intake_model` | `flux-general-en` | `flux-general-en` or `nova-3-general` (P5-7, IN-14) |
+| `stt_intake_model` | `nova-3-general` | `nova-3-general` or `flux-general-en` (P5-7, IN-14) |
 | `stt_assist_model` | `nova-3-general` | `nova-3-general`, `nova-3-medical`, or `flux-general-en` (P5-7, IN-14) |
 
 Why Flux Alexis is the default: docs/spikes/tts-flux-vs-aura.md (Flux Alexis 80/80 key
@@ -29,9 +29,11 @@ only; edit them in `packs/<id>.yaml` (docs/packs.md).
 The Voice section has a **Listening** group with two pickers, each with one line of
 help:
 
-- **Intake bot** (`stt_intake_model`): Flux (default) or Nova-3. With Flux, Flux decides
-  when the caller has finished (no Silero VAD, no smart turn); with Nova-3 the bot uses
-  Silero VAD plus smart turn, as before P5-7. The caller can interrupt the bot either way.
+- **Intake bot** (`stt_intake_model`): Nova-3 (default) or Flux. With Nova-3 the bot uses
+  Silero VAD plus smart turn, as before P5-7; with Flux, Flux decides when the caller has
+  finished (no Silero VAD, no smart turn). The caller can interrupt the bot either way.
+  Flux was planned as the default; it stayed opt-in because it missed a hard last name
+  on every run of the identity test (docs/spikes/stt-flux-intake.md).
 - **Live assist** (`stt_assist_model`): Nova-3 (default), Nova-3 Medical, or Flux. These
   are the listen only streams per person track after an agent accepts. Flux there never
   interrupts anything and lines are still labeled by the track they came from.
@@ -97,7 +99,7 @@ gets what was saved when the call came in.
 
 The bot (`agent_assist_bot/call_settings.py`) logs one line per call, no free text:
 
-    [settings] session=... tts=flux/flux-alexis-en pack=claims_status read_back=on hold_every=60s stt_intake=flux-general-en stt_assist=nova-3-general
+    [settings] session=... tts=flux/flux-alexis-en pack=claims_status read_back=on hold_every=60s stt_intake=nova-3-general stt_assist=nova-3-general
 
 A value it cannot use falls back to its default (logged); a call never fails over
 settings. `build_tts` builds `DeepgramTTSService` (`/v1/speak`) for Aura-2 and

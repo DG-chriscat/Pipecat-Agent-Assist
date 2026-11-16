@@ -74,9 +74,9 @@ def test_bot_and_server_stt_model_lists_agree():
     assert server.STT_ASSIST_MODELS == stt.ASSIST_MODELS
 
 
-def test_stt_defaults_are_flux_intake_and_nova_3_assist():
+def test_stt_defaults_are_nova_3_on_both_sides():
     d = cs.CallSettings.defaults({})
-    assert (d.stt_intake_model, d.stt_assist_model) == ("flux-general-en", "nova-3-general")
+    assert (d.stt_intake_model, d.stt_assist_model) == ("nova-3-general", "nova-3-general")
 
 
 @pytest.mark.parametrize(

@@ -2,8 +2,9 @@
 
 Two sides, each with its own model from the call's settings (call_settings.py):
 
-- Intake (the voice bot, `build_intake_stt`): `flux-general-en` by default, or
-  `nova-3-general`.
+- Intake (the voice bot, `build_intake_stt`): `nova-3-general` by default, or
+  `flux-general-en`. (The card's plan was Flux by default; the live identity harness
+  kept Nova-3, see DEFAULT_INTAKE_MODEL.)
   - Flux (`DeepgramFluxSTTService`, /v2/listen) owns turn detection: it reports start
     and end of turn itself, so the intake has no Silero VAD and no smart turn
     (`intake_turn_taking`), and the user aggregator resolves Flux's proposals with
@@ -44,9 +45,12 @@ from agent_assist_bot.stt_tuning import FluxIdentitySTTTuning, IdentitySTTTuning
 FLUX = "flux-general-en"
 NOVA_GENERAL = "nova-3-general"
 NOVA_MEDICAL = "nova-3-medical"
-INTAKE_MODELS = (FLUX, NOVA_GENERAL)
+INTAKE_MODELS = (NOVA_GENERAL, FLUX)
 ASSIST_MODELS = (NOVA_GENERAL, NOVA_MEDICAL, FLUX)
-DEFAULT_INTAKE_MODEL = FLUX
+# Nova-3 stays the intake default: Flux intake missed the hard name (Linda Nguyen) on
+# every run, identity 8 of 10 vs 10 of 10 (docs/spikes/stt-flux-intake.md). The card
+# keeps Nova-3 when Flux regresses identity. Flux is one click away in Settings.
+DEFAULT_INTAKE_MODEL = NOVA_GENERAL
 DEFAULT_ASSIST_MODEL = NOVA_GENERAL
 
 FLUX_CHUNK_MS = 80

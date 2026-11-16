@@ -24,9 +24,10 @@ class Queue:
 
 
 def test_model_lists_and_defaults():
-    assert stt.INTAKE_MODELS == ("flux-general-en", "nova-3-general")
+    assert stt.INTAKE_MODELS == ("nova-3-general", "flux-general-en")
     assert stt.ASSIST_MODELS == ("nova-3-general", "nova-3-medical", "flux-general-en")
-    assert stt.DEFAULT_INTAKE_MODEL == "flux-general-en"
+    # Flux intake regressed identity on the hard name (docs/spikes/stt-flux-intake.md).
+    assert stt.DEFAULT_INTAKE_MODEL == "nova-3-general"
     assert stt.DEFAULT_ASSIST_MODEL == "nova-3-general"
 
 
@@ -67,7 +68,7 @@ def test_intake_without_keyterms():
 
 def test_unknown_intake_model_builds_the_default():
     s = stt.build_intake_stt("k", "nova-3-medical", KEYTERMS)
-    assert isinstance(s, DeepgramFluxSTTService)
+    assert type(s) is DeepgramSTTService and s._settings.model == "nova-3-general"
 
 
 def test_flux_intake_turns_belong_to_flux_no_vad_no_smart_turn():

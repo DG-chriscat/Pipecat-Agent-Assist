@@ -6,9 +6,9 @@ Runs the real server in process (memory settings, no login) on the built portal:
     PLAYWRIGHT_BROWSERS_PATH=... uv run --with playwright \
         python portal/scripts/shoot_stt_settings.py docs/screenshots/stt-models
 
-Writes OUT/settings-listening-{light,dark}.png (defaults: Flux intake, Nova-3 assist)
-and OUT/settings-listening-medical-{light,dark}.png (Nova-3 intake, Nova-3 Medical
-assist, saved), at 1600x1000, scrolled so the Listening group is in view.
+Writes OUT/settings-listening-{light,dark}.png (defaults: Nova-3 on both sides) and
+OUT/settings-listening-saved-{light,dark}.png (Flux intake, Nova-3 Medical assist,
+saved), at 1600x1000, scrolled so the Listening group is in view.
 No network beyond localhost: the voice catalog falls back to its known list.
 """
 
@@ -81,13 +81,13 @@ async def main(out: Path) -> None:
 
             intake = listening.get_by_role("radiogroup", name="Intake bot")
             assist = listening.get_by_role("radiogroup", name="Live assist")
-            await intake.get_by_role("radio", name="Nova-3", exact=True).click()
+            await intake.get_by_role("radio", name="Flux", exact=True).click()
             await assist.get_by_role("radio", name="Nova-3 Medical").click()
             await region.get_by_role("button", name="Save", exact=True).click()
             await expect(region.get_by_role("status")).to_contain_text("Applies to the next call")
-            await shoot("settings-listening-medical-dark")
+            await shoot("settings-listening-saved-dark")
             await theme(page, "Light")
-            await shoot("settings-listening-medical-light")
+            await shoot("settings-listening-saved-light")
             await browser.close()
     finally:
         server.should_exit = True

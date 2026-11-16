@@ -66,7 +66,7 @@ def test_get_returns_defaults_packs_and_limits(client):
 def test_get_lists_the_stt_model_choices_per_side(client):
     body = client.get("/settings").json()
     assert body["stt_models"] == {
-        "intake": ["flux-general-en", "nova-3-general"],
+        "intake": ["nova-3-general", "flux-general-en"],
         "assist": ["nova-3-general", "nova-3-medical", "flux-general-en"],
     }
 

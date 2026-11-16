@@ -384,9 +384,10 @@ def _spy_session(monkeypatch) -> dict:
     return seen
 
 
-def test_flux_intake_by_default_owns_turns_without_vad_or_smart_turn(api_keys, monkeypatch):
+def test_flux_intake_owns_turns_without_vad_or_smart_turn(api_keys, monkeypatch):
     seen = _spy_session(monkeypatch)
-    worker, _ = bot.build_worker(ROOM, "tok", store=MemoryCallStore())
+    settings = _settings(stt_intake_model="flux-general-en")
+    worker, _ = bot.build_worker(ROOM, "tok", store=MemoryCallStore(), settings=settings)
     intake = [type(x).__name__ for x in _parallel(worker)._pipelines[0].processors]
     assert "ChunkedFluxSTTService" in intake
     assert "VADProcessor" not in intake and "DeepgramSTTService" not in intake
@@ -399,10 +400,9 @@ def test_flux_intake_by_default_owns_turns_without_vad_or_smart_turn(api_keys, m
     assert isinstance(seen["session"].identity_tuning, FluxIdentitySTTTuning)
 
 
-def test_nova_intake_keeps_silero_vad_and_smart_turn(api_keys, monkeypatch):
+def test_nova_intake_by_default_keeps_silero_vad_and_smart_turn(api_keys, monkeypatch):
     seen = _spy_session(monkeypatch)
-    settings = _settings(stt_intake_model="nova-3-general")
-    worker, _ = bot.build_worker(ROOM, "tok", store=MemoryCallStore(), settings=settings)
+    worker, _ = bot.build_worker(ROOM, "tok", store=MemoryCallStore())
     intake = [type(x).__name__ for x in _parallel(worker)._pipelines[0].processors]
     assert "DeepgramSTTService" in intake and "ChunkedFluxSTTService" not in intake
     params = _user_aggregator(worker)._params
@@ -469,7 +469,7 @@ def test_pipeline_has_intake_and_two_listen_branches(api_keys):
     par = next(p for p in inner.processors if isinstance(p, ParallelPipeline))
     branches = [[type(x).__name__ for x in b.processors] for b in par._pipelines]
     assert [b[1] for b in branches] == ["AudioRoute"] * 3
-    assert "ChunkedFluxSTTService" in branches[0] and "TranscriptRelay" not in branches[0]
+    assert "DeepgramSTTService" in branches[0] and "TranscriptRelay" not in branches[0]
     for b in branches[1:]:
         core = [n for n in b if n in LISTEN_STAGES]
         assert core == list(LISTEN_STAGES)

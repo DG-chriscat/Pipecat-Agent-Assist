@@ -9,7 +9,7 @@ The server validates on save (agent_assist_server.bot_settings); this side only
 guards against a value it cannot use (a bad one falls back to its default, logged),
 so a call never fails over settings. No settings at all means the defaults:
 Flux TTS Alexis, the fixed greeting, INTAKE_PACK, read back on, the hold line every
-HOLD_UPDATE_SECS (default 60), Flux STT for intake and Nova-3 for assist (P5-7, IN-14;
+HOLD_UPDATE_SECS (default 60), Nova-3 STT for intake and for assist (P5-7, IN-14;
 the STT services are built in stt.py).
 
 `build_tts` is the TTS factory: DeepgramTTSService (/v1/speak) for Aura-2 and

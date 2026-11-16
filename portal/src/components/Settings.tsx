@@ -40,7 +40,7 @@ const STT_SIDES: {
     key: "stt_intake_model",
     side: "intake",
     label: "Intake bot",
-    help: "Flux decides when the caller has finished, so the bot answers sooner. Nova-3 uses pause detection.",
+    help: "Nova-3 ends the turn on a pause. Flux decides when the caller is done, but missed some names.",
   },
   {
     key: "stt_assist_model",

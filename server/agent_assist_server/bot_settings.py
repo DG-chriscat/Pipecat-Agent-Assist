@@ -47,13 +47,14 @@ TTS_MODELS = ("aura-2", "flux")
 # (docs/spikes/tts-flux-vs-aura.md). Aura-2 stays selectable.
 DEFAULT_TTS_MODEL = "flux"
 DEFAULT_TTS_VOICE = "flux-alexis-en"
-# IN-14: speech to text per side. Intake (the voice bot) runs Flux, which owns turn
-# detection; Nova-3 general stays selectable. Assist (listen only, per person track)
-# runs Nova-3 general; Nova-3 Medical or Flux are selectable. No Flux medical model.
-# Same lists as agent_assist_bot.stt (docs/spikes/stt-flux-intake.md).
-STT_INTAKE_MODELS = ("flux-general-en", "nova-3-general")
+# IN-14: speech to text per side. Intake (the voice bot): Nova-3 general by default,
+# Flux selectable (Flux owns turn detection). Nova-3 stays the default because Flux
+# intake regressed identity on the hard name (docs/spikes/stt-flux-intake.md). Assist
+# (listen only, per person track): Nova-3 general by default; Nova-3 Medical or Flux
+# selectable. No Flux medical model. Same lists as agent_assist_bot.stt.
+STT_INTAKE_MODELS = ("nova-3-general", "flux-general-en")
 STT_ASSIST_MODELS = ("nova-3-general", "nova-3-medical", "flux-general-en")
-DEFAULT_STT_INTAKE_MODEL = "flux-general-en"
+DEFAULT_STT_INTAKE_MODEL = "nova-3-general"
 DEFAULT_STT_ASSIST_MODEL = "nova-3-general"
 DEFAULT_PACK = "claims_status"
 # PRD IN-2, same text as agent_assist_bot.intake.GREETING (test_bot_settings_bot.py).

@@ -25,7 +25,7 @@ const DEFAULTS: SettingsValues = {
   tts_expressivity: 0,
   slow_readback: true,
   readback_speed: 0.9,
-  llm_intake: "claude-haiku-5-5",
+  llm_intake: "phonellm-mini-alpha-2-fp8",
   llm_assist: "claude-haiku-5-5",
   llm_wrapup: "claude-haiku-5-5",
 };
@@ -418,18 +418,23 @@ describe("Settings Thinking group: LLM per job (P5-9, DC-11)", () => {
       .filter((r) => r.getAttribute("aria-checked") === "true")
       .map((r) => r.getAttribute("data-model"));
 
-  it("has a picker per job with every LLM, Claude picked by default", async () => {
+  it("has a picker per job with every LLM and shows the saved picks", async () => {
     await setup();
     const thinking = screen.getByRole("group", { name: /thinking/i });
     expect(within(thinking).getByText(/llm for each job/i)).toBeInTheDocument();
-    for (const name of [/^intake llm$/i, /^assist and ask llm$/i, /^wrap up llm$/i]) {
+    const want: [RegExp, string][] = [
+      [/^intake llm$/i, "phonellm-mini-alpha-2-fp8"],
+      [/^assist and ask llm$/i, "claude-haiku-5-5"],
+      [/^wrap up llm$/i, "claude-haiku-5-5"],
+    ];
+    for (const [name, model] of want) {
       const group = job(name);
       expect(within(group).getAllByRole("radio").map((r) => r.getAttribute("data-model"))).toEqual([
         "claude-haiku-5-5",
         "phonellm-mini-alpha-2-fp8",
         "think-fast",
       ]);
-      expect(picked(group)).toEqual(["claude-haiku-5-5"]);
+      expect(picked(group)).toEqual([model]);
     }
   });
 
@@ -463,11 +468,11 @@ describe("Settings Thinking group: LLM per job (P5-9, DC-11)", () => {
     const { api } = await setup();
     const pick = (name: RegExp, id: string) =>
       fireEvent.click(within(job(name)).getAllByRole("radio").find((r) => r.getAttribute("data-model") === id)!);
-    pick(/^intake llm$/i, "phonellm-mini-alpha-2-fp8");
+    pick(/^intake llm$/i, "claude-haiku-5-5");
     pick(/^assist and ask llm$/i, "think-fast");
     await act(async () => fireEvent.click(screen.getByRole("button", { name: /^save$/i })));
     expect(api.save).toHaveBeenCalledWith(
-      { ...DEFAULTS, llm_intake: "phonellm-mini-alpha-2-fp8", llm_assist: "think-fast" },
+      { ...DEFAULTS, llm_intake: "claude-haiku-5-5", llm_assist: "think-fast" },
       "Ana Ruiz",
     );
   });

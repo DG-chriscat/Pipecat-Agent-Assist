@@ -302,10 +302,19 @@ def test_llm_models_are_claude_phonellm_and_think_fast():
 
 
 def test_llm_defaults_come_from_the_measure():
-    # docs/spikes/llm-deepgram.md decides each job's default.
+    # docs/spikes/llm-deepgram.md decides each job's default: phoneLLM mini matched
+    # Claude on intake (identity 10 of 10 both, faster replies); assist and wrap up stay
+    # on Claude (phoneLLM proposed no assist cards, and its wrap up JSON was not usable).
     d = bs.defaults({})
-    assert {k: d[k] for k in LLM_FIELDS} == bs.DEFAULT_LLMS
-    assert set(bs.DEFAULT_LLMS.values()) <= set(bs.LLM_MODELS)
+    assert (
+        {k: d[k] for k in LLM_FIELDS}
+        == bs.DEFAULT_LLMS
+        == {
+            "llm_intake": "phonellm-mini-alpha-2-fp8",
+            "llm_assist": "claude-haiku-5-5",
+            "llm_wrapup": "claude-haiku-5-5",
+        }
+    )
 
 
 @pytest.mark.parametrize("field", LLM_FIELDS)

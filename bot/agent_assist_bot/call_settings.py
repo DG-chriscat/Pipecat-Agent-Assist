@@ -63,7 +63,7 @@ READBACK_SPEED_RANGE = (0.8, 1.0)
 # LLM per job (P5-9, DC-11). Same list and defaults as agent_assist_server.bot_settings
 # (decided in docs/spikes/llm-deepgram.md). llm.create_llm picks the provider by model.
 LLM_MODELS = ("claude-haiku-5-5", "phonellm-mini-alpha-2-fp8", "think-fast")
-DEFAULT_LLM_INTAKE = "claude-haiku-5-5"
+DEFAULT_LLM_INTAKE = "phonellm-mini-alpha-2-fp8"
 DEFAULT_LLM_ASSIST = "claude-haiku-5-5"
 DEFAULT_LLM_WRAPUP = "claude-haiku-5-5"
 

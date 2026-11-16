@@ -832,12 +832,12 @@ async def test_participant_left_tells_queue_call_ended():
 
 def test_pipeline_has_gate_before_llm(api_keys):
     from agent_assist_bot.hold import BotGate
-    from pipecat.services.anthropic.llm import AnthropicLLMService
+    from pipecat.services.llm_service import LLMService
 
     worker, _ = bot.build_worker(ROOM, "tok")
     inner = next(p for p in worker._pipeline.processors if type(p).__name__ == "Pipeline")
     procs = inner.processors
-    llm_at = next(i for i, p in enumerate(procs) if isinstance(p, AnthropicLLMService))
+    llm_at = next(i for i, p in enumerate(procs) if isinstance(p, LLMService))
     assert isinstance(procs[llm_at - 1], BotGate)
 
 
@@ -1190,6 +1190,16 @@ def test_flow_manager_uses_the_uninterruptible_tts_say(api_keys, monkeypatch):
 
 
 # ---- P5-9 (DC-11): the LLM for each job comes from the call's settings ------------------
+
+
+def test_default_intake_llm_is_phonellm_on_deepgram(api_keys):
+    """P5-9: phoneLLM mini is the intake default (docs/spikes/llm-deepgram.md)."""
+    from agent_assist_bot.llm_deepgram import DeepgramLLMService
+
+    worker, _ = bot.build_worker(ROOM, "tok", store=MemoryCallStore())
+    inner = next(p for p in worker._pipeline.processors if type(p).__name__ == "Pipeline")
+    llm = next(p for p in inner.processors if isinstance(p, DeepgramLLMService))
+    assert llm._settings.model == "phonellm-mini-alpha-2-fp8"
 
 
 def test_intake_llm_follows_the_settings(api_keys, monkeypatch):

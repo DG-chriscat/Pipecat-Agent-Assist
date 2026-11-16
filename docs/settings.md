@@ -23,9 +23,9 @@ always takes the agent back to Calls.
 | `tts_expressivity` | 0 | Flux only (Beta): a whole number, -2 (Calm) to 2 (Animated) |
 | `slow_readback` | on | Flux only: speak read backs at `readback_speed`, then go back to `tts_speed` |
 | `readback_speed` | 0.9 | 0.8 to 1.0 in steps of 0.05 |
-| `llm_intake` | see Thinking below | `claude-haiku-5-5`, `phonellm-mini-alpha-2-fp8`, or `think-fast` (P5-9, DC-11) |
-| `llm_assist` | see Thinking below | same list; the Ask bar uses it too |
-| `llm_wrapup` | see Thinking below | same list |
+| `llm_intake` | `phonellm-mini-alpha-2-fp8` | `claude-haiku-5-5`, `phonellm-mini-alpha-2-fp8`, or `think-fast` (P5-9, DC-11) |
+| `llm_assist` | `claude-haiku-5-5` | same list; the Ask bar uses it too |
+| `llm_wrapup` | `claude-haiku-5-5` | same list |
 
 Why Flux Alexis is the default: docs/spikes/tts-flux-vs-aura.md (Flux Alexis 80/80 key
 entities, Aura-2 Thalia 79/80). The intake questions of the chosen pack are shown read
@@ -50,6 +50,33 @@ There is no Flux medical model, so Nova-3 Medical is offered on the assist side 
 [...]}`; the page shows exactly those. How the bot builds each one, the identity step
 tuning per model, and why eager end of turn is off: `bot/agent_assist_bot/stt.py` and
 docs/spikes/stt-flux-intake.md.
+
+## Thinking: the LLM per job (P5-9, DC-11)
+
+The Voice section has a **Thinking** group with one picker per job, each listing Claude
+Haiku, phoneLLM mini, and Think-Fast:
+
+| Job | Setting | Default | Used by |
+| --- | --- | --- | --- |
+| Intake | `llm_intake` | `phonellm-mini-alpha-2-fp8` | the intake voice bot (Pipecat Flows function calls) |
+| Assist and Ask | `llm_assist` | `claude-haiku-5-5` | the assist LLM pass and the Ask bar |
+| Wrap up | `llm_wrapup` | `claude-haiku-5-5` | the wrap up summary and reason code |
+
+Defaults come from docs/spikes/llm-deepgram.md: phoneLLM mini matched Claude on the
+identity test (10 of 10 each) and answered sooner, so it runs intake; on assist and wrap
+up it did not produce usable proposals or summaries, so Claude stays there.
+
+- Deepgram's models (phoneLLM mini, Think-Fast) carry an **Early Access** chip: not for
+  production traffic, model ids may change. The group links the Deepgram LLM docs
+  (developers.deepgram.com/docs/llm, new tab).
+- Think-Fast shows its note "Always stored for Deepgram model training (no opt out)"
+  under every picker, in the warning color where it is picked. phoneLLM mini runs with
+  MIP opt out.
+- `GET /settings` lists the choices in `llm_models: [{id, name, provider, early_access,
+  note}]`; the page shows exactly those (no list, no group).
+- The bot picks the provider from the model id (`llm.create_llm`): Anthropic with
+  `ANTHROPIC_API_KEY`, or Deepgram `/v1/think` with `DEEPGRAM_API_KEY`
+  (`llm_deepgram.py`). Screenshots: docs/screenshots/llm/.
 
 ## Delivery: Flux voice controls (P5-8, AP-22)
 
@@ -149,7 +176,7 @@ gets what was saved when the call came in.
 
 The bot (`agent_assist_bot/call_settings.py`) logs one line per call, no free text:
 
-    [settings] session=... tts=flux/flux-alexis-en speed=1 expressivity=0 slow_readback=0.9 pack=claims_status read_back=on hold_every=60s stt_intake=nova-3-general stt_assist=nova-3-general llm_intake=claude-haiku-5-5 llm_assist=claude-haiku-5-5 llm_wrapup=claude-haiku-5-5
+    [settings] session=... tts=flux/flux-alexis-en speed=1 expressivity=0 slow_readback=0.9 pack=claims_status read_back=on hold_every=60s stt_intake=nova-3-general stt_assist=nova-3-general llm_intake=phonellm-mini-alpha-2-fp8 llm_assist=claude-haiku-5-5 llm_wrapup=claude-haiku-5-5
 
 (`speed`, `expressivity`, and `slow_readback` are only shown for Flux; `slow_readback=off`
 when the toggle is off.)

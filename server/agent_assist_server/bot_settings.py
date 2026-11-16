@@ -86,7 +86,7 @@ CLAUDE_HAIKU = "claude-haiku-5-5"
 PHONELLM = "phonellm-mini-alpha-2-fp8"
 THINK_FAST = "think-fast"
 LLM_MODELS = (CLAUDE_HAIKU, PHONELLM, THINK_FAST)
-DEFAULT_LLMS = {"llm_intake": CLAUDE_HAIKU, "llm_assist": CLAUDE_HAIKU, "llm_wrapup": CLAUDE_HAIKU}
+DEFAULT_LLMS = {"llm_intake": PHONELLM, "llm_assist": CLAUDE_HAIKU, "llm_wrapup": CLAUDE_HAIKU}
 THINK_FAST_NOTE = "Always stored for Deepgram model training (no opt out)"
 _LLM_INFO = {
     CLAUDE_HAIKU: ("Claude Haiku", "anthropic", False, None),

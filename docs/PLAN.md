@@ -46,5 +46,15 @@ Source: docs/PRD.md (Nov 14, 2026)
 - P3-5 Wrap up and Phase 3 exit: end call to wrap_up to available, live test ring to wrap up.
 - Exit: a full call goes from ring to wrap up in the portal, matching docs/design/in-call-focus.png.
 
-## Phases 4 and 5
-Carded after Phase 3 exit: assist and connectors (next best step, packs, cards), then demo polish.
+## Phase 4: Assist and connectors
+- P4-1 Connectors: read only search and get tools over the mock DB for members, plans, claims, payments, referrals, prior auths, interactions, KB (DC-1 to DC-5, DC-8). 2 s timeout, per call cache, logged.
+- P4-2 Packs v2: claims_status, account_payments, general_question with triggers, allowed connectors, card templates, call plan checklist, next best step rules (DC-10), fixed STT keyterms.
+- P4-3 Assist engine in the bot: after accept, rolling transcript plus intake to the assist LLM with connector tools, ranked suggestions, hero plus supporting cards, call plan ticks, sent to the agent's portal only over RTVI (DC-6, DC-7, guardrails).
+- P4-4 Portal assist UI: hero next best step states, supporting cards (record, call plan, article, alert), pin, dismiss, rate, show me why, simulated accept that logs and ticks the plan (AP-6, AP-7, AP-11, AP-12, DC-9).
+- P4-5 Tone: tone per caller turn, mood trend, tone tip card (IN-10, AP-14).
+- P4-6 Ask bar and Phase 4 exit: typed questions to the assist (AP-8); live test where each pack trigger shows its card within 3 s.
+- Side card: identity capture fix (member ID read back, numerals, endpointing on the identity step) scored on the 5 demo personas.
+- Exit: each pack's trigger shows its card on a live call.
+
+## Phase 5
+Demo polish: wrap up summary and reason code (AP-9), pre warmed bot, scripted caller runs against the success measures.

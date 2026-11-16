@@ -121,6 +121,42 @@ async def test_add_transcript_line_saves_final_lines_for_wrap_up(store):
     ]
 
 
+async def test_add_assist_event_logs_feedback_on_the_call(store):
+    # DC-9: accepting a next best step is logged on the call record, nothing else.
+    call_id = await store.create_call("sess-7")
+    await store.add_assist_event(
+        call_id,
+        "accept",
+        "nbs:retro_auth_review:CLM-900001",
+        {"action_id": "request_retro_auth_review", "simulated": True},
+    )
+    await store.add_assist_event(call_id, "card_sent", "card:denied_claim", {"latency_ms": 812.5})
+    cur = await store._execute(
+        "SELECT kind, card_id, data FROM assist_events WHERE call_id = %s ORDER BY event_id",
+        (call_id,),
+    )
+    assert await cur.fetchall() == [
+        (
+            "accept",
+            "nbs:retro_auth_review:CLM-900001",
+            {"action_id": "request_retro_auth_review", "simulated": True},
+        ),
+        ("card_sent", "card:denied_claim", {"latency_ms": 812.5}),
+    ]
+    # Source systems are untouched (DC-2, DC-9).
+    cur = await store._execute("SELECT status FROM claims WHERE claim_id = 'CLM-900001'")
+    assert await cur.fetchone() == ("denied",)
+
+
+async def test_assist_events_table_has_rls(store, schema):
+    cur = await store._execute(
+        "SELECT c.relrowsecurity FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+        "WHERE n.nspname = %s AND c.relname = 'assist_events'",
+        (schema,),
+    )
+    assert await cur.fetchall() == [(True,)]
+
+
 async def test_reconnects_after_dropped_connection(store):
     call_id = await store.create_call("sess-5")
     await store._conn.close()

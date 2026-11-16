@@ -14,6 +14,7 @@ def _bare() -> HarnessParticipant:
     p._loop = asyncio.get_running_loop()
     p._changed = asyncio.Event()
     p.app_messages = []
+    p.user_name = "agent"
     return p
 
 
@@ -28,3 +29,30 @@ async def test_harness_records_app_messages_with_sender_and_time():
     assert sender == "bot-id"
     assert msg == {"label": "rtvi-ai", "type": "server-message"}
     assert t > 0
+
+
+class FakeClient:
+    def __init__(self, loop, error=None):
+        self.sent = []
+        self._loop = loop
+        self._error = error
+
+    def send_app_message(self, message, participant_id=None, completion=None):
+        self.sent.append((message, participant_id))
+        completion(self._error)
+
+
+async def test_send_app_message_to_one_participant():
+    p = _bare()
+    p._client = FakeClient(p._loop)
+    await p.send_app_message({"hello": 1}, "bot-id")
+    assert p._client.sent == [({"hello": 1}, "bot-id")]
+
+
+async def test_send_app_message_raises_on_error():
+    import pytest
+
+    p = _bare()
+    p._client = FakeClient(p._loop, error="not joined")
+    with pytest.raises(RuntimeError, match="not joined"):
+        await p.send_app_message({"hello": 1}, "bot-id")

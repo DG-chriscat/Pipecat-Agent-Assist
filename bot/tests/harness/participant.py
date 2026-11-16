@@ -226,6 +226,14 @@ class HarnessParticipant:
 
         await asyncio.wait_for(_wait(), timeout)
 
+    async def send_app_message(self, message: Any, participant_id: str | None = None) -> None:
+        """Send a Daily app message (to one participant, or everyone when None)."""
+        fut = self._loop.create_future()
+        self._client.send_app_message(message, participant_id, completion=self._completion(fut))
+        error = await asyncio.wait_for(fut, 10)
+        if error:
+            raise RuntimeError(f"{self.user_name} could not send an app message: {error}")
+
     # ---- audio ----------------------------------------------------------
 
     def _start_recording(self, participant_id: str) -> None:

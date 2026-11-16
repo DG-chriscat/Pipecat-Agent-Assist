@@ -237,7 +237,8 @@ card = rule.render(facts)  # headline, why, script, action_id, action_label, sou
 ## What uses what
 
 - Intake (P2-3): `identity`, `reason`, `questions`, `readback`.
-- Assist engine (P4-3): triggers, allowed connectors, rules, call plan.
+- Assist engine (P4-3, docs/assist.md): triggers, allowed connectors, rules, card
+  templates, call plan.
 - Portal (P4-4): card templates (fields, source), call plan labels.
-- STT: `keyterms` are ready for `DeepgramSTTService.Settings(keyterm=...)`; wiring
-  them into the intake and listen pipelines is left to the assist work.
+- STT: the listen branches boost every pack's `keyterms` (deduped, max 100) through
+  `DeepgramSTTService.Settings(keyterm=...)` (P4-3). Intake STT does not use them yet.

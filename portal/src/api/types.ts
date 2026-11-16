@@ -30,6 +30,35 @@ export interface Call {
   agent_id: string | null;
   answered_at: number | null;
   ended_at: number | null;
+  /** Who ended a call the agent was on (P3-5). */
+  ended_by?: "agent" | "caller" | null;
+  wrap_up?: SavedWrapUp | null;
+}
+
+export interface SavedWrapUp {
+  reason_code: string;
+  notes: string;
+  saved_at: number;
+}
+
+export interface ReasonCode {
+  code: string;
+  label: string;
+}
+
+/** Wrap up view data: GET /calls/{session_id}/wrap-up (P3-5). */
+export interface WrapUpInfo {
+  session_id: string;
+  status: CallStatus;
+  ended_by: "agent" | "caller" | null;
+  caller_name: string;
+  reason: string;
+  identity_result: IdentityResult | null;
+  duration_secs: number;
+  /** AP-9 (Phase 4): the assist's draft summary; null until then. */
+  summary_draft: string | null;
+  reason_codes: ReasonCode[];
+  wrap_up: SavedWrapUp | null;
 }
 
 export interface QueueSnapshot {
@@ -92,7 +121,7 @@ export interface CallerDetails {
 /** Messages the server sends on /ws/queue. */
 export type ServerMessage =
   | ({ type: "snapshot" } & QueueSnapshot)
-  | { type: "call_queued"; call: Call; position: number }
+  | { type: "call_queued"; call: Call; position: number; requeued?: boolean }
   | { type: "call_updated"; call: Call }
   | { type: "call_accepted"; agent_id: string; call: Call }
   | { type: "call_ended"; call: Call }

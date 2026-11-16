@@ -79,7 +79,8 @@ describe("App", () => {
       render(<App createSocket={makeSocket} />);
       expect(screen.getByRole("heading", { name: "Sign in" })).toBeInTheDocument();
       expect(screen.getByAltText("Deepgram")).toBeInTheDocument();
-      expect(screen.getByText("Agent assist")).toBeInTheDocument();
+      expect(screen.getByText("Vitals")).toBeInTheDocument();
+      expect(screen.queryByText(/agent assist/i)).not.toBeInTheDocument();
       expect(MockWebSocket.instances).toHaveLength(0);
     });
 

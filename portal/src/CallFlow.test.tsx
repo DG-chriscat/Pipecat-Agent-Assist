@@ -317,29 +317,158 @@ describe("incoming call and in-call shell (AP-3, AP-4, QH-6, QH-7)", () => {
     expect(within(col).getByText("I already called.")).not.toHaveClass("typing");
   });
 
-  it("End leaves the room, sets wrap up, and goes back home", async () => {
+  const wrapInfo = {
+    session_id: "s1",
+    status: "ended",
+    ended_by: "agent",
+    caller_name: "Maria Alvarez",
+    reason: "MRI claim from Oct 28 was denied",
+    identity_result: "verified",
+    duration_secs: 95,
+    summary_draft: null,
+    reason_codes: [
+      { code: "denial_explained", label: "Denial explained" },
+      { code: "other", label: "Other" },
+    ],
+    wrap_up: null,
+  };
+  const wrapping: Agent = { ...ana, state: "wrap_up", call_id: "s1", idle_since: null };
+
+  it("End sets wrap up before leaving the room, then shows the wrap up view", async () => {
     const sock = await signedInAvailable();
     const media = await acceptAndJoin(sock);
+    route = (url) => (url === "/calls/s1/wrap-up?agent_id=agent-1" ? json(wrapInfo) : undefined);
+    let leftWhenSent = -1;
+    const send = sock.send.bind(sock);
+    sock.send = (data: string) => {
+      if (JSON.parse(data).state === "wrap_up") leftWhenSent = media.left;
+      send(data);
+    };
     fireEvent.click(screen.getByRole("button", { name: /end call/i }));
     await waitFor(() => expect(media.left).toBe(1));
     expect(JSON.parse(sock.sent.at(-1)!)).toEqual({ type: "set_status", agent_id: "agent-1", state: "wrap_up" });
+    // QH-9: the room is left only after wrap up was sent, so it never looks like a drop.
+    expect(leftWhenSent).toBe(0);
     // Until the server confirms, no "lost the call audio" prompt flashes up.
     expect(screen.queryByText(/lost the call audio/i)).not.toBeInTheDocument();
-    act(() => sock.serverSend({ type: "status_set", agent: { ...ana, state: "wrap_up" } }));
-    await screen.findByText("Wrap up");
-    expect(screen.queryByRole("group", { name: /call/i })).not.toBeInTheDocument();
+    act(() => sock.serverSend({ type: "status_set", agent: wrapping }));
+    const view = await screen.findByRole("region", { name: /wrap up/i });
+    expect(screen.queryByRole("group", { name: /^call$/i })).not.toBeInTheDocument();
+    await waitFor(() => expect(view).toHaveTextContent(/you ended the call/i));
+    expect(view).toHaveTextContent("Maria Alvarez");
+    expect(screen.getByRole("group", { name: /call/i })).toHaveTextContent(/wrap up/i);
   });
 
-  it("caller hangs up: the server sets wrap up, the portal leaves the room", async () => {
+  it("caller hangs up: the portal leaves the room and shows the wrap up view", async () => {
+    const sock = await signedInAvailable();
+    const media = await acceptAndJoin(sock);
+    route = (url) =>
+      url === "/calls/s1/wrap-up?agent_id=agent-1" ? json({ ...wrapInfo, ended_by: "caller" }) : undefined;
+    act(() => {
+      sock.serverSend({ type: "agent_updated", agent: wrapping });
+      sock.serverSend({ type: "call_ended", call: { ...call, status: "ended", ended_by: "caller" } });
+    });
+    await waitFor(() => expect(media.left).toBe(1));
+    const view = await screen.findByRole("region", { name: /wrap up/i });
+    await waitFor(() => expect(view).toHaveTextContent(/the caller hung up/i));
+  });
+
+  it("wrap up: pick a reason, add notes, Save; the server makes the agent available", async () => {
+    let saved: unknown = null;
+    route = (url, init) => {
+      if (url === "/calls/s1/wrap-up?agent_id=agent-1") return json(wrapInfo);
+      if (url === "/agents/agent-1/wrap-up") {
+        saved = JSON.parse(String(init?.body));
+        return json({ ...call, status: "ended", wrap_up: { reason_code: "denial_explained", notes: "x", saved_at: NOW } });
+      }
+      return undefined;
+    };
+    const sock = await signedInAvailable();
+    act(() => sock.serverSend({ type: "agent_updated", agent: wrapping }));
+    const view = await screen.findByRole("region", { name: /wrap up/i });
+    await waitFor(() => expect(within(view).getByRole("radio", { name: "Denial explained" })).toBeInTheDocument());
+    fireEvent.click(within(view).getByRole("radio", { name: "Denial explained" }));
+    fireEvent.change(within(view).getByLabelText(/notes/i), { target: { value: "Explained PA-01." } });
+    fireEvent.click(within(view).getByRole("button", { name: /save/i }));
+    await waitFor(() =>
+      expect(saved).toEqual({ session_id: "s1", reason_code: "denial_explained", notes: "Explained PA-01." }),
+    );
+    act(() => sock.serverSend({ type: "agent_updated", agent: { ...ana, state: "available" } }));
+    expect(screen.queryByRole("region", { name: /wrap up/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: /available/i })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("status")).toHaveTextContent(/call saved/i);
+  });
+
+  it("wrap up: a save error keeps the form with a message", async () => {
+    route = (url) => {
+      if (url === "/calls/s1/wrap-up?agent_id=agent-1") return json(wrapInfo);
+      if (url === "/agents/agent-1/wrap-up") return json({ detail: "pick a reason code from the list" }, 422);
+      return undefined;
+    };
+    const sock = await signedInAvailable();
+    act(() => sock.serverSend({ type: "agent_updated", agent: wrapping }));
+    const view = await screen.findByRole("region", { name: /wrap up/i });
+    await waitFor(() => expect(within(view).getByRole("radio", { name: "Other" })).toBeInTheDocument());
+    fireEvent.click(within(view).getByRole("radio", { name: "Other" }));
+    fireEvent.click(within(view).getByRole("button", { name: /save/i }));
+    expect(await within(view).findByRole("alert")).toHaveTextContent("pick a reason code from the list");
+    expect(within(view).getByRole("button", { name: /save/i })).toBeEnabled();
+  });
+
+  it("wrap up: if the call cannot be loaded, the toggle is the way out", async () => {
+    route = (url) => (url.startsWith("/calls/s1/wrap-up") ? json({ detail: "unknown call" }, 404) : undefined);
+    const sock = await signedInAvailable();
+    act(() => sock.serverSend({ type: "agent_updated", agent: wrapping }));
+    const view = await screen.findByRole("region", { name: /wrap up/i });
+    expect(await within(view).findByRole("alert")).toHaveTextContent("unknown call");
+    expect(screen.getByRole("switch", { name: /available/i })).toBeEnabled();
+  });
+
+  it("QH-9: the agent dropped off; the portal leaves the room and says the caller went back to the queue", async () => {
     const sock = await signedInAvailable();
     const media = await acceptAndJoin(sock);
     act(() => {
-      sock.serverSend({ type: "agent_updated", agent: { ...ana, state: "wrap_up", idle_since: null } });
-      sock.serverSend({ type: "call_ended", call: { ...call, status: "ended" } });
+      sock.serverSend({ type: "agent_updated", agent: { ...ana, state: "offline", idle_since: null } });
+      sock.serverSend({
+        type: "call_queued",
+        call: { ...call, status: "queued", offered_to: null },
+        position: 1,
+        requeued: true,
+      });
     });
     await waitFor(() => expect(media.left).toBe(1));
     expect(screen.queryByRole("group", { name: /call/i })).not.toBeInTheDocument();
-    expect(screen.getByRole("status")).toHaveTextContent(/caller hung up/i);
+    expect(screen.getByRole("status")).toHaveTextContent(/lost the connection/i);
+    expect(screen.getByRole("status")).toHaveTextContent(/front of the queue/i);
+    expect(screen.getByRole("switch", { name: /available/i })).toHaveAttribute("aria-checked", "false");
+  });
+
+  it("QH-9 after a reload mid call: the requeue for our call shows the same notice", async () => {
+    const sock = await signedInAvailable();
+    act(() => sock.serverSend({ type: "snapshot", queue: [], active: [], agents: [onCall], offer_timeout_secs: 20 }));
+    expect(screen.getByText(/lost the call audio/i)).toBeInTheDocument();
+    act(() => {
+      sock.serverSend({ type: "agent_updated", agent: { ...ana, state: "offline", idle_since: null } });
+      sock.serverSend({ type: "call_queued", call: { ...call, status: "queued" }, position: 1, requeued: true });
+    });
+    expect(screen.getByRole("status")).toHaveTextContent(/front of the queue/i);
+    expect(screen.queryByText(/lost the call audio/i)).not.toBeInTheDocument();
+  });
+
+  it("QH-9 missed while disconnected: a snapshot that has us not available mid call leaves the room", async () => {
+    const sock = await signedInAvailable();
+    const media = await acceptAndJoin(sock);
+    act(() =>
+      sock.serverSend({
+        type: "snapshot",
+        queue: [{ ...call, status: "queued" }],
+        active: [],
+        agents: [{ ...ana, state: "offline", idle_since: null }],
+        offer_timeout_secs: 20,
+      }),
+    );
+    await waitFor(() => expect(media.left).toBe(1));
+    expect(screen.getByRole("status")).toHaveTextContent(/front of the queue/i);
   });
 
   it("a join failure keeps the call screen with an error so the agent can end it", async () => {

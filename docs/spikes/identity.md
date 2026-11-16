@@ -3,7 +3,7 @@
 > Note (Nov 16, P5-10): demo IDs and names changed after this was written. Member IDs
 > are now 6 digits (Maria Alvarez EVM100231 is now Maria Lopez 418302) and claim
 > numbers 5 digits (CLM-900001 is now 70412); see docs/db.md. The results below are
-> kept as measured, with the old IDs.
+> kept as measured, with the old IDs; the P5-10 section at the end measures the new ones.
 
 Date: 2026-11-16. Pipecat 1.15.0, Deepgram nova-3 STT and aura-2 TTS, Anthropic (default
 `create_llm` model), Daily `dg-chriscat`, Supabase Postgres (throwaway schema per run,
@@ -245,3 +245,49 @@ must still be not_verified.
   panel switched to Linda Nguyen "Verified by agent", and Reveal worked.
   `calls.identity_decision` and the `assist_events` `identity_decision` row were
   written. Screenshots: docs/screenshots/identity-v2/.
+
+## P5-10: demo friendly IDs and names (card t_96b0986b, Chris Nov 16)
+
+The seed now uses 6 digit member IDs read in two groups of three (418 302), 5 digit
+claim numbers read as two and three (70 412), and short, common names (docs/db.md).
+Linda Nguyen and Aisha Patel stay as the two hard names. The read back says the ID in
+groups, `normalize_member_id` keeps the digits from written or spoken forms, and pack
+keyterms no longer carry the EVM / CLM prefixes.
+
+Harness: `INTAKE_PERSONAS=maria_lopez,james_carter,sarah_miller,mark_hill,linda_nguyen
+INTAKE_RUNS=2 uv run pytest -m live bot/tests/test_live_intake.py`, Settings defaults
+(intake STT Flux, intake LLM phoneLLM mini), Nov 16. Result lines now carry
+`member_id_heard_right` (saved member ID equals the real one) and `claim_heard_right`
+(the saved claim number answer holds the real 5 digits; James has no claim).
+
+| persona | run | result | member ID heard right | claim heard right | intake s | heard name | caller lines |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Maria Lopez | 1 | verified | yes | yes | 90.7 | Maria Lopez | identity, confirm_yes, reason, claim_number, service_date, claim_concern, readback |
+| Maria Lopez | 2 | verified | yes | yes | 85.6 | Maria Lopez | identity, confirm_yes, reason, claim_number, service_date, claim_concern, readback |
+| James Carter | 1 | verified | yes | n/a | 81.8 | James Carter | identity, confirm_yes, reason, claim_number, service_date, claim_concern, readback |
+| James Carter | 2 | verified | yes | n/a | 89.3 | James Carter | identity, fix_name, fix_name, reason, claim_number, service_date, claim_concern, readback |
+| Sarah Miller | 1 | verified | yes | yes | 79.4 | Sarah Miller | identity, confirm_yes, reason, claim_number, service_date, claim_concern, readback |
+| Sarah Miller | 2 | verified | yes | yes | 89.1 | Sarah Miller | identity, confirm_yes, reason, claim_number, service_date, claim_concern, readback |
+| Linda Nguyen | 1 | close_match | yes | yes | 79.1 | Linda Engen | identity, fix_name, reason, claim_number, service_date, readback |
+| Linda Nguyen | 2 | verified | yes | yes | 99.3 | Linda Nguyen | identity, confirm_yes, reason, claim_number, service_date, claim_concern, readback |
+| Mark Hill | 1 | close_match | yes | yes | 99.9 | Mark Hil | identity, identity, fix_name, reason, claim_number, service_date, claim_concern, readback |
+| Mark Hill | 2 | verified | yes | yes | 95.2 | Mark Hill | identity, confirm_yes, reason, claim_number, service_date, claim_concern, readback |
+
+| | v2 (old IDs, Nov 16) | P5-10 (new IDs) |
+| --- | --- | --- |
+| Member ID heard right | not scored; misheard IDs needed `fix_member_id` (Maria 1) | **10 of 10**, no `fix_member_id` in any run |
+| Claim number heard right | not scored | **8 of 8** (saved as the 5 digits) |
+| Identity correct | 7 of 10 (3 runs never reached the check) | **10 of 10** |
+| Identity correct, easy names | n/a | 8 of 8 (7 verified, 1 close_match) |
+| Intake under 120 s | 5 of 7 completed | **10 of 10** (median 89.2 s, max 99.9 s) |
+| Response gap (caller stop to bot audio) | | median 2.46 s, p90 3.21 s (71 turns) |
+
+- Targets met: member ID and claim number heard right 10 of 10 (8 of 8 runs with a
+  claim), identity correct 10 of 10.
+- Names: the only misses were names, as before. Mark Hill 1 was heard as "Mark Hil"
+  (one letter): close_match, which the agent confirms (IN-13). Linda 1 was "Linda
+  Engen" after one fix: close_match. James 2 needed two name fixes and ended verified.
+- Open: in Mark Hill 1 the intake LLM (phoneLLM mini) said the date of birth aloud in a
+  free form re-ask ("I have your date of birth as October sixth, nineteen seventy
+  five"). The fixed read back never says the DOB; `say_to_caller` text is LLM written.
+  Not caused by this change; logged for a follow up.

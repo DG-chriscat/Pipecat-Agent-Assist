@@ -118,6 +118,7 @@ A call island in the top bar shows the caller, verified status, a live waveform,
 | AP-18 | Identity status is always visible in the caller panel: not checked, n of 3, or 3 of 3 (name, date of birth, member ID), from the intake identity result. | Must |
 | AP-21 | An Architecture page in the portal (rail icon) explains the stack for prospect presentations: one diagram from caller to Daily, the Pipecat bot (Deepgram STT and TTS, tone reader, Flows, assist), the Vitals server, the agent portal, and the database; Business and Technical views; click any part for what it does, why, measured numbers, and doc links; Walk a call step mode; data and privacy, prospect questions, and PoC vs production sections; export image and present mode. Every external link opens in a new tab. | Should |
 | AP-22 | Settings includes Flux voice controls: speed (range set by the read back test), expressivity (Beta, calm to animated), and an option to slow down for read backs of member IDs, dates of birth, and claim numbers. Disabled for Aura-2. | Should |
+| AP-23 | A Demos page in the portal (rail icon) lists demo callers: name, date of birth, member ID, plan, the case, what to say, what the audience sees, and which features it shows; copy details and start a browser call as that caller in a new tab. | Should |
 | AP-20 | A Settings page in the portal lets a signed in user change the bot's voice (Aura-2 or Flux TTS, voice, preview), greeting (must keep the AI disclosure), intake pack and identity read back, and hold message and interval. Settings are stored in the database, logged, and apply to the next call. | Must |
 | AP-19 | "Earlier this call" lists accepted actions and completed plan steps with call time stamps. | Should |
 
@@ -151,6 +152,7 @@ A use case pack bundles everything one kind of call needs: intake questions, tri
 | --- | --- | --- |
 | DC-1 | Every connector uses one standard shape: search, and get by ID. Each is exposed as an LLM tool through a function call or an MCP server. | Must |
 | DC-2 | Connectors are read only in v1. | Must |
+| DC-12 | Demo data is built for speech recognition: mostly short, common names (two deliberately hard names for the verification demo), 6 digit member IDs, and 5 digit claim numbers, all digits. | Must |
 | DC-3 | v1 connectors read one mock Postgres database seeded with test members, plans, claims (with denial codes), payments, referrals, prior authorizations, past interactions, and articles. | Must |
 | DC-4 | A connector call times out after 2 seconds, and results are cached for the rest of the call. | Should |
 | DC-5 | Every connector call is logged with the call ID, the tool, and the result size. | Must |

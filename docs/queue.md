@@ -120,7 +120,8 @@ REST:
 | GET | `/calls/{session_id}/caller?agent_id=` | | caller panel data (P3-3, see below) |
 | GET | `/calls/{session_id}/wrap-up?agent_id=` | | wrap up view data (P3-5) |
 | POST | `/agents/{agent_id}/wrap-up` | `{session_id, reason_code, notes}` | the call, saved; agent available (P3-5) |
-| POST | `/calls/{session_id}/phi-reveal` | `{agent_id, field: member_id\|dob}` | logs a PHI reveal on the call (AP-17); 403 unless the agent is on the call |
+| POST | `/calls/{session_id}/phi-reveal` | `{agent_id, field: member_id\|dob}` | logs a PHI reveal on the call (AP-17); 403 unless the agent is on the call and the caller is verified (at intake, or by the agent's decision, IN-13) |
+| POST | `/calls/{session_id}/identity-decision` | `{agent_id, decision: verified\|not_verified}` | IN-13: stores `{decision, agent_id, agent_name, at}` on the call (`calls.identity_decision`); 404 unknown call, 403 not the agent on the call, 409 already decided, 422 bad value |
 
 Invalid commands return 409 with a message; a Daily token failure on accept returns
 502. `/queue/calls` only takes sessions this server started (`/calls/browser` or the
@@ -152,9 +153,11 @@ Code: `server/agent_assist_server/caller_api.py`. `GET /calls/{session_id}/calle
 - Only the agent the call was accepted by can read it (the call's `agent_id` must match;
   queued and ringing calls return 403, unknown calls 404). It stays readable in wrap up.
   The shared login (P2-6) covers it like every other route.
-- Always returned: `session_id`, `identity_result`, `outcome`, `flags`, `intake` (the
-  intake answers from the handoff summary), `wait_secs` (queued to answered).
-- Verified callers only (`identity_result` verified and a member id the DB knows):
+- Always returned: `session_id`, `identity_result`, `identity_decision` (IN-13, or
+  null), `outcome`, `flags`, `intake` (the intake answers from the handoff summary),
+  `wait_secs` (queued to answered).
+- Verified callers only (`identity_result` verified, or the agent marked the caller
+  verified on the verify hero, IN-13; and a member id the DB knows):
   `member` (`member_id`, `name`, `first_name`, `last_name`, `dob`, `plan_id`,
   `plan_name`, `plan_type`), `calls_30d` (interactions in the last 30 days),
   `repeat_caller` (2 or more), `recent_events` (last 3 across interactions, claims, and

@@ -111,7 +111,6 @@ VERIFY_RANK = 1000  # nothing outranks it; it leaves only on the agent's decisio
 # verified. Articles (knowledge base), tone tips, and the call plan always show.
 LOCKED_KINDS = frozenset({"next_step", "record", "alert"})
 CALLBACK_STEP = {"id": "offer_callback", "label": "Offer a callback after identity is confirmed"}
-LOCKED_ASK_MESSAGE = "Verify the caller to see records."
 _VERIFY_ITEMS = (("member_id", "Member ID"), ("dob", "Date of birth"), ("full_name", "Name"))
 # Say this, for the first item that did not match (member ID, then DOB, then name).
 _VERIFY_SCRIPT = {

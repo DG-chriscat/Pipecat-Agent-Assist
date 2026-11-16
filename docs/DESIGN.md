@@ -106,8 +106,10 @@ Wordmark, divider, "Vitals", **PHI masked** chip (lock icon). Centered **call is
 | Hero | listening ("Listening with you"), suggestion, accepted (phosphor check, moves to Earlier this call), dismissed |
 | Shelf tile | record, call plan, tone tip, article, alert (clay swatch). Each: pin, dismiss, thumbs up/down, source on hover |
 | Call plan step | done (phosphor, struck through), next (fuchsia ring), todo |
-| Identity | not checked, partial (n of 3, bakelite), confirmed (3 of 3, phosphor ring) |
-| PHI field | masked (default), revealed (logs a reveal event on the call record, re-masks after 30 s) |
+| Identity | not checked, partial (n of 3, bakelite), confirmed (3 of 3, phosphor ring), verified by agent (phosphor ring, agent name on hover), not verified by agent (clay) |
+| Verify hero (IN-13) | first hero for a caller who is not verified: "Verify caller" chip (bakelite; clay when not found), headline "Confirm who you're speaking with", one row per check (phosphor check or bakelite cross; heard vs on file for the name, never the DOB), **Say this** script, **Mark verified** (primary, Enter), **Could not verify**; no Not now / Esc. Ack: "Caller verified" (phosphor shield) or "Identity not confirmed" (muted), then a row in Earlier this call |
+| Locked tile (IN-13) | stone swatch with a lock, "Locked record", "Verify the caller to see records". No values, no source, no tools. Replaced by the real tile on Mark verified |
+| PHI field | masked (default), revealed (logs a reveal event on the call record, re-masks after 30 s), disabled (muted Reveal, "Verify the caller to reveal", until the caller is verified) |
 | Chip | ok, warn, bad, ai, info, neutral |
 | Button | primary fuchsia gradient, secondary soft fill, End clay |
 | Call island | ringing, on call, hold, wrap up |

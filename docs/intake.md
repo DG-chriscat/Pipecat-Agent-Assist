@@ -13,10 +13,13 @@ A Pipecat Flow (`pipecat.flows`, shipped inside pipecat-ai 1.15; the standalone
    yet checked). Entering this node turns the identity STT tuning on (see below).
 3. **identity_confirm**: fixed `tts_say` read back, "Thanks. I have Maria Alvarez,
    member ID E V M, one zero zero, two three one. Is that right?" (never the DOB).
-   `verify_identity` runs the check (IN-6) and turns the tuning off; `correct_identity`
-   saves the corrected fields and reads back once more. A second correction checks
-   without a third read back (2 minute target). Asking for a person or an emergency
+   `verify_identity` runs the check (IN-6) and turns the tuning off. The caller gets
+   one fix (`MAX_IDENTITY_FIXES = 1`): a `correct_identity`, or one free-form re-ask via
+   `say_to_caller`. After that the bot checks what it has and moves on, with no second
+   read back (2 minute target). Asking for a person or an emergency
    during the read back still checks what was saved, so the agent sees a result.
+   In the identity node, a `save_identity` missing a field is refused once; the second
+   one saves what was given and checks it, giving `incomplete`.
 4. **reason**: `save_reason`.
 5. **one node per pack question**: `save_answer`, in pack order.
 6. **readback**: the bot reads a short summary (no claim number, member ID, or DOB);
@@ -36,14 +39,24 @@ On every intake node the LLM also has:
 The bot creates its `calls` row (keyed by `--session-id`) when the caller joins and
 writes each answer into `calls.intake` the moment its function call runs (IN-5):
 `full_name`, `dob`, `member_id`, `reason`, one key per pack question, `summary`, and
-`emergency` when reported. `identity_result` is `verified`, `not_verified`, or
-`not_found`; failed checks add the flag `identity_not_verified` or
-`identity_not_found` and the caller continues (IN-6).
+`emergency` when reported. `identity_result` is `verified`, `close_match`,
+`not_verified`, `not_found`, or `incomplete`; anything but verified adds the flag
+`identity_close_match`, `identity_not_verified`, `identity_not_found`, or
+`identity_incomplete` and the caller continues (IN-6). Every caller who is not
+verified gets the agent's verification step on handoff (IN-13, `docs/assist.md`).
 
 Identity rules (`calls.match_identity`): member ID found and name + DOB match it is
-verified; member ID found but name or DOB differ is not_verified; unknown ID but
-name + DOB match exactly one member is not_verified; anything else is not_found.
-Name alone never identifies (two seed members are named James Chen).
+verified; member ID and DOB exact and the name close by spelling is close_match;
+member ID found but otherwise different is not_verified; unknown ID but name + DOB
+match exactly one member is not_verified; anything else is not_found. Any of the
+three still missing after the one fix is incomplete. Name alone never identifies
+(two seed members are named James Chen).
+
+Close by spelling (`name_part_close`): the name has a first and last part; one part
+matches exactly and the other is within 3 edits (Levenshtein) with similarity at
+least 0.5. From the STT spike: "Linda Yuen" for Linda Nguyen, "Ayesha Patel" for Aisha
+Patel, "Daniel Lokafor" are close; "Linda Wayne", "Daniel Luca Ford" are not. A close
+match never unlocks records by itself; the agent decides.
 
 At the end the row is `ready_for_queue` with `intake.summary`, and the bot calls
 `HandoffHook.on_intake_complete(IntakeHandoff)`. The queue (P2-4) implements the

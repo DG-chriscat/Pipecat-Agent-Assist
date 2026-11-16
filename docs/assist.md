@@ -120,6 +120,7 @@ The portal ignores messages with `v` other than 1.
 | `card_removed` | `card_id`, `reason`: `dismissed`, `accepted`, `promoted` (moved to hero), `replaced` (an older tone tip). |
 | `mood` | P4-5. The caller's mood trend: `label` ("Worried, easing"), `tone` (`ok`, `warn`, `bad`), `step` (0 to 4), `readings`: every tone reading of the call, `[{line_id, ts, emotion, confidence, sarcasm, step, mood, score}]` (`score` = step / 4). Sent on start and resync when there are intake readings, and after each caller line with a reading. |
 | `ask_result` | P4-6. How an Ask bar question ended: `ask_id`, `status` (`answered`, `no_answer`, `error`), `card_id` (the answer card, or null), `message` (why there is no answer, or null). Sent after the answer's `card_added`. |
+| `identity` | IN-13. The identity gate: `state` (`pending`: records locked until the agent decides; `verified`: by intake, `by` null, or by the agent; `not_verified`: the agent could not verify), `result` (the intake identity result), `checks` (which of `full_name`, `dob`, `member_id` matched), `by` (agent name), `at` (epoch s). Sent on start, on resync, and on the decision. |
 
 Card:
 
@@ -209,6 +210,40 @@ characters, `ask_id` 1 to 64. Code: `assist_ask.py` (parsing, card building),
    `latency_ms` from the question. Then `ask_result`. Each Ask runs as its own task, so
    a slow lookup never holds up transcript cards (DC-6).
 
+## Human verification on handoff (IN-13)
+
+Code: `assist.identity_gate`, `AssistEngine.start(identity=...)`, `AssistEngine._decide`;
+the gate comes from `AssistSession.on_accept`.
+
+- A caller whose intake result is not `verified` (`close_match`, `not_verified`,
+  `not_found`, `incomplete`) starts the call with `identity` `pending` and the **verify
+  hero** as the first hero: card `verify:identity`, kind `verify`, rank 1000,
+  `ai_suggested` false. `body`: `headline` "Confirm who you're speaking with.", `why`
+  (by result), `result`, `items` `[{field, label, ok, heard, on_file}]` (member ID, date
+  of birth, name; `heard`/`on_file` only on a name that did not match, never the DOB),
+  `script` (Say this, for the first item that did not match), `actions`
+  (`mark_verified`, `could_not_verify`).
+- Connectors are scoped to the member matched by member ID (when there is one), so
+  cards can still be built, but next steps, records, and alerts go out **locked**:
+  `"locked": true`, id `locked:<sha256(id)[:12]>`, `title` "Locked record", `source`
+  `{"label": "Records", "records": []}`, `body` `{"locked": true}`, no rule or template
+  id. Nothing in a locked card hints at what the record is. Articles, tone tips, and the
+  plan are not member data and show as usual. A next step never becomes the hero while
+  locked. An Ask answered from member records is a locked tile too.
+- `assist_feedback` with `card_id` `verify:identity` and `action` `mark_verified` or
+  `could_not_verify` decides, once per call (other actions on the verify card are
+  ignored; it cannot be dismissed).
+  - **Mark verified**: `identity` `verified` (with `by`, `at`); each locked tile is
+    removed (`card_removed` reason `unlocked`, by its locked id) and added again with
+    its records; the best next step becomes the hero (reason `verified`).
+  - **Could not verify**: `identity` `not_verified`; records stay locked for the call;
+    the plan gets the step `offer_callback` "Offer a callback after identity is
+    confirmed"; the hero clears (reason `not_verified`).
+- The decision is logged as an `assist_events` row `identity_decision` (`decision`,
+  `by`, `at`, `intake_result`). The portal also posts it to the server
+  (`POST /calls/{id}/identity-decision`, docs/queue.md), which stores it on
+  `calls.identity_decision`, unlocks the caller panel, and allows PHI Reveal.
+
 ## Pack at accept, and the general question pack (P4-6)
 
 On accept the engine picks the pack whose triggers match the intake answers (every
@@ -227,9 +262,9 @@ in the line, as a run of words, is shown at once as an article card, no LLM; tha
 | --- | --- |
 | `event_id` | identity, order |
 | `call_id` | `calls.call_id`, cascade delete |
-| `kind` | `card_sent`, `accept`, `dismiss`, `pin`, `unpin`, `rate`, `guardrail` |
+| `kind` | `card_sent`, `accept`, `dismiss`, `pin`, `unpin`, `rate`, `guardrail`, `identity_decision` (IN-13, migration 0008) |
 | `card_id` | card id (null for some guardrail rows) |
-| `data` | jsonb. `card_sent`: kind, rank, pack_id, trigger_phrase, trigger_line_id, latency_ms. `accept`: kind, pack_id, action_id, simulated. `rate`: rating. |
+| `data` | jsonb. `card_sent`: kind, rank, pack_id, trigger_phrase, trigger_line_id, latency_ms. `accept`: kind, pack_id, action_id, simulated. `rate`: rating. `identity_decision`: decision, by, at, intake_result. |
 | `created_at` | |
 
 RLS is enabled with no policies (same lock as 0002); `seed` truncates it.

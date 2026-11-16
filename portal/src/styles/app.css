@@ -1030,7 +1030,7 @@
 .segment:disabled { cursor: default; opacity: .45; }
 .segment:disabled:hover { color: var(--text-muted); }
 .flux-controls .flux-note { margin: 0; }
-.flux-speed-head { justify-content: space-between; }
+.flux-speed-head { justify-content: space-between; max-width: 420px; }
 .flux-speed-value { font-size: 13px; color: var(--text); }
 .flux-speed { display: flex; flex-direction: column; gap: 6px; max-width: 420px; }
 .range {

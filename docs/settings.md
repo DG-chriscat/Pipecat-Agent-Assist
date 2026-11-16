@@ -19,6 +19,10 @@ always takes the agent back to Calls.
 | `hold_update_secs` | `HOLD_UPDATE_SECS` or 60 | whole seconds, 5 to 600 |
 | `stt_intake_model` | `nova-3-general` | `nova-3-general` or `flux-general-en` (P5-7, IN-14) |
 | `stt_assist_model` | `nova-3-general` | `nova-3-general`, `nova-3-medical`, or `flux-general-en` (P5-7, IN-14) |
+| `tts_speed` | 1.0 | Flux only: 0.8 to 1.2 in steps of 0.05 (P5-8, AP-22) |
+| `tts_expressivity` | 0 | Flux only (Beta): a whole number, -2 (Calm) to 2 (Animated) |
+| `slow_readback` | on | Flux only: speak read backs at `readback_speed`, then go back to `tts_speed` |
+| `readback_speed` | 0.9 | 0.8 to 1.0 in steps of 0.05 |
 
 Why Flux Alexis is the default: docs/spikes/tts-flux-vs-aura.md (Flux Alexis 80/80 key
 entities, Aura-2 Thalia 79/80). The intake questions of the chosen pack are shown read
@@ -44,6 +48,47 @@ There is no Flux medical model, so Nova-3 Medical is offered on the assist side 
 tuning per model, and why eager end of turn is off: `bot/agent_assist_bot/stt.py` and
 docs/spikes/stt-flux-intake.md.
 
+## Delivery: Flux voice controls (P5-8, AP-22)
+
+The Voice section has a **Delivery** group under the voice picker:
+
+- **Speed**: a slider, 0.8x to 1.2x in steps of 0.05, with a 1.0 Normal mark. The range
+  is the one the read back test passed: every key entity was heard right at 0.8, 0.9,
+  1.0, 1.1, and 1.2 (docs/spikes/tts-flux-controls.md). `GET /settings` sends it in
+  `limits.tts_speed` and `limits.speed_step`, and the page draws the slider from those.
+- **Expressiveness** (Beta chip): Calm, Steady, Natural (default), Warm, Animated, which
+  are Flux expressivity -2 to 2. Both extremes read every entity right in the test, so
+  the help text has no warning.
+- **Slow down for read backs** (on by default): read backs at `readback_speed` (0.9x),
+  then the voice goes back to the chosen speed.
+
+With Aura-2 selected, the three controls are disabled and a note says they are only for
+Flux voices. The values are kept, and the bot ignores them on Aura-2.
+
+How the bot does it (`bot/agent_assist_bot/tts_pacing.py`):
+
+- Flux connects with `speed` and `expressivity` from Settings (`build_tts`). Expressivity
+  is fixed for the connection.
+- `ReadbackPacer` sits between the LLM and the TTS. Before a read back line it sends a
+  `TTSUpdateSettingsFrame(speed=readback_speed)`, and right after the line one with
+  `tts_speed`. Flux applies each with a `Configure` message on the open connection: no
+  reconnect, so the voice keeps its acoustic state across turns. Both frames are
+  uninterruptible, so a barge in cannot leave the call slow.
+- Read back lines: the identity read back and every `say_to_caller` line in the final
+  summary read back node (marked by intake), plus any line that says a member ID, date
+  of birth, or claim number value (written or spelled out). A question that only asks
+  for one ("What's your date of birth?") is not a read back. A streamed LLM reply slows
+  from the first token where a value shows, and is restored when the reply ends.
+- Each change is on the timing log:
+  `[timing] event=tts_speed t=... speed=0.9 reason=readback session=...`, then
+  `speed=1.1 reason=restore`.
+- No inline pronunciation markup is used. Flux rejects it (`DATA-0002`) at any speed but
+  1.0.
+
+Preview sends the controls too: the sample (a greeting plus a member ID read back) is
+made at the chosen speed and expressiveness, and with slow read backs on, the read back
+half is made at `readback_speed` (two `/v2/speak` calls, MP3s joined).
+
 ## Voices
 
 `GET /settings/voices` -> `{"aura-2": [voice], "flux": [voice]}`, each voice
@@ -56,7 +101,8 @@ docs/spikes/stt-flux-intake.md.
   `agent_assist_server/voice_catalog.py`. `server/tests/test_voice_catalog_live.py`
   speaks every Flux id on `/v2/speak` (36 of 36 passed on Nov 16).
 
-Preview (`POST /settings/preview {tts_model, tts_voice, text?}`) synthesizes a sample
+Preview (`POST /settings/preview {tts_model, tts_voice, text?, tts_speed?,
+tts_expressivity?, slow_readback?, readback_speed?}`) synthesizes a sample
 line (or the greeting being edited) on the server, `/v1/speak` or `/v2/speak` batch,
 and returns MP3. The Deepgram key never reaches the browser.
 
@@ -74,7 +120,8 @@ The bot key does not open these routes.
 
 ## Storage and the change log
 
-- `bot_settings` (migration 0008; the STT columns in 0010): one row, `id = 1`. No row
+- `bot_settings` (migration 0008; the STT columns in 0010, the Flux voice controls in
+  0011): one row, `id = 1`. No row
   means the defaults in code
   (`agent_assist_server/bot_settings.py`). Reset deletes the row.
 - `settings_events`: every save and reset, with `session_id` (a hash of the login
@@ -99,11 +146,14 @@ gets what was saved when the call came in.
 
 The bot (`agent_assist_bot/call_settings.py`) logs one line per call, no free text:
 
-    [settings] session=... tts=flux/flux-alexis-en pack=claims_status read_back=on hold_every=60s stt_intake=nova-3-general stt_assist=nova-3-general
+    [settings] session=... tts=flux/flux-alexis-en speed=1 expressivity=0 slow_readback=0.9 pack=claims_status read_back=on hold_every=60s stt_intake=nova-3-general stt_assist=nova-3-general
+
+(`speed`, `expressivity`, and `slow_readback` are only shown for Flux; `slow_readback=off`
+when the toggle is off.)
 
 A value it cannot use falls back to its default (logged); a call never fails over
 settings. `build_tts` builds `DeepgramTTSService` (`/v1/speak`) for Aura-2 and
-`DeepgramFluxTTSService` (`/v2/speak`) for Flux: Flux voice ids are refused on
+`tts_pacing.FluxTTSService`, a `DeepgramFluxTTSService` (`/v2/speak`), for Flux: Flux voice ids are refused on
 `/v1/speak` (`V2_MODEL_ON_V1_SPEAK_ENDPOINT`), so the model picks the service class.
 The greeting timing log, hold updates and music, the connecting line, and the gate are
 the same for both.
@@ -115,3 +165,9 @@ custom greeting and hold message every 8 s, preview, then a browser call. Checks
 built Flux with the saved voice, the greeting heard is the saved one, intake reaches the
 queue, the saved hold line plays, and "Connecting you now." follows the accept.
 Screenshots: docs/screenshots/p5-5/.
+
+`server/tests/test_flux_controls_live.py` (P5-8): sets Flux at 1.1x, Warm, slow read
+backs on, previews, saves, and places a browser call. It checks that the identity read
+back starts at 0.9x, that the next line is back at 1.1x, that questions stay at 1.1x,
+that there is one Flux connection for the whole call, and that Flux applied every speed
+change. Screenshots: docs/screenshots/flux-controls/.

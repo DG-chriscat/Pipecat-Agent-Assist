@@ -43,20 +43,24 @@ READBACK_KEY = "readback"
 REASON_KEY = "tts_speed_reason"
 
 _MONTHS = "january|february|march|april|may|june|july|august|september|october|november|december"
+_DIGIT = r"(?:\d|zero|oh|one|two|three|four|five|six|seven|eight|nine)"
+_SEP = r"[\s,]+"
+# Values only: a line that asks for a detail ("What's your date of birth?") is not a
+# read back. Seen live, keying on the words slowed those questions down.
 _READBACK = re.compile(
     r"|".join(
         (
-            r"\bmember\s*id\b",
-            r"\bdate of birth\b",
-            r"\bborn\b",
-            r"\bclaim\s+(number|id|#)",
-            r"\bclm\s*-?\s*\d",
-            # A member ID as written (EVM100231) or a claim number (CLM-900001).
+            # A member ID or claim number as written: EVM100231, CLM-900001.
             r"\b[a-z]{2,4}-?\d{5,}\b",
-            # A date of birth: 03/12/1984, 1984-03-12, March 12, 1984.
+            # Spelled out: letters, then digits one at a time ("E V M, one zero zero").
+            rf"\b[a-z](?:{_SEP}[a-z]){{1,3}}\b[\s,-]+(?:dash{_SEP})?{_DIGIT}(?:{_SEP}{_DIGIT}){{2,}}",
+            # Six or more digits said one at a time.
+            rf"\b{_DIGIT}(?:{_SEP}{_DIGIT}){{5,}}\b",
+            # A date of birth: 03/12/1984, 1984-03-12, March 12, 1984, 12th of March, 1984.
             r"\b\d{1,2}/\d{1,2}/\d{2,4}\b",
             r"\b\d{4}-\d{2}-\d{2}\b",
             rf"\b({_MONTHS})\s+\d{{1,2}}(st|nd|rd|th)?,?\s+\d{{4}}\b",
+            rf"\b\d{{1,2}}(st|nd|rd|th)?\s+of\s+({_MONTHS}),?\s+\d{{4}}\b",
         )
     ),
     re.IGNORECASE,

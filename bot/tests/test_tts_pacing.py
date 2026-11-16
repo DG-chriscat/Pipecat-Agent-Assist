@@ -121,8 +121,10 @@ def test_pacer_only_when_slow_read_backs_are_on_and_slower():
         "Your member ID is EVM100231.",
         "So that's Maria, date of birth March 12, 1984. Is that right?",
         "You were born 03/12/1984, right?",
+        "Born on the 12th of March, 1984?",
         "That's claim CLM-900001 for $1,240.",
         "Got it, claim number C L M, nine zero zero, zero zero one.",
+        "Member ID E V M 1 0 0 2 3 1.",
     ],
 )
 def test_lines_with_a_member_id_dob_or_claim_number_are_read_backs(text):
@@ -137,6 +139,10 @@ def test_lines_with_a_member_id_dob_or_claim_number_are_read_backs(text):
         "What's the reason for your call today?",
         intake.HANDOFF_LINE,
         "Thanks, you are verified.",
+        # Asking for a detail is not reading one back (seen live: these were slowed).
+        "Thanks, Maria. What's your date of birth and member ID?",
+        "Do you have the claim number? It's on your explanation of benefits.",
+        "When were you born?",
     ],
 )
 def test_other_lines_are_not(text):

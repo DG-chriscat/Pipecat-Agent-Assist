@@ -363,6 +363,15 @@ describe("Flux voice controls (P5-8, AP-22)", () => {
     expect(play).toHaveBeenCalledTimes(1);
   });
 
+  it("fills the Flux control defaults when the server sends none", async () => {
+    const { tts_speed, tts_expressivity, slow_readback, readback_speed, ...older } = DEFAULTS;
+    void [tts_speed, tts_expressivity, slow_readback, readback_speed];
+    const api = fakeApi({ get: vi.fn(async () => ({ ...response(), values: older as SettingsValues })) });
+    await setup(api);
+    expect(screen.getByText("1.0x")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^save$/i })).toBeDisabled();
+  });
+
   it("uses the slider range the server sends", async () => {
     const api = fakeApi({
       get: vi.fn(async () => {

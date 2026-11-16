@@ -65,6 +65,12 @@ const SPEED_STEP = 0.05;
 const speedLabel = (s: number) => `${s.toFixed(s * 10 === Math.round(s * 10) ? 1 : 2)}x`;
 /** Set from the read back test (docs/spikes/tts-flux-controls.md). */
 const EXPRESSIVITY_HELP = "How much the voice rises and falls. Natural is Flux's default.";
+const FLUX_DEFAULTS = { tts_speed: 1.0, tts_expressivity: 0, slow_readback: true, readback_speed: 0.9 };
+
+/** A response from a server without the Flux controls gets their defaults. */
+function withFluxDefaults(s: SettingsResponse): SettingsResponse {
+  return { ...s, values: { ...FLUX_DEFAULTS, ...s.values } };
+}
 
 async function playBlob(audio: Blob): Promise<void> {
   const url = URL.createObjectURL(audio);
@@ -97,8 +103,9 @@ export function Settings({ api, agentName, play = playBlob }: Props) {
   useEffect(() => {
     let live = true;
     Promise.all([api.get(), api.voices()])
-      .then(([s, v]) => {
+      .then(([raw, v]) => {
         if (!live) return;
+        const s = withFluxDefaults(raw);
         setLoaded(s);
         setDraft(s.values);
         setVoices(v);
@@ -120,7 +127,8 @@ export function Settings({ api, agentName, play = playBlob }: Props) {
     });
   }, []);
 
-  const applied = useCallback((s: SettingsResponse, message: string) => {
+  const applied = useCallback((raw: SettingsResponse, message: string) => {
+    const s = withFluxDefaults(raw);
     setLoaded(s);
     setDraft(s.values);
     setFieldErrors({});

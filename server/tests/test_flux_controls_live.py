@@ -14,10 +14,10 @@ schema is migrated, seeded, and dropped; settings persist in it, SETTINGS_PERSIS
 2. A browser call (POST /calls/browser) with a daily-python caller answering intake as
    Maria Alvarez, until the call is queued. The bot's log is kept in a file.
 3. Checks from the bot log: the [settings] line has speed=1.1 expressivity=1
-   slow_readback=0.9; Flux connected once (no reconnect for a speed change); a
-   `[timing] event=tts_speed speed=0.9 reason=readback` line comes before the identity
-   read back and `speed=1.1 reason=restore` right after it; Flux applied each Configure.
-   The audio of the read back is measured (words per second) against the next line.
+   slow_readback=0.9; Flux connected once (no reconnect for a speed change); every
+   `[timing] event=tts_speed` change was applied by Flux (ConfigureSuccess); the identity
+   read back starts at 0.9x and the next line at 1.1x; questions that only ask for a
+   detail ("Do you have the claim number?") stay at 1.1x. Words per second are printed.
 """
 
 from __future__ import annotations
@@ -279,28 +279,30 @@ async def test_flux_controls_then_a_call_slows_the_read_back(schema, monkeypatch
             p = parse_timing(ln)
             assert p is not None
             speeds.append((p[1], float(p[2]["speed"]), p[2]["reason"]))
-        print("bot turns (heard):")
-        rate = {}
+
+        def speed_at(t: float) -> float:
+            before = [s for at, s, _ in speeds if at <= t]
+            return before[-1] if before else 1.1
+
+        print("bot turns (heard), with the speed in effect when each started:")
         for start, end, said in heard:
             wps = words_per_sec(said, end - start)
-            print(f"    {start:.2f}-{end:.2f} ({end - start:.1f}s, {wps:.2f} words/s): {said!r}")
-            rate[start] = (said, wps)
+            print(f"    {speed_at(start):.1f}x {end - start:4.1f}s {wps:.2f} words/s: {said!r}")
 
         assert "speed=1.1 expressivity=1 slow_readback=0.9" in settings_line, settings_line
         assert len(connects) == 1, "a speed change must not reconnect"
-        assert [(s, r) for _, s, r in speeds][:2] == [(0.9, "readback"), (1.1, "restore")]
-        assert len(configure) >= 2
-        readback = next((h for h in heard if "member id" in h[2].lower()), None)
+        assert speeds and [r for _, _, r in speeds[:2]] == ["readback", "restore"]
+        assert len(configure) == len(speeds), "Flux applied every speed change"
+        readback = next((h for h in heard if "member id e v m" in h[2].lower()), None)
         assert readback is not None, heard
         nxt = next((h for h in heard if h[0] > readback[0]), None)
-        slow_at, restore_at = speeds[0][0], speeds[1][0]
-        # The slow Configure is sent before the read back is heard, the restore after it
-        # was synthesized and before the next line is heard.
-        assert slow_at < readback[0] and restore_at < (nxt[0] if nxt else float("inf"))
+        assert speed_at(readback[0]) == 0.9, "the identity read back is slowed"
+        assert nxt is not None and speed_at(nxt[0]) == 1.1, "the next line is back to 1.1x"
+        questions = [h for h in heard if h[2].lower().startswith(("do you have", "what"))]
+        assert questions and all(speed_at(q[0]) == 1.1 for q in questions), questions
         rb_wps = words_per_sec(readback[2], readback[1] - readback[0])
         log(t0, f"read back {rb_wps:.2f} words/s at 0.9x")
-        if nxt:
-            log(t0, f"next line {words_per_sec(nxt[2], nxt[1] - nxt[0]):.2f} words/s at 1.1x")
+        log(t0, f"next line {words_per_sec(nxt[2], nxt[1] - nxt[0]):.2f} words/s at 1.1x")
     finally:
         for p in launcher.processes.values():
             if p.returncode is None:

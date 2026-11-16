@@ -51,7 +51,7 @@ Join the returned `room_url` with the `caller_token` from any Daily client.
   bot/tests/test_bot.py`.
 - Live: `uv run pytest -m live server/tests/test_browser_call_live.py -s -v`. It calls
   `POST /calls/browser`, joins with a daily-python client (the S1 harness) using `caller_token`,
-  waits for the bot, checks that the first bot TTS audio arrives within 2 s of the bot joining
+  waits for the bot, checks that the first bot TTS audio arrives within 5 s of the bot joining
   (clock starts when both caller and bot are in the room), checks Daily presence, hangs up,
   checks the bot process exits, then deletes the room and checks it is gone (404).
 

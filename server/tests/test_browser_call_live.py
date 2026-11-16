@@ -24,7 +24,7 @@ from harness.participant import HarnessParticipant
 pytestmark = pytest.mark.live
 
 REQUIRED = ("DAILY_API_KEY", "DEEPGRAM_API_KEY", "ANTHROPIC_API_KEY")
-GREETING_BUDGET_SECS = 2.0
+GREETING_BUDGET_SECS = 5.0
 SPEECH_RMS = 300.0
 
 

@@ -1,6 +1,8 @@
 import { ShieldCheck } from "lucide-react";
 import type { CallerDetails, CallerEvent } from "../api/types";
+import type { MoodState } from "../state/assist";
 import { eventTone, formatIsoDate } from "../state/caller";
+import { MOOD_TOOLTIP, moodChip, WORRIED } from "../state/mood";
 import { initials } from "../state/names";
 import type { CallerInfo } from "../state/offer";
 import { identityBadge, maskDob, maskMemberId } from "../state/privacy";
@@ -17,8 +19,8 @@ export interface CallerPanelProps {
   /** From GET /calls/{id}/caller, once it arrives. */
   details: CallerDetails | null;
   detailsState: DetailsState;
-  /** Caller tone readings over the call, 0 calm to 1 upset. Fed by P4-5 (AP-14). */
-  mood?: number[];
+  /** The caller's mood trend from the tone reader (P4-5, AP-14); null until a reading. */
+  mood?: MoodState | null;
   /** AP-17: the agent revealed a masked field; the parent logs it on the call record. */
   onRevealPhi: (field: PhiFieldName) => void;
 }
@@ -30,9 +32,6 @@ function shortClock(secs: number): string {
   const s = Math.max(0, Math.round(secs));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
-
-/** A reading at or above this is worried (bakelite bar). */
-const WORRIED = 0.5;
 
 function History({ state, notVerified, events }: { state: DetailsState; notVerified: boolean; events: CallerEvent[] }) {
   let note: string | null = null;
@@ -62,22 +61,30 @@ function History({ state, notVerified, events }: { state: DetailsState; notVerif
   );
 }
 
-/** Mood area (DESIGN.md caller panel 5): a bar per caller turn. P4-5 fills it. */
-function Mood({ values }: { values?: number[] }) {
-  const has = !!values && values.length > 0;
+/** Mood area (DESIGN.md caller panel 5): label chip plus a bar per caller turn (P4-5). */
+function Mood({ mood }: { mood?: MoodState | null }) {
+  const readings = mood?.readings ?? [];
+  const has = readings.length > 0;
+  const chip = moodChip(mood);
+  const label = has ? `Mood: ${chip.text}. ${readings.length} caller turn${readings.length === 1 ? "" : "s"}.` : undefined;
   return (
-    <div className="mood" data-testid="mood" title="Tone reader, words only.">
+    <div className="mood" data-testid="mood" title={MOOD_TOOLTIP} aria-label={label}>
       <div className="mood-head">
         <b>Mood</b>
-        {!has && <span className="chip chip-neutral">Listening</span>}
+        {has ? (
+          <span className={`chip chip-${chip.tone}`}>{chip.text}</span>
+        ) : (
+          <span className="chip chip-neutral">Listening</span>
+        )}
       </div>
       {has ? (
         <div className="bars" aria-hidden="true">
-          {values!.map((v, i) => (
+          {readings.map((r) => (
             <i
-              key={i}
-              className={v >= WORRIED ? "is-worried" : undefined}
-              style={{ height: `${Math.round(20 + Math.max(0, Math.min(1, v)) * 80)}%` }}
+              key={r.line_id}
+              className={r.score >= WORRIED ? "is-worried" : undefined}
+              title={`${r.mood} (${r.emotion} ${r.confidence.toFixed(2)})`}
+              style={{ height: `${Math.round(20 + r.score * 80)}%` }}
             />
           ))}
         </div>
@@ -220,7 +227,7 @@ export function CallerPanel({
       </dl>
 
       <History state={detailsState} notVerified={notVerified} events={events} />
-      <Mood values={mood} />
+      <Mood mood={mood} />
     </aside>
   );
 }

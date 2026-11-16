@@ -4,6 +4,7 @@ import type { CallerDetails } from "../api/types";
 import { assistHighlights, emptyAssist, type AssistState, type LocalAction } from "../state/assist";
 import type { CallerInfo } from "../state/offer";
 import { formatClock } from "../state/offer";
+import { MOOD_TOOLTIP, moodChip } from "../state/mood";
 import type { HighlightRange, TranscriptLine } from "../state/transcript";
 import { AssistColumn } from "./AssistColumn";
 import { CallerPanel, type DetailsState } from "./CallerPanel";
@@ -66,8 +67,9 @@ function Waveform({ level }: { level: number }) {
   );
 }
 
-function CallIsland({ caller, phase, held, remoteLevel, elapsedSecs }: InCallProps) {
+function CallIsland({ caller, phase, held, remoteLevel, elapsedSecs, assist }: InCallProps) {
   const status = phase === "connecting" ? "Connecting" : held ? "On hold" : null;
+  const mood = moodChip(assist?.mood);
   return (
     <div className={`island call-island${held ? " is-held" : ""}`} role="group" aria-label="Call">
       <span className={`vdot vdot-${caller.verified === "verified" ? "ok" : "warn"}`} aria-hidden="true" />
@@ -75,8 +77,8 @@ function CallIsland({ caller, phase, held, remoteLevel, elapsedSecs }: InCallPro
       <VerifiedChip result={caller.verified} />
       <Waveform level={held || phase !== "live" ? 0 : remoteLevel} />
       {status && <span className="chip chip-neutral">{status}</span>}
-      <span className="chip chip-neutral" data-testid="mood-chip" title="Tone reader, words only. Arrives with P4-5.">
-        Mood –
+      <span className={`chip chip-${mood.tone}`} data-testid="mood-chip" title={MOOD_TOOLTIP}>
+        {mood.text}
       </span>
       <span className="time" role="timer" aria-label="Call time">
         {formatClock(elapsedSecs)}
@@ -149,6 +151,7 @@ export function InCall(props: InCallProps) {
           waitSecs={props.waitSecs ?? null}
           details={props.details ?? null}
           detailsState={props.detailsState ?? "loading"}
+          mood={assist.mood}
           onRevealPhi={props.onRevealPhi}
         />
         <AssistColumn assist={assist} onAction={onAssist} firstName={firstName} />

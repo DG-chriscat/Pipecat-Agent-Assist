@@ -22,6 +22,7 @@ import tileStone from "../assets/tex/stone.jpg";
 import {
   isNextStepBody,
   isTableBody,
+  isToneTipBody,
   planView,
   type AssistCard,
   type AssistState,
@@ -276,6 +277,7 @@ const SWATCH: Record<AssistCard["kind"], { tex: string; icon: ReactNode }> = {
   article: { tex: tileStone, icon: <BookOpen strokeWidth={1.7} /> },
   alert: { tex: tileClay, icon: <AlertTriangle strokeWidth={1.7} /> },
   next_step: { tex: tileStone, icon: <Sparkles strokeWidth={1.7} /> },
+  tone_tip: { tex: tileBakelite, icon: <HeartPulse strokeWidth={1.7} /> },
 };
 
 function Swatch({ tex, icon }: { tex: string; icon: ReactNode }) {
@@ -292,6 +294,7 @@ const statusField = (fields: string[]) => fields.find((f) => f === "status");
 /** One big answer and one line of context for a record, article, or alert. */
 function answer(card: AssistCard): { big: string; context: string | null } {
   if (isNextStepBody(card.body)) return { big: card.body.action.label, context: card.body.headline };
+  if (card.kind === "tone_tip" && isToneTipBody(card.body)) return { big: card.body.headline, context: card.body.why };
   if (!isTableBody(card.body) || card.body.rows.length === 0) return { big: card.title, context: null };
   const { fields, rows, summary } = card.body;
   const row = rows[0];
@@ -431,7 +434,11 @@ function CardTile({
         </span>
       </div>
       {multi && isTableBody(card.body) && <RowsTable body={card.body} />}
-      <div className="tile-src" data-testid="tile-source" title={card.source.records.map((r) => r.id).join(", ")}>
+      <div
+        className="tile-src"
+        data-testid="tile-source"
+        title={card.source.records.map((r) => r.id).join(", ") || card.source.label}
+      >
         <Link2 strokeWidth={1.7} aria-hidden="true" />
         {card.source.label}
       </div>
@@ -517,9 +524,11 @@ function Shelf({ assist, onAction }: { assist: AssistState; onAction: (a: LocalA
   const tile = (c: AssistCard) => (
     <CardTile key={c.id} card={c} pinned={assist.pinned.includes(c.id)} rating={assist.ratings[c.id]} onAction={onAction} />
   );
-  // Fixed slots (Studio: record, call plan, tone tip): the first card takes the record
-  // slot, the plan keeps the second, more cards follow to the right. Nothing shifts.
-  const [first, ...rest] = ordered;
+  // Fixed slots (Studio: record, call plan, tone tip): the first non tone card takes the
+  // record slot, the plan keeps the second, the tone tip the third, more cards follow to
+  // the right. Nothing shifts.
+  const tips = ordered.filter((c) => c.kind === "tone_tip");
+  const [first, ...rest] = ordered.filter((c) => c.kind !== "tone_tip");
   return (
     <div className="shelf" onMouseEnter={freeze} onMouseLeave={thaw}>
       {first ? (
@@ -542,8 +551,9 @@ function Shelf({ assist, onAction }: { assist: AssistState; onAction: (a: LocalA
           empty="Steps for this call appear here."
         />
       )}
+      {tips.map(tile)}
       {rest.map(tile)}
-      {rest.length === 0 && (
+      {tips.length === 0 && rest.length === 0 && (
         <EmptyTile
           tex={tileBakelite}
           icon={<HeartPulse strokeWidth={1.7} />}

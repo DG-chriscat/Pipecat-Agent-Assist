@@ -8,7 +8,7 @@ import {
   type AssistState,
   type LocalAction,
 } from "../state/assist";
-import { heroCard, msg, PLAN_STEPS, planMsg, recordCard } from "../test/assistFixtures";
+import { heroCard, msg, PLAN_STEPS, planMsg, recordCard, toneTipCard } from "../test/assistFixtures";
 import { ACK_MS, AssistColumn } from "./AssistColumn";
 
 function state(...raws: Record<string, unknown>[]): AssistState {
@@ -282,6 +282,46 @@ describe("AssistColumn shelf (supporting cards)", () => {
     expect(within(region).getByText("Records")).toBeInTheDocument();
     expect(within(region).getByText("Call plan")).toBeInTheDocument();
     expect(within(region).getByText("Tone tip")).toBeInTheDocument();
+  });
+
+  it("tone tip tile: bakelite swatch, one big answer, why, words only source (AP-14)", () => {
+    const { region, onAction } = setup(state(planMsg(), msg("card_added", { card: toneTipCard() })));
+    const tile = within(region).getByTestId("tile-tone:caller-4");
+    expect(tile).toHaveAttribute("data-kind", "tone_tip");
+    expect(within(tile).getByText("Tone tip")).toBeInTheDocument();
+    expect(within(tile).getByTestId("tile-big")).toHaveTextContent("Acknowledge, then act");
+    expect(within(tile).getByText(/Name the problem in their words/)).toBeInTheDocument();
+    expect(tile.querySelector(".sw")?.getAttribute("style")).toMatch(/bakelite/);
+    expect(within(tile).getByTitle(/Pipecat Tone reader, words only/)).toBeInTheDocument();
+    fireEvent.click(within(tile).getByRole("button", { name: "Dismiss" }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: "dismiss", cardId: "tone:caller-4" });
+  });
+
+  it("a tone tip takes the third slot: no placeholder next to it", () => {
+    const { region } = setup(
+      state(planMsg(), msg("card_added", { card: recordCard() }), msg("card_added", { card: toneTipCard() })),
+    );
+    const kids = [...within(region).getByText("Call plan").closest(".shelf")!.children] as HTMLElement[];
+    expect(kids.map((k) => k.dataset.testid)).toEqual(["tile-card:denied_claim", "tile-plan", "tile-tone:caller-4"]);
+  });
+
+  it("a tone tip that arrives first still takes the tone slot, never the records slot", () => {
+    const slots = (s: AssistState) => {
+      const { region, unmount } = setup(s);
+      const kids = [...within(region).getByText("Call plan").closest(".shelf")!.children] as HTMLElement[];
+      const out = kids.map((k) => k.dataset.testid);
+      const tips = within(region).getAllByText("Tone tip").length;
+      unmount();
+      return { out, tips };
+    };
+    const tipOnly = state(planMsg(), msg("card_added", { card: toneTipCard() }));
+    expect(slots(tipOnly)).toEqual({ out: ["shelf-tile", "tile-plan", "tile-tone:caller-4"], tips: 1 });
+    const tipThenRecord = state(
+      planMsg(),
+      msg("card_added", { card: toneTipCard() }),
+      msg("card_added", { card: recordCard() }),
+    );
+    expect(slots(tipThenRecord).out).toEqual(["tile-card:denied_claim", "tile-plan", "tile-tone:caller-4"]);
   });
 });
 

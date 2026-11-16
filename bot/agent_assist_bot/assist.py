@@ -55,6 +55,7 @@ from agent_assist_bot.assist_contract import (
     card_added_message,
     card_removed_message,
     hero_message,
+    mood_message,
     plan_update_message,
     status_message,
 )
@@ -68,9 +69,13 @@ from agent_assist_bot.packs import (
     match_phrases,
     select_pack,
 )
+from agent_assist_bot.tone import SOURCE_LABEL as TONE_SOURCE
+from agent_assist_bot.tone import MoodTrend, tone_tip
 
 RATE_ENV = "ASSIST_MAX_CARDS_PER_MIN"
 DEFAULT_MAX_CARDS_PER_MIN = 4  # DC-7
+# A tone tip (P4-5) ranks above an alert (3) and below every next best step.
+TONE_TIP_RANK = 4
 RATE_WINDOW_SECS = 60.0
 WINDOW_LINES = 12
 LLM_DEBOUNCE_SECS = 0.6
@@ -188,6 +193,7 @@ class AssistEngine:
         clock: Callable[[], float] = time.time,
         max_cards_per_min: int = DEFAULT_MAX_CARDS_PER_MIN,
         llm_debounce_secs: float | None = LLM_DEBOUNCE_SECS,
+        trend: MoodTrend | None = None,
     ):
         self.packs = dict(packs)
         self.connectors = connectors
@@ -197,6 +203,8 @@ class AssistEngine:
         self._send = send
         self._record = record or (lambda kind, card_id, data: None)
         self._clock = clock
+        # Caller tone (P4-5): intake readings arrive already in the trend.
+        self.trend = trend if trend is not None else MoodTrend()
 
         self.pack: Pack | None = None
         self.intake: dict[str, Any] = {}
@@ -233,6 +241,8 @@ class AssistEngine:
         logger.info(f"[assist] listening; pack={self.pack.id}")
         await self._set_status("listening", force=True)
         await self._send_plan()
+        if self.trend.readings:
+            await self._send_mood()
 
     async def stop(self) -> None:
         self.stopped = True
@@ -247,6 +257,8 @@ class AssistEngine:
             return
         await self._set_status(self._status[0] if self._status else "listening", force=True)
         await self._send_plan()
+        if self.trend.readings:
+            await self._send_mood()
         if self.hero is not None:
             await self._emit(hero_message(self.hero, **self._stamp(), reason="new", replaces=None))
         for card in self.supporting.values():
@@ -273,6 +285,51 @@ class AssistEngine:
                 await self._tick_from_transcript(entry["text"])
             await self._trigger_path(entry)
         self._schedule_llm()
+        if entry["role"] == "caller":
+            await self.on_tone(line)
+
+    async def on_tone(self, line: Mapping[str, Any]) -> None:
+        """A caller line's tone reading (P4-5): update the mood, and on a two step drop
+        offer a tone tip card through the same ranking and rate limit as other cards."""
+        reading = line.get("tone")
+        if self.stopped or self.pack is None or not reading:
+            return
+        line_id = line.get("line_id") or "caller-?"
+        ts = float(line.get("ts") or self._clock())
+        async with self._lock:
+            drop = self.trend.add(reading | {"line_id": line_id, "ts": ts})
+            await self._send_mood()
+            if not drop:
+                return
+            entry = {"role": "caller", "text": str(line.get("text", "")).strip()}
+            card = self._tone_card(
+                reading, self._line_trigger(entry | {"line_id": line_id, "ts": ts}, None)
+            )
+            # Only the latest tip matters: an older one still waiting is dropped.
+            self._pending = [p for p in self._pending if p.card.kind != "tone_tip"]
+            await self._offer([_Candidate(card, ts)])
+
+    def _tone_card(self, reading: Mapping[str, Any], trig: Trigger) -> Card:
+        tip = tone_tip(int(reading["step"]))
+        return Card(
+            id=f"tone:{trig.line_id}",
+            kind="tone_tip",
+            title="Tone tip",
+            pack_id=self.pack.id,
+            rank=TONE_TIP_RANK,
+            trigger=trig,
+            source=Source(label=TONE_SOURCE),
+            body={
+                "headline": tip["headline"],
+                "why": tip["why"],
+                "mood": reading["mood"],
+                "emotion": reading["emotion"],
+                "confidence": reading["confidence"],
+            },
+        )
+
+    async def _send_mood(self) -> None:
+        await self._emit(mood_message(**self._stamp(), **self.trend.fields()))
 
     async def on_feedback(self, fb: Feedback) -> None:
         async with self._lock:
@@ -682,6 +739,10 @@ class AssistEngine:
                 self.supporting[old.id] = old
                 await self._emit(card_added_message(old, **self._stamp()))
         else:
+            if card.kind == "tone_tip":
+                for old in [c for c in self.supporting.values() if c.kind == "tone_tip"]:
+                    del self.supporting[old.id]
+                    await self._emit(card_removed_message(old.id, "replaced", **self._stamp()))
             self.supporting[card.id] = card
             await self._emit(card_added_message(card, **self._stamp()))
         self._log_sent(card, c.line_ts)

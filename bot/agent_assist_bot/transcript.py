@@ -24,7 +24,8 @@ agent's participant id only, never broadcast, so the caller never receives it:
     {"label": "rtvi-ai", "type": "server-message",
      "data": {"type": "transcript", "role", "text", "is_final", "ts", "line_id"}}
 Interim lines reuse the line_id of the line in progress; the final with that id
-commits it. Final lines are also saved to `transcript_lines` for wrap up. No audio is
+commits it. Final lines are also saved to `transcript_lines` for wrap up, a caller
+line with its tone reading (P4-5, `tone.py`) when the reader is on. No audio is
 stored.
 """
 
@@ -48,6 +49,8 @@ from pipecat.frames.frames import (
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.processors.frameworks.rtvi.models import MESSAGE_LABEL
 from pipecat.transports.daily.transport import DailyOutputTransportMessageUrgentFrame
+
+from agent_assist_bot.tone import read_tone
 
 CALLER = "caller"
 AGENT = "agent"
@@ -218,7 +221,14 @@ class TranscriptRelay(FrameProcessor):
         line_id = self._ids.commit() if is_final else self._ids.current()
         data = transcript_message(self._role, frame.text, is_final, self._clock(), line_id)
         if is_final:
-            logger.info(f"[transcript] {self._role}: {data['text']!r}")
+            # P4-5: the caller branch's tone reader set the reading on the frame.
+            reading = read_tone(getattr(frame, "perception", None))
+            if reading is not None:
+                data["tone"] = reading
+            logger.info(
+                f"[transcript] {self._role}: {data['text']!r}"
+                + (f" tone={reading['emotion']}/{reading['mood']}" if reading else "")
+            )
             if self._on_final is not None:
                 self._on_final(data)
         agent_id = self._roles.agent_id
@@ -254,7 +264,7 @@ class TranscriptRecorder:
                 continue
             try:
                 await self._store.add_transcript_line(
-                    call_id, data["role"], data["text"], data["ts"]
+                    call_id, data["role"], data["text"], data["ts"], data.get("tone")
                 )
             except Exception as e:  # noqa: BLE001 - the live call goes on
                 logger.error(f"[transcript] could not save a line: {type(e).__name__}")

@@ -64,6 +64,62 @@ export function recordCard(over: Partial<AssistCard> = {}): AssistCard {
   };
 }
 
+/** A tone tip card as the bot sends it (P4-5): mood drop, not a record. */
+export function toneTipCard(over: Partial<AssistCard> = {}): AssistCard {
+  return {
+    id: "tone:caller-4",
+    kind: "tone_tip",
+    title: "Tone tip",
+    pack_id: "claims_status",
+    rank: 4,
+    ai_suggested: true,
+    trigger: {
+      phrase: null,
+      text: "I've called three times and nobody fixes this.",
+      role: "caller",
+      line_id: "caller-4",
+      start: null,
+      end: null,
+      heard_at: 1794800801.2,
+    },
+    source: { label: "Pipecat Tone reader, words only", records: [] },
+    rule_id: null,
+    template_id: null,
+    body: {
+      headline: "Acknowledge, then act",
+      why: "The caller sounds frustrated. Name the problem in their words, then give one concrete next step.",
+      mood: "Frustrated",
+      emotion: "angry",
+      confidence: 0.9,
+    },
+    ...over,
+  };
+}
+
+/** One tone reading as it appears in a mood message. */
+export function reading(step: number, lineId: string, emotion = "neutral") {
+  const moods = ["Pleased", "Calm", "Uneasy", "Worried", "Frustrated"];
+  return {
+    line_id: lineId,
+    ts: 1794800790,
+    emotion,
+    confidence: 0.9,
+    sarcasm: 0.01,
+    step,
+    mood: moods[step],
+    score: step / 4,
+  };
+}
+
+export function moodMsg(steps: number[], label: string, tone = "warn"): Record<string, unknown> {
+  return msg("mood", {
+    label,
+    tone,
+    step: steps.at(-1) ?? null,
+    readings: steps.map((s, i) => reading(s, `caller-${i + 1}`)),
+  });
+}
+
 export const PLAN_STEPS: PlanStep[] = [
   { id: "confirm_claim", label: "Confirm which claim the caller means", done: false, by: null },
   { id: "explain_status", label: "Explain the status or the denial reason in plain words", done: false, by: null },

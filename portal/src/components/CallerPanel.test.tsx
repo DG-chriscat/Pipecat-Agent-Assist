@@ -1,6 +1,8 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { CallerDetails } from "../api/types";
+import type { MoodState } from "../state/assist";
+import { reading } from "../test/assistFixtures";
 import { CallerPanel, type CallerPanelProps } from "./CallerPanel";
 
 /** Accept summary for demo persona Maria Alvarez (docs/db.md). */
@@ -273,13 +275,26 @@ describe("CallerPanel (AP-5, AP-13, AP-17, AP-18, DESIGN.md caller panel)", () =
     expect(mood.querySelectorAll(".bars i")).toHaveLength(0);
   });
 
-  it("mood area: one bar per tone reading, bakelite when worried", () => {
-    const { panel } = setup({ details: mariaDetails, detailsState: "ready", mood: [0.1, 0.3, 0.6, 0.9] });
-    const mood = within(panel).getByTestId("mood");
-    const bars = mood.querySelectorAll(".bars i");
-    expect(bars).toHaveLength(4);
+  it("mood area: one bar per caller turn, bakelite when worried, label chip with its tone", () => {
+    const mood: MoodState = {
+      label: "Worried, easing",
+      tone: "warn",
+      step: 2,
+      readings: [1, 2, 3, 4, 2].map((s, i) => reading(s, `caller-${i + 1}`)),
+    };
+    const { panel } = setup({ details: mariaDetails, detailsState: "ready", mood });
+    const area = within(panel).getByTestId("mood");
+    const bars = area.querySelectorAll(".bars i");
+    expect(bars).toHaveLength(5);
     expect(bars[0]).not.toHaveClass("is-worried");
+    expect(bars[2]).toHaveClass("is-worried");
     expect(bars[3]).toHaveClass("is-worried");
-    expect(mood).not.toHaveTextContent(/mood shows up/i);
+    expect((bars[3] as HTMLElement).style.height).toBe("100%");
+    expect((bars[0] as HTMLElement).style.height).toBe("40%");
+    expect(bars[3]).toHaveAttribute("title", "Frustrated (neutral 0.90)");
+    const chip = within(area).getByText("Worried, easing");
+    expect(chip).toHaveClass("chip-warn");
+    expect(area).not.toHaveTextContent(/mood shows up/i);
+    expect(area).toHaveAttribute("aria-label", "Mood: Worried, easing. 5 caller turns.");
   });
 });

@@ -13,8 +13,8 @@ import type { HighlightRange } from "./transcript";
 
 export const ASSIST_VERSION = 1;
 
-export type CardKind = "next_step" | "record" | "article" | "alert";
-const KINDS: readonly CardKind[] = ["next_step", "record", "article", "alert"];
+export type CardKind = "next_step" | "record" | "article" | "alert" | "tone_tip";
+const KINDS: readonly CardKind[] = ["next_step", "record", "article", "alert", "tone_tip"];
 const STATUS_STATES = ["listening", "rate_limited", "error", "stopped"] as const;
 export type AssistStatusState = (typeof STATUS_STATES)[number];
 
@@ -48,6 +48,39 @@ export interface TableBody {
   summary: string | null;
 }
 
+/** Tone tip (P4-5, AP-14): sent when the caller's mood drops two steps. */
+export interface ToneTipBody {
+  headline: string;
+  why: string;
+  mood: string;
+  emotion: string;
+  confidence: number;
+}
+
+/** One Pipecat Tone reading of a caller line (words only, not audio). */
+export interface ToneReading {
+  line_id: string;
+  ts: number;
+  emotion: string;
+  confidence: number;
+  sarcasm: number;
+  /** 0 Pleased, 1 Calm, 2 Uneasy, 3 Worried, 4 Frustrated. */
+  step: number;
+  mood: string;
+  /** step / 4: 0 calm to 1 upset. */
+  score: number;
+}
+
+export type MoodTone = "ok" | "warn" | "bad";
+
+/** The caller's mood trend for the whole call (AP-14). */
+export interface MoodState {
+  label: string | null;
+  tone: MoodTone | null;
+  step: number | null;
+  readings: ToneReading[];
+}
+
 export interface AssistCard {
   id: string;
   kind: CardKind;
@@ -59,7 +92,7 @@ export interface AssistCard {
   source: CardSource;
   rule_id: string | null;
   template_id: string | null;
-  body: NextStepBody | TableBody | Record<string, unknown>;
+  body: NextStepBody | TableBody | ToneTipBody | Record<string, unknown>;
 }
 
 export type StepBy = "transcript" | "action" | "manual" | null;
@@ -82,7 +115,8 @@ export type AssistMessage =
   | (Base & { event: "plan_update"; pack_id: string; pack_name: string; steps: PlanStep[] })
   | (Base & { event: "hero"; card: AssistCard | null; reason: string; replaces: string | null })
   | (Base & { event: "card_added"; card: AssistCard })
-  | (Base & { event: "card_removed"; card_id: string; reason: string });
+  | (Base & { event: "card_removed"; card_id: string; reason: string })
+  | (Base & { event: "mood" } & MoodState);
 
 type Obj = Record<string, unknown>;
 const isObj = (x: unknown): x is Obj => typeof x === "object" && x !== null && !Array.isArray(x);
@@ -114,6 +148,32 @@ export function isTableBody(b: unknown): b is TableBody {
   );
 }
 
+export function isToneTipBody(b: unknown): b is ToneTipBody {
+  return isObj(b) && isStr(b.headline) && isStr(b.why) && isStr(b.mood);
+}
+
+function bodyOk(kind: CardKind, body: unknown): boolean {
+  if (kind === "next_step") return isNextStepBody(body);
+  if (kind === "tone_tip") return isToneTipBody(body);
+  return isTableBody(body);
+}
+
+function parseReading(x: unknown): ToneReading | null {
+  if (!isObj(x) || !isStr(x.line_id) || !isNum(x.step) || !isStr(x.mood) || !isNum(x.score)) return null;
+  return {
+    line_id: x.line_id,
+    ts: isNum(x.ts) ? x.ts : 0,
+    emotion: isStr(x.emotion) ? x.emotion : "",
+    confidence: isNum(x.confidence) ? x.confidence : 0,
+    sarcasm: isNum(x.sarcasm) ? x.sarcasm : 0,
+    step: x.step,
+    mood: x.mood,
+    score: Math.max(0, Math.min(1, x.score)),
+  };
+}
+
+const MOOD_TONES: readonly MoodTone[] = ["ok", "warn", "bad"];
+
 function parseCard(x: unknown): AssistCard | null {
   if (!isObj(x) || !isStr(x.id) || !x.id || !isStr(x.title)) return null;
   if (!KINDS.includes(x.kind as CardKind)) return null;
@@ -126,7 +186,7 @@ function parseCard(x: unknown): AssistCard | null {
     (r): r is { connector: string; id: string } => isObj(r) && isStr(r.connector) && isStr(r.id),
   );
   const kind = x.kind as CardKind;
-  if (kind === "next_step" ? !isNextStepBody(x.body) : !isTableBody(x.body)) return null;
+  if (!bodyOk(kind, x.body)) return null;
   return {
     id: x.id,
     kind,
@@ -202,6 +262,18 @@ export function parseAssistMessage(data: unknown): AssistMessage | null {
     case "card_removed":
       if (!isStr(data.card_id)) return null;
       return { ...base, event: "card_removed", card_id: data.card_id, reason: isStr(data.reason) ? data.reason : "" };
+    case "mood": {
+      if (!Array.isArray(data.readings)) return null;
+      const readings = data.readings.map(parseReading).filter((r): r is ToneReading => r !== null);
+      return {
+        ...base,
+        event: "mood",
+        label: isStr(data.label) ? data.label : null,
+        tone: MOOD_TONES.includes(data.tone as MoodTone) ? (data.tone as MoodTone) : null,
+        step: isNum(data.step) ? data.step : null,
+        readings,
+      };
+    }
     default:
       return null;
   }
@@ -238,6 +310,8 @@ export interface AssistState {
   manual: Record<string, boolean>;
   /** Cards the agent accepted or dismissed: never shown again in this call. */
   gone: string[];
+  /** The caller's mood trend (P4-5), null until the first tone reading. */
+  mood: MoodState | null;
 }
 
 export function emptyAssist(): AssistState {
@@ -253,6 +327,7 @@ export function emptyAssist(): AssistState {
     ratings: {},
     manual: {},
     gone: [],
+    mood: null,
   };
 }
 
@@ -300,6 +375,9 @@ export function applyAssist(s: AssistState, m: AssistMessage, atSecs: number): A
     }
     case "card_removed":
       next.cards = s.cards.filter((c) => c.id !== m.card_id);
+      return next;
+    case "mood":
+      next.mood = { label: m.label, tone: m.tone, step: m.step, readings: m.readings };
       return next;
   }
 }

@@ -1,5 +1,7 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { applyAssist, emptyAssist, parseAssistMessage } from "../state/assist";
+import { moodMsg } from "../test/assistFixtures";
 import { InCall, type InCallProps } from "./InCall";
 
 function setup(over: Partial<InCallProps> = {}) {
@@ -40,6 +42,20 @@ describe("InCall shell (AP-4)", () => {
     expect(within(island).getByTestId("waveform")).toBeInTheDocument();
     expect(within(island).getByTestId("mood-chip")).toBeInTheDocument();
     expect(within(island).getByRole("timer")).toHaveTextContent("04:12");
+  });
+
+  it("mood chip: a dash until the first reading, then the mood label in its tone (AP-14)", () => {
+    const { rerender, props } = setup();
+    const chip = () => within(screen.getByRole("group", { name: /call/i })).getByTestId("mood-chip");
+    expect(chip()).toHaveTextContent("Mood –");
+    expect(chip()).toHaveClass("chip-neutral");
+    expect(chip()).toHaveAttribute("title", "Tone reader, words only.");
+    const assist = applyAssist(emptyAssist(), parseAssistMessage(moodMsg([1, 4], "Frustrated, worsening", "bad"))!, 0);
+    rerender(<InCall {...props} assist={assist} />);
+    expect(chip()).toHaveTextContent("Frustrated, worsening");
+    expect(chip()).toHaveClass("chip-bad");
+    // The caller panel draws the same trend.
+    expect(screen.getByTestId("mood").querySelectorAll(".bars i")).toHaveLength(2);
   });
 
   it("drives the waveform from the remote audio level and animates only while someone speaks", () => {

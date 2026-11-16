@@ -68,8 +68,7 @@ async def main(out: Path) -> None:
             async def shoot(name: str) -> None:
                 await listening.scroll_into_view_if_needed()
                 await page.evaluate(
-                    "document.getElementById('listening-label')"
-                    ".scrollIntoView({block: 'center'})"
+                    "document.getElementById('listening-label').scrollIntoView({block: 'center'})"
                 )
                 await page.wait_for_timeout(300)
                 path = out / f"{name}.png"

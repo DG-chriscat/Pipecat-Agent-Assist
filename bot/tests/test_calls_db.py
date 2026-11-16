@@ -184,7 +184,7 @@ async def test_assist_events_table_has_rls(store, schema):
 
 @pytest.mark.parametrize("result", ["close_match", "incomplete"])
 async def test_identity_v2_results_are_stored(store, result):
-    # IN-6 v2 (migration 0008): close_match and incomplete are valid results.
+    # IN-6 v2 (migration 0009): close_match and incomplete are valid results.
     call_id = await store.create_call(f"sess-{result}")
     await store.set_identity(call_id, result, "EVM100234")
     assert (await row(store, call_id))[3] == result

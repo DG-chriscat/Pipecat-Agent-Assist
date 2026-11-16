@@ -39,6 +39,7 @@ import dataclasses
 import itertools
 import re
 import time
+from collections import deque
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol, runtime_checkable
@@ -221,6 +222,19 @@ _HANDOFF_PROMISE = re.compile(
     re.IGNORECASE,
 )
 
+# IN-9 in the identity steps: report_emergency needs one of these in what the caller
+# said (or the LLM's description). Deliberately broad: a missed emergency is worse than
+# a false one; this only stops a plain name, date, and member ID answer from counting.
+_EMERGENCY_WORDS = re.compile(
+    r"\b(emergenc\w*|911|nine one one|ambulance|chest pain|heart attack|stroke|"
+    r"can'?t breathe|cannot breathe|not breathing|isn'?t breathing|trouble breathing|"
+    r"short(ness)? of breath|choking|bleed\w*|unconscious|passed out|collaps\w*|"
+    r"seizure|overdos\w*|poison\w*|suicid\w*|kill (my|him|her)sel\w*|"
+    r"(hurt|harm)(ing)? (my|him|her)sel\w*|self harm|end my life|want to die|"
+    r"dying|severe pain|allergic reaction|anaphyla\w*)",
+    re.IGNORECASE,
+)
+
 Outcome = Literal["completed", "asked_for_person", "emergency"]
 
 
@@ -351,6 +365,8 @@ class IntakeSession:
         self._awaiting_bot = False
         self._reply = ""
         self._last_fragment = 0.0
+        # The caller's last few turns, for the emergency gate in the identity steps.
+        self._recent_caller: deque[str] = deque(maxlen=3)
 
     # ---- call record -------------------------------------------------------
 
@@ -536,6 +552,8 @@ class IntakeSession:
         caller said since the bot last spoke.
         """
         node = self.node
+        if text.strip():
+            self._recent_caller.append(text.strip())
         if self.handed_off is not None or node is None or node in _NOT_INTAKE:
             return
         new_turn = not self._awaiting_bot or time.monotonic() - self._last_fragment > (
@@ -604,7 +622,19 @@ class IntakeSession:
 
     # ---- shared functions (IN-7, IN-9) ----------------------------------------
 
-    def _escape_functions(self) -> list[FlowsFunctionSchema]:
+    def _escape_functions(self, *, identity: bool = False) -> list[FlowsFunctionSchema]:
+        """request_person and report_emergency, on every intake node. In the identity
+        steps (`identity=True`) report_emergency needs explicit emergency words."""
+        emergency_desc = (
+            "The caller described a medical emergency happening now. Call immediately. "
+            "Do not give medical advice."
+        )
+        if identity:
+            emergency_desc += (
+                " A name, date of birth, or member ID is never an emergency: only call this "
+                "if the caller uses emergency words (chest pain, can't breathe, bleeding, "
+                "overdose, suicide, 911, ambulance)."
+            )
         return [
             FlowsFunctionSchema(
                 name="request_person",
@@ -618,10 +648,7 @@ class IntakeSession:
             ),
             FlowsFunctionSchema(
                 name="report_emergency",
-                description=(
-                    "The caller described a medical emergency happening now. Call "
-                    "immediately. Do not give medical advice."
-                ),
+                description=emergency_desc,
                 properties={
                     "description": {
                         "type": "string",
@@ -629,7 +656,7 @@ class IntakeSession:
                     }
                 },
                 required=["description"],
-                handler=self._on_emergency,
+                handler=self._on_identity_emergency if identity else self._on_emergency,
             ),
         ]
 
@@ -643,6 +670,23 @@ class IntakeSession:
         await self._save({"emergency": str(args.get("description", "")).strip()})
         await self._finish("emergency")
         return {"status": "emergency_flagged"}, self.emergency_node()
+
+    async def _on_identity_emergency(self, args: FlowArgs, flow_manager: FlowManager):
+        """report_emergency in the identity steps, where the caller reads out a name, a
+        date, and an ID. There the LLM has called it on a plain answer (PR #48, identity
+        v2 harness), so it needs explicit emergency words from the caller, or a symptom
+        in the description. Everywhere else the LLM's call stands (IN-9)."""
+        description = str(args.get("description", "")).strip()
+        heard = " ".join(self._recent_caller)
+        if not (_EMERGENCY_WORDS.search(heard) or _EMERGENCY_WORDS.search(description)):
+            logger.warning("[flow] report_emergency refused in identity: no emergency words")
+            return {
+                "error": (
+                    "not an emergency: the caller only gave their details. Do not call "
+                    "report_emergency unless they describe an emergency."
+                )
+            }, None
+        return await self._on_emergency(args, flow_manager)
 
     # ---- nodes ---------------------------------------------------------------
 
@@ -678,6 +722,7 @@ class IntakeSession:
                         if self.identity_read_back
                         else "If part of the member ID seems missing, ask for it once."
                     )
+                    + " A name, date of birth, or member ID is never an emergency."
                 ),
                 "functions": [
                     FlowsFunctionSchema(
@@ -690,7 +735,7 @@ class IntakeSession:
                         required=["full_name", "date_of_birth", "member_id"],
                         handler=self._on_save_identity,
                     ),
-                    *self._escape_functions(),
+                    *self._escape_functions(identity=True),
                 ],
                 # Identity STT settings on for this step only (stt_tuning.py).
                 "pre_actions": [{"type": "identity_stt_on", "handler": self._on_identity_entered}],
@@ -756,7 +801,7 @@ class IntakeSession:
                         handler=self._on_correct_identity,
                     ),
                     dataclasses.replace(self._say_function(), handler=self._on_identity_say),
-                    *self._escape_functions(),
+                    *self._escape_functions(identity=True),
                 ],
                 "pre_actions": [{"type": "tts_say", "text": text}],
                 "respond_immediately": False,

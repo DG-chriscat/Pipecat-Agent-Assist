@@ -668,6 +668,60 @@ async def test_handoff_happens_once(session, store, hook):
     assert FLAG_ASKED_FOR_PERSON in record(session, store).flags
 
 
+# Seen live (PR #48, identity v2 harness): on a plain identity answer the intake LLM
+# called report_emergency. In the identity steps it needs explicit emergency language.
+ID_ANSWER = (
+    "Sure. My name is Linda Nguyen. My date of birth is 01/30/1958, and my member ID is "
+    "EVM 1 0 0 2 3 4."
+)
+IDENTITY = {"full_name": "Linda Nguyen", "date_of_birth": "1958-01-30", "member_id": "EVM100234"}
+
+
+@pytest.mark.parametrize("getter", ["identity_node", "identity_confirm_node"])
+async def test_identity_answer_is_not_an_emergency(session, store, hook, getter):
+    if getter == "identity_confirm_node":
+        await call(session.identity_node(), "save_identity", **IDENTITY)
+    await session.on_caller_turn(ID_ANSWER)
+    result, nxt = await call(
+        getattr(session, getter)(), "report_emergency", description="caller gave member ID"
+    )
+    assert nxt is None
+    assert "not an emergency" in result["error"]
+    rec = record(session, store)
+    assert FLAG_EMERGENCY not in rec.flags and "emergency" not in rec.intake
+    assert rec.status != "ready_for_queue" and hook.handoffs == []
+
+
+@pytest.mark.parametrize(
+    "said",
+    [
+        "My name is Linda Nguyen and I'm having chest pain right now",
+        "I can't breathe",
+        "my husband collapsed and isn't breathing",
+        "I want to kill myself",
+        "this is an emergency, I need an ambulance",
+    ],
+)
+async def test_emergency_words_in_the_identity_step_still_go_to_911(session, store, said):
+    await session.on_caller_turn(said)
+    _, nxt = await call(session.identity_node(), "report_emergency", description="see words")
+    assert nxt["name"] == "emergency"
+    assert FLAG_EMERGENCY in record(session, store).flags
+
+
+async def test_emergency_description_alone_is_enough_in_the_identity_step(session, store):
+    # The caller's words may reach the LLM before the turn event; the description counts.
+    _, nxt = await call(
+        session.identity_node(), "report_emergency", description="caller has severe bleeding"
+    )
+    assert nxt["name"] == "emergency"
+
+
+def test_identity_task_says_ids_are_never_an_emergency(session):
+    task = session.identity_node()["task_messages"][0]["content"]
+    assert "never an emergency" in task
+
+
 # ---- resilience --------------------------------------------------------------
 
 

@@ -262,7 +262,7 @@ in the line, as a run of words, is shown at once as an article card, no LLM; tha
 | --- | --- |
 | `event_id` | identity, order |
 | `call_id` | `calls.call_id`, cascade delete |
-| `kind` | `card_sent`, `accept`, `dismiss`, `pin`, `unpin`, `rate`, `guardrail`, `identity_decision` (IN-13, migration 0008) |
+| `kind` | `card_sent`, `accept`, `dismiss`, `pin`, `unpin`, `rate`, `guardrail`, `identity_decision` (IN-13, migration 0009) |
 | `card_id` | card id (null for some guardrail rows) |
 | `data` | jsonb. `card_sent`: kind, rank, pack_id, trigger_phrase, trigger_line_id, latency_ms. `accept`: kind, pack_id, action_id, simulated. `rate`: rating. `identity_decision`: decision, by, at, intake_result. |
 | `created_at` | |

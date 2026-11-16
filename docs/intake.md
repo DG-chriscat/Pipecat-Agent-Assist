@@ -32,7 +32,11 @@ On every intake node the LLM also has:
   with whatever was captured.
 - `report_emergency` (IN-9): says the fixed "hang up and call 911" line, flags
   `emergency`, saves the caller's words, then hands off. The system prompt forbids
-  medical advice.
+  medical advice. In the identity and identity_confirm steps it also needs explicit
+  emergency words (chest pain, can't breathe, bleeding, overdose, suicide, 911,
+  ambulance, and similar: `intake._EMERGENCY_WORDS`) in the caller's last turns or the
+  LLM's description; otherwise it is refused and intake continues. Live, the LLM called
+  it on a plain name, date of birth, and member ID answer (PR #48, identity v2 harness).
 
 ## Call record
 

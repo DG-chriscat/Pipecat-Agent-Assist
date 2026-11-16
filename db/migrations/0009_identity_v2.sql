@@ -1,4 +1,4 @@
--- 0008_identity_v2: PRD IN-6 (updated) and IN-13 (Chris, Nov 16).
+-- 0009_identity_v2: PRD IN-6 (updated) and IN-13 (Chris, Nov 16).
 --
 -- identity_result gains:
 --   close_match  member ID and date of birth exact, name close by spelling

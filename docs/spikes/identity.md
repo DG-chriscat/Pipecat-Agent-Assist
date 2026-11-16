@@ -226,8 +226,10 @@ must still be not_verified.
     date of birth is 01/30/1958, and my member ID is EVM 1 0 0 2 3 4."), the intake LLM
     called `report_emergency`, so the call went straight to the emergency line. The
     identity node and the emergency tool are unchanged on this branch; v1 runs never
-    showed this. Not fixed here (suppressing an emergency flag is a safety decision):
-    follow-up card.
+    showed this, and PR #48 saw the same in about 1 of 6 live calls. Fixed after the
+    batch (Dutch, Nov 16): in the identity steps `report_emergency` now needs
+    emergency words from the caller or in its description, or it is refused and intake
+    continues (`test_identity_answer_is_not_an_emergency`). Not yet measured live.
   - James 1: Daily SFU and Deepgram 1011 timeouts mid identity line, host load ~5 on
     the 2 CPU build host.
 - **Live agent side** (`server/tests/test_identity_verify_live.py`, passed): a Linda call

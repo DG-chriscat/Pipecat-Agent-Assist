@@ -1,4 +1,4 @@
-# Demos page (P5-10)
+# Demos page (P5-10, PRD AP-23, DC-12)
 
 One place to pick a demo caller (Chris, Nov 16). Rail icon **Demos** (Lucide Play),
 above Architecture; route `/agent/demos`, behind the shared login like every page.

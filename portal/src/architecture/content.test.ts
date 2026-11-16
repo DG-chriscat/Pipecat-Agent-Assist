@@ -37,7 +37,7 @@ const VERIFIED = new Set([
 ]);
 
 describe("architecture content (AP-21)", () => {
-  it("has the diagram's nodes, with the STT split into intake (Flux) and assist (Nova-3)", () => {
+  it("has the diagram's nodes, with the STT split into intake (Nova-3, Flux selectable) and assist (Nova-3)", () => {
     expect(NODES.map((n) => n.id)).toEqual([
       "caller",
       "daily",
@@ -52,7 +52,9 @@ describe("architecture content (AP-21)", () => {
       "db",
     ]);
     const t = (id: string) => NODES.find((n) => n.id === id)!.technical.title;
-    expect(t("intake-stt")).toMatch(/Flux/);
+    // P5-7: Nova-3 is the intake default; Flux is selectable (docs/spikes/stt-flux-intake.md).
+    expect(t("intake-stt")).toBe("Deepgram STT, Nova-3 or Flux");
+    expect(NODES.find((n) => n.id === "intake-stt")!.technical.lead).toMatch(/Nova-3 by default/);
     expect(t("assist-stt")).toMatch(/Nova-3/);
     expect(t("tts")).toMatch(/Flux TTS/);
     expect(NODES.find((n) => n.id === "tts")!.technical.sub).toMatch(/flux-alexis-en/);

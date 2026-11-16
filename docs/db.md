@@ -13,7 +13,7 @@ uv run --env-file .env python -m agent_assist_server.db seed
 
 - `migrate` applies `db/migrations/*.sql` in name order, once each, and records
   them in `schema_migrations`. Re-running is a no-op.
-- `seed` truncates every table (including `calls` and `transcript_lines`) and
+- `seed` truncates every table (including `calls`, `transcript_lines`, and `assist_events`) and
   reloads the fixed data set. Run it before a demo; Supabase free projects pause
   after a week idle.
 - `--schema NAME` targets a schema other than the server default (tests use this).
@@ -46,6 +46,7 @@ Call records (written by bot and server):
 | --- | --- | --- |
 | `calls` | `call_id` (uuid) | `session_id` (unique), `status` intake, ready_for_queue, queued, with_agent, ended, abandoned. `member_id`, `intake` jsonb (answers saved as captured, IN-5), `identity_result` verified, not_verified, not_found, `flags` text[], `created_at`, `updated_at`, `queued_at`, `answered_at`, `ended_at`. |
 | `transcript_lines` | `line_id` | `call_id` (cascade delete), `speaker_role` caller, bot, agent, `text`, `ts`, `tone`. |
+| `assist_events` | `event_id` | `call_id` (cascade delete), `kind` card_sent, accept, dismiss, pin, unpin, rate, guardrail, `card_id`, `data` jsonb, `created_at`. What the assist showed and what the agent did (P4-3, DC-9; docs/assist.md). |
 
 ## Seed contents
 

@@ -1,4 +1,14 @@
 # Deepgram Vitals: server + per call bot processes in one image (ADR 0004).
+
+# ---- portal: build the agent portal (React + Vite) into portal/dist ----
+FROM node:22-bookworm-slim AS portal
+WORKDIR /portal
+COPY portal/package.json portal/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY portal/ ./
+RUN npm run build
+
+# ---- app: Python server and bot ----
 FROM python:3.12-slim-bookworm
 
 ENV PYTHONUNBUFFERED=1 \
@@ -27,6 +37,10 @@ COPY packs packs
 COPY db db
 RUN uv sync --frozen --no-dev --all-packages \
  && python -c "import agent_assist_server.app, agent_assist_bot.bot"
+
+# Served at /agent by agent_assist_server.portal (default path <repo>/portal/dist).
+COPY --from=portal /portal/dist portal/dist
+ENV PORTAL_DIST=/app/portal/dist
 
 # Server spawns bots with sys.executable, so they share this venv.
 ENV TRUSTED_CLIENT_IP_HEADER=Fly-Client-IP

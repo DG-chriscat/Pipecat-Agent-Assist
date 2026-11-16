@@ -4,7 +4,7 @@ from collections.abc import Callable, Mapping
 
 from fastapi import FastAPI
 
-from agent_assist_server import auth
+from agent_assist_server import auth, portal
 from agent_assist_server.agent_token import router as agent_token_router
 from agent_assist_server.browser_call import router as browser_call_router
 from agent_assist_server.dialin import router as dialin_router
@@ -38,6 +38,7 @@ def create_app(
     app.include_router(agent_token_router)
     app.include_router(browser_call_router)
     app.include_router(queue_router)
+    app.include_router(portal.build_router(portal.dist_from_env(env)))
     app.add_api_route("/healthz", healthz, methods=["GET"])
     auth.install(app, config)
     return app

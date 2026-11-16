@@ -12,3 +12,4 @@
 docs
 **/tests
 portal/node_modules
+portal/dist

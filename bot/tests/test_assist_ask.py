@@ -57,7 +57,9 @@ def _ask_message(d, t=c.ASK_TYPE):
 
 def test_parse_ask_message_from_the_agent_only():
     msg = _ask_message({"v": 1, "ask_id": "ask-1", "text": " Show the last 3 claims "})
-    assert c.parse_ask_message(msg, "agent-1", "agent-1") == c.Ask("ask-1", "Show the last 3 claims")
+    assert c.parse_ask_message(msg, "agent-1", "agent-1") == c.Ask(
+        "ask-1", "Show the last 3 claims"
+    )
     assert c.parse_ask_message(msg, "caller-1", "agent-1") is None
     assert c.parse_ask_message(msg, "api", "agent-1") is None
     assert c.parse_ask_message(msg, "agent-1", None) is None
@@ -192,7 +194,9 @@ async def test_kb_question_without_a_connector_word_searches_articles(packs):
 
 
 async def test_llm_picks_records_for_other_questions_and_the_engine_renders_them(packs):
-    llm = FakeLLM({"next_steps": [], "cards": [{"template_id": "denied_claim", "ids": ["CLM-900001"]}]})
+    llm = FakeLLM(
+        {"next_steps": [], "cards": [{"template_id": "denied_claim", "ids": ["CLM-900001"]}]}
+    )
     h = await maria(packs, llm=llm)
     await h.engine.on_ask(c.Ask("a1", "why was the MRI turned down"))
     [card] = h.added()

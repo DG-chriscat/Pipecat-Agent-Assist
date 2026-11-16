@@ -161,7 +161,13 @@ def parse_ask(text: str) -> AskQuery | None:
 def ask_trigger(ask_id: str, text: str, at: float) -> Trigger:
     """The \"trigger\" of an Ask card: the agent's own question (no phrase to underline)."""
     return Trigger(
-        phrase=None, text=text, role="ask", line_id=f"ask-{ask_id}", start=None, end=None, heard_at=at
+        phrase=None,
+        text=text,
+        role="ask",
+        line_id=f"ask-{ask_id}",
+        start=None,
+        end=None,
+        heard_at=at,
     )
 
 
@@ -200,7 +206,11 @@ def rows_card(
         trigger=trigger,
         source=Source(label=label, records=[(connector, str(r.get(idf))) for r in rows]),
         template_id=tpl.id if tpl is not None else None,
-        body={"fields": fields, "rows": [{f: r.get(f) for f in fields} for r in rows], "summary": None},
+        body={
+            "fields": fields,
+            "rows": [{f: r.get(f) for f in fields} for r in rows],
+            "summary": None,
+        },
     )
 
 

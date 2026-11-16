@@ -189,8 +189,7 @@ class AssistRequest:
             f"Next best step rules:\n{rules or '- none'}\n\n"
             f"Card templates:\n{cards or '- none'}\n\n"
             f"Cards already on screen: {shown}\n\n"
-            f"Transcript, oldest first:\n{window or '- nothing yet'}\n"
-            + ask
+            f"Transcript, oldest first:\n{window or '- nothing yet'}\n" + ask
         )
 
 
@@ -262,9 +261,7 @@ class AssistEngine:
         starts on the fallback pack (P4-6); with no answers at all, `default_pack`.
         """
         self.intake = {k: v for k, v in dict(intake).items() if v not in (None, "")}
-        text = " ".join(
-            str(v) for k, v in self.intake.items() if k not in IDENTITY_INTAKE_KEYS
-        )
+        text = " ".join(str(v) for k, v in self.intake.items() if k not in IDENTITY_INTAKE_KEYS)
         chosen = select_pack(text, self.packs) if text.strip() else None
         self.pack = chosen or self.packs.get(default_pack) or next(iter(self.packs.values()))
         logger.info(f"[assist] listening; pack={self.pack.id}")

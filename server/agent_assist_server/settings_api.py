@@ -136,10 +136,6 @@ def _body(settings: bs.Settings) -> dict[str, Any]:
             "intake": list(bs.STT_INTAKE_MODELS),
             "assist": list(bs.STT_ASSIST_MODELS),
         },
-        "stt_models": {
-            "intake": list(bs.STT_INTAKE_MODELS),
-            "assist": list(bs.STT_ASSIST_MODELS),
-        },
     }
 
 

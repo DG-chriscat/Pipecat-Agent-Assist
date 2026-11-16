@@ -144,4 +144,18 @@ describe("useCall assist (P4-4, docs/assist.md)", () => {
     act(() => result.current.assistAction({ type: "accept", cardId: heroCard().id }));
     expect(FakeMedia.last().sent).toEqual([]);
   });
+
+  it("sends an Ask as an assist_ask client message and tracks it (P4-6)", () => {
+    const { result } = renderHook(() => useCall(createFakeMedia));
+    act(() => result.current.start(res));
+    act(() => result.current.assistAction({ type: "ask", askId: "q1", text: " Show the last 3 claims " }));
+    expect(FakeMedia.last().sent).toEqual([["assist_ask", { v: 1, ask_id: "q1", text: "Show the last 3 claims" }]]);
+    expect(result.current.call?.assist.asks.map((a) => a.status)).toEqual(["pending"]);
+    act(() =>
+      FakeMedia.last().events.onServerMessage(
+        msg("ask_result", { ask_id: "q1", status: "no_answer", card_id: null, message: "No." }),
+      ),
+    );
+    expect(result.current.call?.assist.asks[0].status).toBe("no_answer");
+  });
 });

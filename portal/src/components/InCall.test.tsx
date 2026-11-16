@@ -79,13 +79,13 @@ describe("InCall shell (AP-4)", () => {
     expect(within(caller).queryByText("EVM100231")).not.toBeInTheDocument();
     expect(within(caller).getByText("MRI claim from Oct 28 was denied")).toBeInTheDocument();
     const assist = screen.getByRole("region", { name: /assist/i });
-    // Hero listening state, three empty shelf tiles, Earlier this call, Ask bar (P4-4 fills).
+    // Hero listening state, three empty shelf tiles, Earlier this call, Ask bar (P4-6: live).
     expect(within(assist).getByText("Listening with you")).toBeInTheDocument();
     expect(within(assist).getByText("Next best step")).toBeInTheDocument();
     expect(within(assist).getAllByTestId("shelf-tile")).toHaveLength(3);
     expect(within(assist).getByText("Earlier this call")).toBeInTheDocument();
     const ask = within(assist).getByRole("textbox", { name: /ask/i });
-    expect(ask).toBeDisabled();
+    expect(ask).toBeEnabled();
     expect(ask).toHaveAttribute("placeholder", "Ask about Maria");
     const transcript = screen.getByRole("complementary", { name: /conversation/i });
     expect(within(transcript).getByText("Conversation")).toBeInTheDocument();

@@ -106,15 +106,32 @@ class FakeConnectors:
 
     async def call(self, name: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
         args = dict(args or {})
-        self.calls.append((name, args))
+        self.calls.append((name, dict(args)))
         connector, _, kind = name.rpartition("_")
         rows = self.rows.get(connector, [])
         if kind == "get":
             want = args.get(ID_FIELD[connector])
             item = next((r for r in rows if r[ID_FIELD[connector]] == want), None)
             return {"tool": name, "source": "fake", "found": item is not None, "item": item}
-        args.pop("limit", None)
+        limit = args.pop("limit", None)
+        query = args.pop("query", None)
         items = [r for r in rows if all(str(r.get(k)) == str(v) for k, v in args.items())]
+        if query is not None:
+            # kb_articles keyword search, as in the catalog: title 3, tags 2, body 1.
+            from agent_assist_bot.connectors.catalog import kb_terms
+
+            def score(r):
+                tags = " ".join(r.get("tags") or []).lower()
+                return sum(
+                    3 * (t in str(r.get("title", "")).lower())
+                    + 2 * (t in tags)
+                    + (t in str(r.get("summary", "")).lower())
+                    for t in kb_terms(query)
+                )
+
+            items = sorted((r for r in items if score(r) > 0), key=lambda r: -score(r))
+        if limit is not None:
+            items = items[:limit]
         return {"tool": name, "source": "fake", "count": len(items), "items": items}
 
 

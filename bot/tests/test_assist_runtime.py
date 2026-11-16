@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
-from agent_assist_bot.assist_contract import FEEDBACK_TYPE
+from agent_assist_bot.assist_contract import ASK_TYPE, FEEDBACK_TYPE
 from agent_assist_bot.assist_runtime import AssistSession, EventRecorder
 from agent_assist_bot.calls import IdentityCheck, MemoryCallStore
 from agent_assist_bot.packs import load_pack, load_packs
@@ -165,6 +165,39 @@ async def test_close_stops_the_engine():
     await accept(s, roles)
     await s.close()
     assert s.engine.stopped
+
+
+def _ask(ask_id, text):
+    return {
+        "label": "rtvi-ai",
+        "type": "client-message",
+        "id": "x",
+        "data": {"t": ASK_TYPE, "d": {"v": 1, "ask_id": ask_id, "text": text}},
+    }
+
+
+async def test_agent_ask_answers_to_the_agent_only_and_caller_ask_is_ignored():
+    s, roles, out, store, call_id, _ = await make()
+    await accept(s, roles)
+    await s.on_app_message(_ask("q1", "Show the last 3 claims"), "c1")  # the caller
+    await s.on_app_message(_ask("q2", "Show the last 3 claims"), "a1")  # the agent
+    await s.drain_asks()
+    data = out.data()
+    added = [d["card"]["id"] for d in data if d["event"] == "card_added"]
+    assert added == ["ask:q2"]
+    [res] = [d for d in data if d["event"] == "ask_result"]
+    assert res["ask_id"] == "q2" and res["status"] == "answered"
+    assert all(f.participant_id == "a1" for f in out.frames)
+    await s.close()
+    sent = [e for e in store.calls[call_id].assist_events if e[0] == "card_sent"]
+    assert [e[1] for e in sent] == ["ask:q2"]
+
+
+async def test_ask_before_accept_is_ignored():
+    s, roles, out, _, _, _ = await make()
+    await s.on_app_message(_ask("q1", "Show the last 3 claims"), "a1")
+    await s.drain_asks()
+    assert out.frames == []
 
 
 async def test_event_recorder_survives_store_errors():

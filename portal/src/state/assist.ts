@@ -116,7 +116,20 @@ export type AssistMessage =
   | (Base & { event: "hero"; card: AssistCard | null; reason: string; replaces: string | null })
   | (Base & { event: "card_added"; card: AssistCard })
   | (Base & { event: "card_removed"; card_id: string; reason: string })
-  | (Base & { event: "mood" } & MoodState);
+  | (Base & { event: "mood" } & MoodState)
+  | (Base & { event: "ask_result"; ask_id: string; status: AskStatus; card_id: string | null; message: string | null });
+
+/** How an Ask bar question ended (P4-6, AP-8); `pending` until the bot answers. */
+export type AskStatus = "answered" | "no_answer" | "error";
+const ASK_STATUSES: readonly AskStatus[] = ["answered", "no_answer", "error"];
+
+export interface AskItem {
+  askId: string;
+  text: string;
+  status: AskStatus | "pending";
+  cardId: string | null;
+  message: string | null;
+}
 
 type Obj = Record<string, unknown>;
 const isObj = (x: unknown): x is Obj => typeof x === "object" && x !== null && !Array.isArray(x);
@@ -274,6 +287,17 @@ export function parseAssistMessage(data: unknown): AssistMessage | null {
         readings,
       };
     }
+    case "ask_result": {
+      if (!isStr(data.ask_id) || !ASK_STATUSES.includes(data.status as AskStatus)) return null;
+      return {
+        ...base,
+        event: "ask_result",
+        ask_id: data.ask_id,
+        status: data.status as AskStatus,
+        card_id: isStr(data.card_id) ? data.card_id : null,
+        message: isStr(data.message) ? data.message : null,
+      };
+    }
     default:
       return null;
   }
@@ -312,6 +336,8 @@ export interface AssistState {
   gone: string[];
   /** The caller's mood trend (P4-5), null until the first tone reading. */
   mood: MoodState | null;
+  /** The agent's Ask bar questions this call, oldest first (P4-6). */
+  asks: AskItem[];
 }
 
 export function emptyAssist(): AssistState {
@@ -328,6 +354,7 @@ export function emptyAssist(): AssistState {
     manual: {},
     gone: [],
     mood: null,
+    asks: [],
   };
 }
 
@@ -379,6 +406,12 @@ export function applyAssist(s: AssistState, m: AssistMessage, atSecs: number): A
     case "mood":
       next.mood = { label: m.label, tone: m.tone, step: m.step, readings: m.readings };
       return next;
+    case "ask_result":
+      if (!s.asks.some((a) => a.askId === m.ask_id)) return next;
+      next.asks = s.asks.map((a) =>
+        a.askId === m.ask_id ? { ...a, status: m.status, cardId: m.card_id, message: m.message } : a,
+      );
+      return next;
   }
 }
 
@@ -389,11 +422,20 @@ export type LocalAction =
   | { type: "pin"; cardId: string }
   | { type: "unpin"; cardId: string }
   | { type: "rate"; cardId: string; rating: "up" | "down" }
-  | { type: "tick"; stepId: string; done: boolean };
+  | { type: "tick"; stepId: string; done: boolean }
+  | { type: "ask"; askId: string; text: string };
+
+/** Longest Ask bar question the bot takes (assist_contract.MAX_ASK_CHARS). */
+export const MAX_ASK_CHARS = 300;
 
 /** Apply one of the agent's own actions. `atSecs` is the call time now. */
 export function localAssist(s: AssistState, a: LocalAction, atSecs: number): AssistState {
   switch (a.type) {
+    case "ask": {
+      const text = a.text.trim().slice(0, MAX_ASK_CHARS);
+      if (!text || s.asks.some((q) => q.askId === a.askId)) return s;
+      return { ...s, asks: [...s.asks, { askId: a.askId, text, status: "pending", cardId: null, message: null }] };
+    }
     case "accept": {
       const card = s.hero;
       if (!card || card.id !== a.cardId || !isNextStepBody(card.body)) return s;

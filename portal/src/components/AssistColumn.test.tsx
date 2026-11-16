@@ -8,7 +8,7 @@ import {
   type AssistState,
   type LocalAction,
 } from "../state/assist";
-import { heroCard, msg, PLAN_STEPS, planMsg, recordCard, toneTipCard } from "../test/assistFixtures";
+import { askCard, heroCard, msg, PLAN_STEPS, planMsg, recordCard, toneTipCard } from "../test/assistFixtures";
 import { ACK_MS, AssistColumn } from "./AssistColumn";
 
 function state(...raws: Record<string, unknown>[]): AssistState {
@@ -43,6 +43,7 @@ describe("AssistColumn hero (DESIGN.md Assist column, docs/assist.md)", () => {
     const { hero } = setup(state(heroMsg()));
     const h = hero();
     expect(h).toHaveAttribute("data-state", "suggestion");
+    expect(h).toHaveAttribute("data-card-id", heroCard().id);
     expect(within(h).getByText("Next best step")).toBeInTheDocument();
     expect(within(h).getByText("AI suggested")).toBeInTheDocument();
     expect(within(h).getByText('Heard "denied"')).toBeInTheDocument();
@@ -349,6 +350,93 @@ describe("AssistColumn call plan (AP-12)", () => {
     const { region, onAction } = setup(state(planMsg(ticked)));
     fireEvent.click(within(within(region).getByTestId("tile-plan")).getAllByRole("checkbox")[0]);
     expect(onAction).toHaveBeenLastCalledWith({ type: "tick", stepId: "confirm_claim", done: false });
+  });
+});
+
+describe("AssistColumn Ask bar (P4-6, AP-8)", () => {
+  it("Cmd+K or Ctrl+K focuses the Ask field; Enter sends the question and clears it", () => {
+    const { region, onAction } = setup(state(heroMsg()));
+    const input = within(region).getByRole("textbox", { name: "Ask" });
+    expect(input).toBeEnabled();
+    expect(input).toHaveAttribute("placeholder", "Ask about Maria");
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    expect(input).toHaveFocus();
+    input.blur();
+    fireEvent.keyDown(window, { key: "K", ctrlKey: true });
+    expect(input).toHaveFocus();
+    fireEvent.change(input, { target: { value: "Show the last 3 claims" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onAction).toHaveBeenCalledTimes(1);
+    expect(onAction).toHaveBeenLastCalledWith({ type: "ask", askId: expect.any(String), text: "Show the last 3 claims" });
+    expect(input).toHaveValue("");
+  });
+
+  it("Enter in the Ask field never accepts the hero; Esc leaves the field without dismissing it", () => {
+    const { region, onAction } = setup(state(heroMsg()));
+    const input = within(region).getByRole("textbox", { name: "Ask" });
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    fireEvent.keyDown(input, { key: "Enter" }); // empty: nothing
+    fireEvent.change(input, { target: { value: "half a question" } });
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(onAction).not.toHaveBeenCalled();
+    expect(input).not.toHaveFocus();
+    expect(input).toHaveValue("");
+  });
+
+  it("shows the question while it is answered, and the reason when there is no answer", () => {
+    let s = state(planMsg());
+    s = localAssist(s, { type: "ask", askId: "q1", text: "Show the last 3 claims" }, 20);
+    const pending = setup(s);
+    expect(within(pending.region).getByRole("status")).toHaveTextContent(/Looking up “Show the last 3 claims”/);
+    pending.unmount();
+    s = applyAssist(
+      s,
+      parseAssistMessage(msg("ask_result", { ask_id: "q1", status: "no_answer", card_id: null, message: "No claims found for this caller." }))!,
+      21,
+    );
+    const done = setup(s);
+    expect(within(done.region).getByRole("status")).toHaveTextContent("No claims found for this caller.");
+  });
+
+  it("an answer the agent asked for is scrolled into view on the shelf, once", () => {
+    const into = vi.fn();
+    Element.prototype.scrollIntoView = into;
+    let s = state(planMsg(), msg("card_added", { card: recordCard() }));
+    s = localAssist(s, { type: "ask", askId: "ask-1", text: "Show the last 3 claims" }, 20);
+    const onAction = vi.fn();
+    const r = render(<AssistColumn assist={s} onAction={onAction} firstName="Maria" />);
+    expect(into).not.toHaveBeenCalled();
+    s = applyAssist(s, parseAssistMessage(msg("card_added", { card: askCard() }))!, 21);
+    s = applyAssist(
+      s,
+      parseAssistMessage(msg("ask_result", { ask_id: "ask-1", status: "answered", card_id: "ask:ask-1", message: null }))!,
+      21,
+    );
+    r.rerender(<AssistColumn assist={s} onAction={onAction} firstName="Maria" />);
+    expect(into).toHaveBeenCalledTimes(1);
+    expect(into.mock.contexts[0]).toBe(screen.getByTestId("tile-ask:ask-1"));
+    r.rerender(<AssistColumn assist={{ ...s }} onAction={onAction} firstName="Maria" />);
+    expect(into).toHaveBeenCalledTimes(1);
+  });
+
+  it("an answer is a supporting card that names the question and its source", () => {
+    let s = state(planMsg());
+    s = localAssist(s, { type: "ask", askId: "ask-1", text: "Show the last 3 claims" }, 20);
+    s = applyAssist(s, parseAssistMessage(msg("card_added", { card: askCard() }))!, 21);
+    s = applyAssist(
+      s,
+      parseAssistMessage(msg("ask_result", { ask_id: "ask-1", status: "answered", card_id: "ask:ask-1", message: null }))!,
+      21,
+    );
+    const { region } = setup(s);
+    const tile = within(region).getByTestId("tile-ask:ask-1");
+    expect(within(tile).getByText("Claims")).toBeInTheDocument();
+    expect(within(tile).getByText("You asked “Show the last 3 claims”")).toBeInTheDocument();
+    expect(within(tile).getByTestId("tile-big")).toHaveTextContent("2 claims");
+    expect(within(tile).getAllByRole("row")).toHaveLength(3);
+    expect(within(tile).getByTestId("tile-source")).toHaveTextContent("Claims system");
+    expect(within(tile).getByTestId("tile-source")).toHaveAttribute("title", "CLM-900001, CLM-900002");
+    expect(within(region).queryByRole("status")).not.toBeInTheDocument();
   });
 });
 

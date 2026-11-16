@@ -36,6 +36,7 @@ Background tasks (LLM debounce, rate limit flush) run only when
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import json
 import os
 import re
@@ -47,11 +48,24 @@ from typing import Any, Protocol
 
 from loguru import logger
 
+from agent_assist_bot.assist_ask import (
+    NO_ANSWER,
+    article_template,
+    ask_trigger,
+    is_question,
+    kb_hits,
+    no_rows_message,
+    not_allowed_message,
+    parse_ask,
+    rows_card,
+)
 from agent_assist_bot.assist_contract import (
+    Ask,
     Card,
     Feedback,
     Source,
     Trigger,
+    ask_result_message,
     card_added_message,
     card_removed_message,
     hero_message,
@@ -82,6 +96,10 @@ LLM_DEBOUNCE_SECS = 0.6
 MAX_ROWS = 5
 MAX_ARTICLES = 2
 DC6_TARGET_MS = 3000
+# Intake keys that say who the caller is, not why they called (not used to pick a pack).
+IDENTITY_INTAKE_KEYS = frozenset({"full_name", "member_id", "dob"})
+# A trigger phrase split across two final lines of one speaker counts within this gap.
+SPLIT_PHRASE_SECS = 3.0
 
 ID_FIELD = {c.name: c.id_field for c in CONNECTORS}
 _PLACEHOLDER = re.compile(r"\{([^{}]*)\}")
@@ -143,6 +161,8 @@ class AssistRequest:
     window: list[dict[str, Any]]
     tools: list[dict[str, Any]]
     shown: list[str] = field(default_factory=list)
+    # The agent's typed question (Ask bar, P4-6). Set only for an Ask.
+    question: str | None = None
 
     def prompt(self) -> str:
         p = self.pack
@@ -158,13 +178,20 @@ class AssistRequest:
         intake = "\n".join(f"- {k}: {v}" for k, v in self.intake.items() if v)
         window = "\n".join(f"{ln['role'].upper()}: {ln['text']}" for ln in self.window)
         shown = ", ".join(self.shown) or "none"
+        ask = ""
+        if self.question:
+            ask = (
+                f"\nThe agent typed a question: {self.question!r}\n"
+                "Answer it with card templates and the record ids that answer it "
+                "(look them up with the tools). Leave next_steps empty.\n"
+            )
         return (
             f"Use case pack: {p.name} ({p.id}).\n\n"
             f"Intake (verified caller):\n{intake or '- none'}\n\n"
             f"Next best step rules:\n{rules or '- none'}\n\n"
             f"Card templates:\n{cards or '- none'}\n\n"
             f"Cards already on screen: {shown}\n\n"
-            f"Transcript, oldest first:\n{window}\n"
+            f"Transcript, oldest first:\n{window or '- nothing yet'}\n" + ask
         )
 
 
@@ -229,14 +256,15 @@ class AssistEngine:
     # ---- lifecycle ----
 
     async def start(self, intake: Mapping[str, Any], default_pack: str) -> None:
-        """On accept: pick the pack from intake, tell the portal we are listening."""
+        """On accept: pick the pack from intake, tell the portal we are listening.
+
+        The pack whose triggers match the intake answers most wins. When there are
+        answers and no pack's triggers match them, the call is a general question and
+        starts on the fallback pack (P4-6); with no answers at all, `default_pack`.
+        """
         self.intake = {k: v for k, v in dict(intake).items() if v not in (None, "")}
-        text = " ".join(str(self.intake.get(k, "")) for k in ("reason", "summary"))
-        chosen = None
-        if text.strip():
-            chosen = select_pack(text, self.packs)
-            if chosen is not None and chosen.triggers.fallback:
-                chosen = None
+        text = " ".join(str(v) for k, v in self.intake.items() if k not in IDENTITY_INTAKE_KEYS)
+        chosen = select_pack(text, self.packs) if text.strip() else None
         self.pack = chosen or self.packs.get(default_pack) or next(iter(self.packs.values()))
         logger.info(f"[assist] listening; pack={self.pack.id}")
         await self._set_status("listening", force=True)
@@ -397,7 +425,6 @@ class AssistEngine:
         pack = self.pack
         if not pack.triggers.fallback and self._window_trigger(pack.triggers.phrases) is None:
             return  # nothing in the conversation has fired a trigger yet (PRD step 3)
-        allowed = {t["name"] for t in self.connectors.tool_schemas(pack.allowed_connectors)}
         request = AssistRequest(
             pack=pack,
             intake=dict(self.intake),
@@ -407,11 +434,7 @@ class AssistEngine:
         )
         started = self._clock()
         line_ts = self._window[-1]["ts"]
-
-        async def run_tool(name: str, args: dict[str, Any]) -> dict[str, Any]:
-            if name not in allowed:
-                return {"tool": name, "error": "not_allowed", "message": "not in this pack"}
-            return await self.connectors.call(name, args or {})
+        run_tool = self._pack_tools(pack)
 
         try:
             proposal = await self.llm.propose(request, run_tool)
@@ -473,6 +496,120 @@ class AssistEngine:
                 out.append(_Candidate(card, line_ts))
         return out
 
+    def _pack_tools(self, pack: Pack) -> RunTool:
+        """The pack's connector tools for the LLM; anything else is refused."""
+        allowed = {t["name"] for t in self.connectors.tool_schemas(pack.allowed_connectors)}
+
+        async def run_tool(name: str, args: dict[str, Any]) -> dict[str, Any]:
+            if name not in allowed:
+                return {"tool": name, "error": "not_allowed", "message": "not in this pack"}
+            return await self.connectors.call(name, args or {})
+
+        return run_tool
+
+    # ---- Ask bar (P4-6, AP-8) ----
+
+    async def on_ask(self, ask: Ask) -> None:
+        """The agent's typed question: one supporting card with its source, then an
+        `ask_result`. The lookup runs outside the engine lock so transcript cards
+        (DC-6) never wait on an Ask."""
+        if self.stopped or self.pack is None:
+            return
+        pack = self.pack
+        started = self._clock()
+        trig = ask_trigger(ask.ask_id, ask.text, started)
+        card: Card | None = None
+        status, message = "no_answer", NO_ANSWER
+        q = parse_ask(ask.text)
+        if q is not None:
+            if q.connector not in pack.allowed_connectors:
+                message = not_allowed_message(pack, q.connector)
+            else:
+                rows = await self._search_in(pack, q.connector, q.filters | {"limit": q.limit})
+                if rows:
+                    card = rows_card(
+                        card_id=f"ask:{ask.ask_id}",
+                        kind="record",
+                        pack=pack,
+                        connector=q.connector,
+                        rows=rows[: q.limit],
+                        trigger=trig,
+                    )
+                else:
+                    message = no_rows_message(q.connector)
+        else:
+            failed = False
+            if self.llm is not None:
+                try:
+                    card = await self._ask_llm(pack, ask, trig)
+                except Exception as e:  # noqa: BLE001 - fall back to the knowledge base
+                    logger.error(f"[assist] ask LLM failed: {type(e).__name__}")
+                    failed = True
+            if card is None and "kb_articles" in pack.allowed_connectors:
+                found = await self._search_in(
+                    pack, "kb_articles", {"query": ask.text, "limit": MAX_ARTICLES * 3}
+                )
+                rows = [h.row for h in kb_hits(ask.text, found)][:MAX_ARTICLES]
+                if rows:
+                    card = rows_card(
+                        card_id=f"ask:{ask.ask_id}",
+                        kind="article",
+                        pack=pack,
+                        connector="kb_articles",
+                        rows=rows,
+                        trigger=trig,
+                    )
+            if card is None and failed:
+                status, message = "error", "The assist model is not available. Try again."
+        async with self._lock:
+            if self.stopped:
+                return
+            if card is not None:
+                status, message = "answered", None
+                self.supporting[card.id] = card
+                await self._emit(card_added_message(card, **self._stamp()))
+                self._log_sent(card, started, ask=True)
+            logger.info(f"[assist] ask {ask.ask_id} {status} card={card.id if card else None}")
+            await self._emit(
+                ask_result_message(
+                    ask.ask_id,
+                    status,
+                    card.id if card else None,
+                    **self._stamp(),
+                    message=message,
+                )
+            )
+
+    async def _ask_llm(self, pack: Pack, ask: Ask, trig: Trigger) -> Card | None:
+        """The LLM picks a pack card template and record ids; the engine renders it."""
+        request = AssistRequest(
+            pack=pack,
+            intake=dict(self.intake),
+            window=self.window(),
+            tools=self.connectors.tool_schemas(pack.allowed_connectors),
+            shown=[c.id for c in self._shown()],
+            question=ask.text,
+        )
+        proposal = await self.llm.propose(request, self._pack_tools(pack))
+        if not isinstance(proposal, dict):
+            return None
+        for c in proposal.get("cards") or []:
+            try:
+                tpl = pack.card_template(str(c["template_id"]))
+                ids = [str(i) for i in c.get("ids") or []]
+            except (KeyError, TypeError, StopIteration):
+                continue
+            card = await self._template_card(tpl, trig, ids=ids)
+            if card is not None:
+                return dataclasses.replace(card, id=f"ask:{ask.ask_id}", rank=0, pack_id=pack.id)
+        return None
+
+    async def _search_in(self, pack: Pack, conn: str, args: dict[str, Any]) -> list[dict]:
+        if conn not in pack.allowed_connectors:
+            return []
+        res = await self.connectors.call(f"{conn}_search", args)
+        return list(res.get("items") or []) if "error" not in res else []
+
     # ---- deterministic trigger path ----
 
     async def _maybe_switch_pack(self, entry: dict[str, Any]) -> None:
@@ -493,9 +630,11 @@ class AssistEngine:
         pack = self.pack
         ts = entry["ts"]
         steps: list[Card] = []
-        for rule in pack.rules_triggered(entry["text"]):
-            trig = self._line_trigger(entry, rule.match_triggers(entry["text"])[0])
-            card = await self._rule_card(rule, trig)
+        for rule in pack.next_best_steps:
+            hits = self._line_matches(entry, rule.triggers)
+            if not hits:
+                continue
+            card = await self._rule_card(rule, self._line_trigger(entry, hits[0]))
             if card is not None:
                 steps.append(card)
         steps.sort(key=lambda c: -c.rank)
@@ -506,7 +645,7 @@ class AssistEngine:
             rec = await self._record_card_for(steps[0])
             if rec is not None:
                 more.append(rec)
-        pack_hits = pack.match_triggers(entry["text"])
+        pack_hits = self._line_matches(entry, pack.triggers.phrases)
         if pack_hits:
             trig = self._line_trigger(entry, pack_hits[0])
             for tpl in pack.card_templates:
@@ -517,6 +656,58 @@ class AssistEngine:
         more.extend(steps[1:])
         if more:
             await self._offer([_Candidate(c, ts) for c in more])
+        if pack.triggers.fallback and entry["role"] == "caller" and is_question(entry["text"]):
+            card = await self._kb_answer(entry)
+            if card is not None:
+                await self._offer([_Candidate(card, ts)])
+
+    def _line_matches(self, entry: Mapping[str, Any], phrases: Sequence[str]) -> list[TriggerMatch]:
+        """Trigger phrases heard in this line. A phrase may also start in the same
+        speaker's previous final line (within SPLIT_PHRASE_SECS) and end in this one:
+        STT can end a final line mid phrase ("and I was charged" / "twice for my
+        premium."). Such a match is the part of the phrase in this line; phrases wholly
+        in the previous line are not repeated."""
+        text = entry["text"]
+        hits = match_phrases(text, phrases)
+        prev = self._prev_same_speaker(entry)
+        if prev is not None:
+            joined = prev["text"] + " " + text
+            cut = len(prev["text"]) + 1
+            seen = {(h.phrase, h.start, h.end) for h in hits}
+            for m in match_phrases(joined, phrases):
+                if m.start < cut < m.end:  # spans the line break
+                    part = TriggerMatch(phrase=m.phrase, start=0, end=m.end - cut)
+                    if (part.phrase, part.start, part.end) not in seen:
+                        hits.append(part)
+            hits.sort(key=lambda m: (m.start, -m.end))
+        return hits
+
+    def _prev_same_speaker(self, entry: Mapping[str, Any]) -> dict[str, Any] | None:
+        """The line before `entry` in the window, if the same role said it just before."""
+        items = list(self._window)
+        if len(items) < 2 or items[-1] is not entry:
+            return None
+        prev = items[-2]
+        if prev["role"] != entry["role"] or entry["ts"] - prev["ts"] > SPLIT_PHRASE_SECS:
+            return None
+        return prev
+
+    async def _kb_answer(self, entry: dict[str, Any]) -> Card | None:
+        """General question pack (P4-6): a caller question that names a KB article's
+        title or tag words gets that article at once, no LLM. The named words are the
+        trigger (underlined in the conversation)."""
+        tpl = article_template(self.pack)
+        if tpl is None:
+            return None
+        rows = await self._search(
+            tpl.connector, dict(tpl.search) | {"query": entry["text"], "limit": MAX_ARTICLES * 3}
+        )
+        hits = kb_hits(entry["text"], rows)[:1]
+        if not hits:
+            return None
+        h = hits[0]
+        trig = self._line_trigger(entry, TriggerMatch(phrase=h.phrase, start=h.start, end=h.end))
+        return await self._template_card(tpl, trig, ids=[str(h.row.get(ID_FIELD[tpl.connector]))])
 
     async def _rule_card(self, rule: NextBestStep, trig: Trigger) -> Card | None:
         """The rule rendered for the best record that satisfies it, or None."""
@@ -747,7 +938,7 @@ class AssistEngine:
             await self._emit(card_added_message(card, **self._stamp()))
         self._log_sent(card, c.line_ts)
 
-    def _log_sent(self, card: Card, line_ts: float) -> None:
+    def _log_sent(self, card: Card, line_ts: float, *, ask: bool = False) -> None:
         ms = (self._clock() - line_ts) * 1000
         self._latencies.append(ms)
         logger.info(
@@ -755,18 +946,17 @@ class AssistEngine:
             f"trigger={card.trigger.phrase!r} latency_ms={ms:.0f}"
             + (" OVER DC-6" if ms > DC6_TARGET_MS else "")
         )
-        self._record(
-            "card_sent",
-            card.id,
-            {
-                "kind": card.kind,
-                "rank": card.rank,
-                "pack_id": card.pack_id,
-                "trigger_phrase": card.trigger.phrase,
-                "trigger_line_id": card.trigger.line_id,
-                "latency_ms": round(ms, 1),
-            },
-        )
+        data = {
+            "kind": card.kind,
+            "rank": card.rank,
+            "pack_id": card.pack_id,
+            "trigger_phrase": card.trigger.phrase,
+            "trigger_line_id": card.trigger.line_id,
+            "latency_ms": round(ms, 1),
+        }
+        if ask:
+            data["ask"] = True
+        self._record("card_sent", card.id, data)
 
     def latencies_ms(self) -> list[float]:
         return list(self._latencies)

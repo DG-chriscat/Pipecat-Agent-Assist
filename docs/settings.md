@@ -23,6 +23,9 @@ always takes the agent back to Calls.
 | `tts_expressivity` | 0 | Flux only (Beta): a whole number, -2 (Calm) to 2 (Animated) |
 | `slow_readback` | on | Flux only: speak read backs at `readback_speed`, then go back to `tts_speed` |
 | `readback_speed` | 0.9 | 0.8 to 1.0 in steps of 0.05 |
+| `llm_intake` | see Thinking below | `claude-haiku-5-5`, `phonellm-mini-alpha-2-fp8`, or `think-fast` (P5-9, DC-11) |
+| `llm_assist` | see Thinking below | same list; the Ask bar uses it too |
+| `llm_wrapup` | see Thinking below | same list |
 
 Why Flux Alexis is the default: docs/spikes/tts-flux-vs-aura.md (Flux Alexis 80/80 key
 entities, Aura-2 Thalia 79/80). The intake questions of the chosen pack are shown read
@@ -146,7 +149,7 @@ gets what was saved when the call came in.
 
 The bot (`agent_assist_bot/call_settings.py`) logs one line per call, no free text:
 
-    [settings] session=... tts=flux/flux-alexis-en speed=1 expressivity=0 slow_readback=0.9 pack=claims_status read_back=on hold_every=60s stt_intake=nova-3-general stt_assist=nova-3-general
+    [settings] session=... tts=flux/flux-alexis-en speed=1 expressivity=0 slow_readback=0.9 pack=claims_status read_back=on hold_every=60s stt_intake=nova-3-general stt_assist=nova-3-general llm_intake=claude-haiku-5-5 llm_assist=claude-haiku-5-5 llm_wrapup=claude-haiku-5-5
 
 (`speed`, `expressivity`, and `slow_readback` are only shown for Flux; `slow_readback=off`
 when the toggle is off.)

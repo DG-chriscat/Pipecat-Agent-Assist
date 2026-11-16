@@ -50,6 +50,15 @@ const STT_SIDES: {
   },
 ];
 
+/** LLM per job (P5-9, DC-11): the choices, labels, and notes come from the server. */
+const LLM_JOBS: { key: "llm_intake" | "llm_assist" | "llm_wrapup"; label: string; help: string }[] = [
+  { key: "llm_intake", label: "Intake", help: "Asks the intake questions and calls the intake functions." },
+  { key: "llm_assist", label: "Assist and Ask", help: "Picks cards during the call and answers the Ask bar." },
+  { key: "llm_wrapup", label: "Wrap up", help: "Drafts the summary and reason code when the call ends." },
+];
+const DEEPGRAM_LLM_DOCS = "https://developers.deepgram.com/docs/llm";
+const llmLabel = (name: string) => name.replace(/^Deepgram /, "");
+
 /** Flux expressivity steps (P5-8, AP-22): -2 calm to 2 animated, 0 the default. */
 const EXPRESSIVITY: { value: number; label: string }[] = [
   { value: -2, label: "Calm" },
@@ -408,6 +417,54 @@ export function Settings({ api, agentName, play = playBlob }: Props) {
             </div>
           ))}
         </div>
+        {loaded.llm_models && loaded.llm_models.length > 0 && (
+          <div className="settings-subgroup" role="group" aria-labelledby="thinking-label">
+            <div className="settings-subgroup-head">
+              <h3 id="thinking-label">Thinking</h3>
+              <span className="label">The LLM for each job</span>
+            </div>
+            {LLM_JOBS.map(({ key, label, help }) => {
+              const notes = loaded.llm_models!.filter((m) => m.note);
+              return (
+                <div className="settings-row" key={key}>
+                  <div className="label" id={`${key}-label`}>
+                    {label}
+                  </div>
+                  <div className="segmented settings-llm" role="radiogroup" aria-label={`${label} LLM`}>
+                    {loaded.llm_models!.map((m) => (
+                      <button
+                        key={m.id}
+                        type="button"
+                        role="radio"
+                        data-model={m.id}
+                        aria-checked={draft[key] === m.id}
+                        className={`segment${draft[key] === m.id ? " is-on" : ""}`}
+                        onClick={() => update({ [key]: m.id })}
+                      >
+                        {llmLabel(m.name)}
+                        {m.early_access && <span className="chip chip-info">Early Access</span>}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="muted-note">{help}</p>
+                  {notes.map((m) => (
+                    <p key={m.id} className={`muted-note settings-llm-note${draft[key] === m.id ? " is-warn" : ""}`}>
+                      {llmLabel(m.name)}: {m.note}
+                    </p>
+                  ))}
+                  {fieldError(key)}
+                </div>
+              );
+            })}
+            <p className="muted-note">
+              Deepgram LLMs are Early Access: not for production traffic, and model ids may change. phoneLLM mini runs
+              with model training opt out.{" "}
+              <a href={DEEPGRAM_LLM_DOCS} target="_blank" rel="noopener noreferrer">
+                Deepgram LLM docs
+              </a>
+            </p>
+          </div>
+        )}
       </div>
 
       <div className="settings-group">

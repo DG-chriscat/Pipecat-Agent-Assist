@@ -129,8 +129,9 @@ class LLMProposer:
         self.max_rounds = max_rounds
 
     @classmethod
-    def from_env(cls) -> LLMProposer:
-        model = os.getenv(MODEL_ENV) or None
+    def from_env(cls, model: str | None = None) -> LLMProposer:
+        """`model`: the call's llm_assist setting (P5-9); else ASSIST_LLM_MODEL."""
+        model = model or os.getenv(MODEL_ENV) or None
         return cls(create_llm(model=model, system_instruction=SYSTEM))
 
     async def propose(self, request: AssistRequest, run_tool: RunTool) -> dict[str, Any]:

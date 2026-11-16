@@ -53,6 +53,7 @@ from agent_assist_server.bot_launcher import BotLauncher
 from agent_assist_server.daily import DailyRestClient
 from agent_assist_server.portal import DEFAULT_DIST
 from harness.intake_script import Persona, next_line, persona
+from harness.llm import llm_settings_store
 from harness.participant import SAMPLE_RATE, HarnessParticipant
 from harness.tts import synthesize
 from harness.turns import wait_bot_turn
@@ -368,6 +369,9 @@ async def test_pack_trigger_shows_its_card_within_3s(sc: Scenario, schema, shots
     trigger_pcm, trigger_offset = await trigger_audio(sc.trigger, sc.trigger_word)
     launcher = BotLauncher()
     app.state.bot_launcher = launcher
+    # P5-9: LLM_ASSIST / LLM_WRAPUP / LLM_INTAKE set the call's Settings, as saved on the
+    # Settings page; unset runs the defaults.
+    app.state.settings_store = llm_settings_store()
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
     serve_task = asyncio.create_task(server.serve())
     daily = DailyRestClient.from_env()

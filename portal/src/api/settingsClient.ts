@@ -20,6 +20,23 @@ export interface SettingsValues {
   tts_expressivity: number;
   slow_readback: boolean;
   readback_speed: number;
+  /** LLM per job (P5-9, DC-11); the Ask bar follows llm_assist. */
+  llm_intake: LlmModel;
+  llm_assist: LlmModel;
+  llm_wrapup: LlmModel;
+}
+
+/** LLM ids (P5-9, DC-11). The server lists them with their labels and notes. */
+export type LlmModel = "claude-haiku-5-5" | "phonellm-mini-alpha-2-fp8" | "think-fast";
+
+export interface LlmOption {
+  id: LlmModel;
+  name: string;
+  provider: string;
+  /** Deepgram LLMs are Early Access (not for production traffic). */
+  early_access: boolean;
+  /** Shown under the option, e.g. Think-Fast's model training note. */
+  note: string | null;
 }
 
 /** What Preview needs besides model, voice, and text (P5-8). */
@@ -51,6 +68,8 @@ export interface SettingsResponse {
     speed_step?: number;
   };
   stt_models: { intake: SttModel[]; assist: SttModel[] };
+  /** Absent from a server without P5-9: the Thinking group is hidden. */
+  llm_models?: LlmOption[];
 }
 
 export interface Voice {

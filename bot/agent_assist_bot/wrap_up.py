@@ -324,10 +324,11 @@ class WrapUpDrafter:
         self.timeout = timeout
 
     @classmethod
-    def from_env(cls) -> WrapUpDrafter:
+    def from_env(cls, model: str | None = None) -> WrapUpDrafter:
+        """`model`: the call's llm_wrapup setting (P5-9); else the env models."""
         from agent_assist_bot.llm import create_llm
 
-        model = os.getenv(MODEL_ENV) or os.getenv(FALLBACK_MODEL_ENV) or None
+        model = model or os.getenv(MODEL_ENV) or os.getenv(FALLBACK_MODEL_ENV) or None
         try:
             return cls(create_llm(model=model, system_instruction=SYSTEM))
         except Exception as e:  # noqa: BLE001 - the fallback still drafts

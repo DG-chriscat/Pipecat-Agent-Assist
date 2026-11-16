@@ -26,9 +26,10 @@ so the first utterance needs only a TTS round trip to hit the <2 s target (PRD I
 
 Settings (P5-5, `call_settings.py`): the TTS model and voice, greeting, intake pack,
 identity read back, hold line and interval, and the STT model for intake and for the
-listen only assist branches (P5-7, IN-14, `stt.py`) come from the portal's Settings
-page, read by the server when it assigns the call. Without them the bot runs its
-defaults.
+listen only assist branches (P5-7, IN-14, `stt.py`), and the LLM for intake, assist
+(and the Ask bar), and wrap up (P5-9, DC-11, `llm.py`, `llm_deepgram.py`) come from the
+portal's Settings page, read by the server when it assigns the call. Without them the
+bot runs its defaults.
 
 Env: DATABASE_URL (calls row + identity check; in memory when unset),
 INTAKE_PACK (default pack when no settings, default claims_status), HOLD_MUSIC /
@@ -38,6 +39,7 @@ HOLD_MUSIC_VOLUME / HOLD_MUSIC_PATH (hold music while queued, QH-5, `hold_music.
 from __future__ import annotations
 
 import asyncio
+import functools
 import os
 import time
 import uuid
@@ -461,7 +463,7 @@ def build_worker(
     # the pacer drops the speed for read back lines and restores it after (P5-8).
     tts = build_tts(settings, api_key=os.environ["DEEPGRAM_API_KEY"], session_id=session_id)
     pacer = build_readback_pacer(settings)
-    llm = create_llm(system_instruction=ROLE_MESSAGE)
+    llm = create_llm(model=settings.llm_intake, system_instruction=ROLE_MESSAGE)
 
     context = LLMContext()
     turns = stt_models.intake_turn_taking(settings.stt_intake_model)
@@ -496,7 +498,7 @@ def build_worker(
         output=transport.output(),
         store=store,
         intake=session,
-        llm_factory=LLMProposer.from_env,
+        llm_factory=functools.partial(LLMProposer.from_env, model=settings.llm_assist),
         llm_debounce_secs=LLM_DEBOUNCE_SECS,
         trend=trend,
     )
@@ -585,7 +587,7 @@ def build_worker(
         closers=[session, assist, recorder, session.store],
         assist=assist,
         reporter=WrapUpReporter(
-            WrapUpDrafter.from_env,
+            functools.partial(WrapUpDrafter.from_env, model=settings.llm_wrapup),
             lambda sid, draft: post_wrap_up_draft(handoff, sid, draft),
         ),
         handoff=handoff,

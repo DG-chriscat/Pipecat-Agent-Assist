@@ -244,6 +244,44 @@ def test_role_message_forbids_promising_a_transfer():
     assert "Never promise a transfer yourself" in intake.ROLE_MESSAGE
 
 
+@pytest.mark.parametrize("args", [{}, {"text": ""}, {"text": "   "}])
+async def test_say_to_caller_without_text_asks_the_llm_again(session, fm, args):
+    # P5-9: phoneLLM once called say_to_caller({}) in the read back. Treating that as
+    # said left the caller in silence until the intake time budget ran out.
+    confirm = await at_identity_confirm(session, fm)
+    before = len(fm.worker.frames)
+    result, nxt = await call(confirm, "say_to_caller", fm, **args)
+    assert "error" in result and nxt is None  # the LLM runs again with the error
+    assert not any(isinstance(f, TTSSpeakFrame) for f in fm.worker.frames[before:])
+    # A second empty call does not loop the LLM again.
+    _, nxt2 = await call(confirm, "say_to_caller", fm, **args)
+    assert nxt2 is NO_RESPONSE
+
+
+async def test_second_empty_say_in_the_readback_speaks_a_fixed_summary(session, fm):
+    # P5-9: phoneLLM called say_to_caller({}) twice in the read back (Linda run 2); the
+    # caller heard nothing and intake ran out of time. The code reads back instead, so
+    # the caller's yes reaches confirm_summary (or the affirmative fallback).
+    node = await at_readback(session, fm)
+    await call(node, "say_to_caller", fm)
+    before = len(fm.worker.frames)
+    _, nxt = await call(node, "say_to_caller", fm)
+    assert nxt is NO_RESPONSE
+    [spoken] = [f.text for f in fm.worker.frames[before:] if isinstance(f, TTSSpeakFrame)]
+    assert "James Chen" in spoken and "charged twice" in spoken
+    assert spoken.endswith("Is that right?")
+    assert "EVM" not in spoken and "1979" not in spoken
+
+
+async def test_second_empty_say_elsewhere_asks_the_caller_to_repeat(session, fm):
+    confirm = await at_identity_confirm(session, fm)
+    await call(confirm, "say_to_caller", fm)
+    before = len(fm.worker.frames)
+    await call(confirm, "say_to_caller", fm)
+    [spoken] = [f.text for f in fm.worker.frames[before:] if isinstance(f, TTSSpeakFrame)]
+    assert spoken == intake.REPEAT_LINE
+
+
 def test_only_the_handoff_node_says_a_person_is_coming(session):
     for node in session.all_nodes()[1:]:
         for a in node.get("pre_actions", []):

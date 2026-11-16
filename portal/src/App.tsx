@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { QueueSocket, signIn, wsUrlFor } from "./api/queueClient";
 import type { Agent } from "./api/types";
+import { createDailyMedia } from "./call/dailyMedia";
+import type { CreateMedia } from "./call/media";
 import { Home } from "./components/Home";
 import { SignIn } from "./components/SignIn";
 
@@ -11,9 +13,10 @@ const defaultSocket = () => new QueueSocket({ url: wsUrlFor(window.location) });
 
 interface Props {
   createSocket?: () => QueueSocket;
+  createMedia?: CreateMedia;
 }
 
-export default function App({ createSocket = defaultSocket }: Props) {
+export default function App({ createSocket = defaultSocket, createMedia = createDailyMedia }: Props) {
   const [agent, setAgent] = useState<Agent | null>(null);
   const [busy, setBusy] = useState(() => !!sessionStorage.getItem(NAME_KEY));
   const [error, setError] = useState<string | null>(null);
@@ -44,5 +47,5 @@ export default function App({ createSocket = defaultSocket }: Props) {
   }, []);
 
   if (!agent) return <SignIn onSubmit={doSignIn} busy={busy} error={error} />;
-  return <Home key={agent.agent_id} agent={agent} createSocket={createSocket} onSignOut={signOut} />;
+  return <Home key={agent.agent_id} agent={agent} createSocket={createSocket} createMedia={createMedia} onSignOut={signOut} />;
 }

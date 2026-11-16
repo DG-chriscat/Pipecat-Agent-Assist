@@ -148,6 +148,8 @@ async def start_intake(session: IntakeSession, flow_manager) -> None:
         logger.error(f"[bot] could not create call record: {type(e).__name__}: {e}")
         session.store = MemoryCallStore()
         await session.start()
+    # Stall guards (intake.py): the 3 minute intake budget starts with the greeting.
+    session.start_watchdog(flow_manager)
     await flow_manager.set_node_from_config(session.identity_node())
 
 
@@ -430,7 +432,19 @@ def build_worker(
     async def on_caller_joined() -> None:
         await start_intake(session, flow_manager)
 
+    # Every caller turn feeds the intake stall guards (affirmative fallback, watchdog).
+    @aggregators.user().event_handler("on_user_turn_stopped")
+    async def on_user_turn_stopped(aggregator, strategy, message) -> None:
+        if not roles.listening:
+            await session.on_caller_turn(message.content or "")
+
+    @aggregators.assistant().event_handler("on_assistant_turn_stopped")
+    async def on_assistant_turn_stopped(aggregator, message) -> None:
+        if message.content:
+            session.on_bot_turn()
+
     async def on_ended() -> None:
+        await session.close()
         await assist.close()
         await recorder.close()
         await session.store.close()

@@ -45,7 +45,9 @@ def _create_anthropic(
     http_client: Any = None,
 ) -> LLMService:
     from anthropic import AsyncAnthropic
-    from pipecat.services.anthropic.llm import AnthropicLLMService
+
+    # Sends the context's tool_choice, which the stock service drops (llm_anthropic.py).
+    from agent_assist_bot.llm_anthropic import ToolChoiceAnthropicLLMService as AnthropicLLMService
 
     api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
     if not api_key:

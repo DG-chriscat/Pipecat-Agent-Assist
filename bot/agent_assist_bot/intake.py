@@ -17,20 +17,40 @@ pack (IN-4, `packs/<id>.yaml`).
 
 Store and hook errors are logged and swallowed: a database hiccup must not drop a
 caller mid intake.
+
+No stalls (Nov 16 prod call, where the LLM answered "Correctamundo" in text in
+identity_confirm, promised a person, and the call never reached the queue):
+- The confirm nodes (identity_confirm, readback) force a tool call on every LLM turn
+  (`tool_choice` "required", sent by llm_anthropic.py). Speaking goes through
+  `say_to_caller`, so a turn can never end in free text there.
+- Fallback in code: if the caller's reply in a confirm node is a plain yes and no
+  intake function ran within CHECK_AFTER_TURN_SECS, verify_identity / confirm_summary
+  run anyway.
+- Watchdog: MAX_TURNS_WITHOUT_FUNCTION caller turns in one node with no intake
+  function, or INTAKE_MAX_SECS of intake, hands the call to the queue with what was
+  captured and the intake_stalled flag (IN-7: the caller always reaches a person).
+- Every node change and function call logs a `[flow]` line (values never logged).
 """
 
 from __future__ import annotations
 
+import asyncio
+import dataclasses
+import itertools
+import re
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol, runtime_checkable
 
 from loguru import logger
-from pipecat.flows import FlowArgs, FlowManager, FlowsFunctionSchema, NodeConfig
+from pipecat.flows import NO_RESPONSE, FlowArgs, FlowManager, FlowsFunctionSchema, NodeConfig
+from pipecat.frames.frames import LLMSetToolChoiceFrame, TTSSpeakFrame
 
 from agent_assist_bot.calls import (
     FLAG_ASKED_FOR_PERSON,
     FLAG_EMERGENCY,
+    FLAG_INTAKE_STALLED,
     FLAG_NOT_FOUND,
     FLAG_NOT_VERIFIED,
     CallStore,
@@ -56,6 +76,88 @@ HANDOFF_LINE = "Thanks. I'm passing you to a person now. Please stay on the line
 READBACK_LINE = "Thanks. I have {name}, member ID {member_id}. Is that right?"
 # The first read back plus at most one more after a correction (2 minute target).
 MAX_IDENTITY_READBACKS = 2
+
+# Stall guards (module doc). Confirm nodes force a tool call on every LLM turn.
+CONFIRM_NODES = frozenset({"identity_confirm", "readback"})
+# Nodes the watchdog counts turns in (greeting, handoff, emergency are not intake steps).
+_NOT_INTAKE = frozenset({"greeting", "handoff", "emergency"})
+# Caller turns in one node without an intake function before the call is handed off.
+MAX_TURNS_WITHOUT_FUNCTION = 3
+# Whole intake budget, from the greeting, before the call is handed off as stalled.
+INTAKE_MAX_SECS = 180.0
+# After a caller turn, how long the LLM gets to call a function before the code
+# steps in (the affirmative fallback, or the turn watchdog).
+CHECK_AFTER_TURN_SECS = 6.0
+# Caller turn events this close together, with no bot speech between, are one reply
+# (STT can split "Correctamundo" from a trailing breath into two turns).
+REPLY_FRAGMENT_SECS = 4.0
+# Not progress: say_to_caller only speaks.
+SAY_TO_CALLER = "say_to_caller"
+
+# A plain yes to a read back. The whole reply must be made of these (after removing
+# fillers and thanks), so "yes, but my name is..." is not a yes.
+_AFFIRMATIVE_PHRASES = (
+    "yes it is",
+    "yes that is right",
+    "that is right",
+    "that is correct",
+    "that s right",
+    "that s correct",
+    "thats right",
+    "thats correct",
+    "it is",
+    "it s right",
+    "it s correct",
+    "correct amundo",
+    "correct a mundo",
+    "correctamundo",
+    # How Nova 3 transcribed "Correctamundo." in the live replay (Nov 16).
+    "correct amanda",
+    "correct a monday",
+    "correct",
+    "right",
+    "yes",
+    "yeah",
+    "yea",
+    "yep",
+    "yup",
+    "ya",
+    "sounds good",
+    "sounds right",
+    "looks good",
+    "all good",
+    "uh huh",
+    "mhm",
+    "mm hmm",
+    "exactly",
+    "absolutely",
+    "affirmative",
+    "you got it",
+    "perfect",
+    "sure",
+    "okay",
+    "ok",
+    "that s it",
+    "that is it",
+)
+_FILLERS = ("thank you", "thanks", "please", "oh", "um", "uh", "well", "so", "sir", "ma am")
+_AFF_ALT = "|".join(re.escape(p) for p in sorted(_AFFIRMATIVE_PHRASES, key=len, reverse=True))
+_FILLER_ALT = "|".join(re.escape(f) for f in sorted(_FILLERS, key=len, reverse=True))
+# Affirmatives first, so "uh huh" is a yes rather than the filler "uh" plus "huh".
+_REPLY_RE = re.compile(rf"^(?:(?:{_AFF_ALT}|{_FILLER_ALT})(?:\s+|$))+$")
+_AFF_RE = re.compile(rf"(?:^|\s)(?:{_AFF_ALT})(?:\s|$)")
+
+
+def is_affirmative(text: str) -> bool:
+    """True when the caller's whole reply is a plain yes ("Correctamundo", "yep").
+
+    Fillers and thanks may surround it; anything else ("yes, but my name is...",
+    "no", "not quite") makes it not a yes, so the LLM handles it.
+    """
+    t = re.sub(r"[^a-z\s]", " ", (text or "").lower().replace("'", " "))
+    t = " ".join(t.split())
+    return bool(t) and bool(_REPLY_RE.match(t)) and bool(_AFF_RE.search(t))
+
 
 _DIGIT_WORDS = "zero one two three four five six seven eight nine".split()
 
@@ -102,7 +204,17 @@ ROLE_MESSAGE = (
     "breathing, severe bleeding, thoughts of self harm), call report_emergency right away; "
     "it tells them to hang up and call 911. "
     "If the caller asks for a person, a human, an agent, or a representative at any time, "
-    "call request_person right away without trying to keep them in intake."
+    "call request_person right away without trying to keep them in intake. "
+    "Never promise a transfer yourself: do not say you are transferring or connecting "
+    "them, or that a person is joining now or shortly. The system says that, and only "
+    "once intake is done."
+)
+
+# say_to_caller refuses lines that promise a transfer (only the handoff node says that).
+_HANDOFF_PROMISE = re.compile(
+    r"\b(transfer\w*|connect(ing)? you|pass(ing)? you|put(ting)? you through|"
+    r"hand(ing)? you (off|over)|will join|joining|will be with you|be right with you)\b",
+    re.IGNORECASE,
 )
 
 Outcome = Literal["completed", "asked_for_person", "emergency"]
@@ -167,6 +279,8 @@ class IntakeSession:
         session_id: str,
         handoff: HandoffHook | None = None,
         identity_tuning: Callable[[bool], Awaitable[None]] | None = None,
+        intake_max_secs: float = INTAKE_MAX_SECS,
+        check_after_turn_secs: float = CHECK_AFTER_TURN_SECS,
     ):
         self.pack = pack
         self.store = store
@@ -181,6 +295,22 @@ class IntakeSession:
         self.handed_off: Outcome | None = None
         self._readbacks = 0
         self._tuned = False
+        # Stall guards (module doc). `node` is the node the Flow is in (entry action).
+        self.flow_manager: FlowManager | None = None
+        self.node: str | None = None
+        self.intake_max_secs = intake_max_secs
+        self.check_after_turn_secs = check_after_turn_secs
+        self._progress = 0  # intake function calls so far (say_to_caller excluded)
+        self._turns_without_progress = 0
+        self._refused_lines = 0
+        self._tasks: set[asyncio.Task] = set()
+        self._node_ids = itertools.count(1)
+        self._node_token: int | None = None
+        self._superseded: set[int] = set()
+        # Fragments of one caller reply (see on_caller_turn).
+        self._awaiting_bot = False
+        self._reply = ""
+        self._last_fragment = 0.0
 
     # ---- call record -------------------------------------------------------
 
@@ -246,6 +376,191 @@ class IntakeSession:
     async def _on_identity_entered(self, action: dict, flow_manager: FlowManager) -> None:
         await self._tune(True)
 
+    # ---- stall guards: node entry, [flow] log, fallback, watchdog ---------------
+
+    def _finalize(self, node: NodeConfig) -> NodeConfig:
+        """Every node: an entry action (tracks the node, sets tool_choice, logs) and
+        function handlers wrapped to log `[flow]` lines and count progress."""
+        name = node["name"]
+        token = next(self._node_ids)
+        node["functions"] = [self._wrap(name, token, f) for f in node.get("functions", [])]
+        entered = {
+            "type": "intake_node_entered",
+            "handler": self._on_node_entered,
+            "node": name,
+            "token": token,
+        }
+        # First, so it runs before any tts_say (a custom action after tts_say would
+        # wait for the speech to finish).
+        node["pre_actions"] = [entered, *node.get("pre_actions", [])]
+        return node
+
+    def _wrap(self, node: str, token: int, f: FlowsFunctionSchema) -> FlowsFunctionSchema:
+        handler, name = f.handler, f.name
+
+        async def logged(args: FlowArgs, flow_manager: FlowManager):
+            # Argument names only: values can be PHI.
+            logger.info(f"[flow] {node}: function {name}({', '.join(sorted(args))})")
+            if token in self._superseded:
+                # The code already moved the flow on from this node (fallback or
+                # watchdog) while the LLM was still answering: ignore the late call.
+                logger.warning(f"[flow] {name} from {node} ignored: now in {self.node}")
+                return {"status": "ignored, the step is over"}, NO_RESPONSE
+            if name != SAY_TO_CALLER:
+                self._progress += 1
+                self._turns_without_progress = 0
+            result = await handler(args, flow_manager)
+            nxt = result[1] if isinstance(result, tuple) else None
+            if isinstance(nxt, dict):
+                logger.info(f"[flow] {node}: {name} -> {nxt.get('name')}")
+            return result
+
+        return dataclasses.replace(f, handler=logged)
+
+    async def _on_node_entered(self, action: dict, flow_manager: FlowManager) -> None:
+        node = action["node"]
+        self.node = node
+        self._node_token = action.get("token")
+        self._turns_without_progress = 0
+        self._awaiting_bot = False
+        self._refused_lines = 0
+        # Confirm nodes: every LLM turn must be a function call (llm_anthropic.py).
+        choice = "required" if node in CONFIRM_NODES else "auto"
+        logger.info(f"[flow] node -> {node} (tool_choice={choice})")
+        worker = getattr(flow_manager, "worker", None)
+        if worker is not None:
+            frame = LLMSetToolChoiceFrame(tool_choice=choice)
+            frame.interruptible = False
+            await worker.queue_frames([frame])
+
+    def _say_function(self) -> FlowsFunctionSchema:
+        return FlowsFunctionSchema(
+            name=SAY_TO_CALLER,
+            description=(
+                "Say something to the caller, for example to ask them to repeat or to "
+                "clarify. This is the only way to speak in this step."
+            ),
+            properties={"text": {"type": "string", "description": "One or two short sentences."}},
+            required=["text"],
+            handler=self._on_say,
+        )
+
+    async def _on_say(self, args: FlowArgs, flow_manager: FlowManager):
+        text = str(args.get("text") or "").strip()
+        if _HANDOFF_PROMISE.search(text):
+            self._refused_lines += 1
+            logger.warning(f"[flow] {self.node}: refused a line that promises a transfer")
+            if self._refused_lines > 1:
+                return {"error": "not said"}, NO_RESPONSE
+            return {
+                "error": (
+                    "Not said: never promise a transfer or that a person is joining. "
+                    "Call the step's function instead, or ask your question again."
+                )
+            }, None
+        worker = getattr(flow_manager, "worker", None)
+        if text and worker is not None:
+            await worker.queue_frames([TTSSpeakFrame(text)])
+        # Spoken directly: no further LLM turn until the caller answers.
+        return {"said": True}, NO_RESPONSE
+
+    def _spawn(self, coro) -> None:
+        task = asyncio.create_task(coro)
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+
+    def start_watchdog(self, flow_manager: FlowManager) -> None:
+        """Arm the intake time budget. Called once the greeting is queued."""
+        self.flow_manager = flow_manager
+        self._spawn(self._intake_timer())
+
+    async def close(self) -> None:
+        for task in list(self._tasks):
+            task.cancel()
+        self._tasks.clear()
+
+    async def _intake_timer(self) -> None:
+        await asyncio.sleep(self.intake_max_secs)
+        await self._stall(f"intake over {self.intake_max_secs:.0f} s")
+
+    def on_bot_turn(self) -> None:
+        """The bot finished speaking (assistant aggregator): the next caller turn is new."""
+        self._awaiting_bot = False
+
+    async def on_caller_turn(self, text: str) -> None:
+        """A caller turn ended (user aggregator). Arms the fallback and turn watchdog.
+
+        One spoken answer can end in several turn events (STT splits it), so the turn
+        count goes up once per bot reply, and the yes check looks at everything the
+        caller said since the bot last spoke.
+        """
+        node = self.node
+        if self.handed_off is not None or node is None or node in _NOT_INTAKE:
+            return
+        new_turn = not self._awaiting_bot or time.monotonic() - self._last_fragment > (
+            REPLY_FRAGMENT_SECS
+        )
+        self._last_fragment = time.monotonic()
+        if new_turn:
+            self._awaiting_bot = True
+            self._turns_without_progress += 1
+            self._reply = ""
+        self._reply = f"{self._reply} {text}".strip()
+        turns, seq, token = self._turns_without_progress, self._progress, self._node_token
+        affirmative = node in CONFIRM_NODES and is_affirmative(self._reply)
+        logger.info(
+            f"[flow] {node}: caller turn {turns} without progress"
+            + ("" if new_turn else " (continued)")
+            + (" (affirmative)" if affirmative else "")
+        )
+        if new_turn or affirmative:
+            self._spawn(self._check_turn(node, token, seq, turns, affirmative))
+
+    async def _check_turn(
+        self, node: str, token: int | None, seq: int, turns: int, affirmative: bool
+    ) -> None:
+        await asyncio.sleep(self.check_after_turn_secs)
+        if self.handed_off is not None or self._node_token != token or self._progress != seq:
+            return  # the LLM called a function, or the flow moved on
+        try:
+            # Re-checked: the caller may have gone on ("yes... but my name is...").
+            if affirmative and is_affirmative(self._reply):
+                await self._confirm_in_code(node)
+            elif turns >= MAX_TURNS_WITHOUT_FUNCTION and turns == self._turns_without_progress:
+                await self._stall(f"{turns} caller turns in {node} without a function call")
+        except Exception as e:  # noqa: BLE001 - the watchdog must not kill the call
+            logger.error(f"[flow] {node}: stall guard failed: {type(e).__name__}: {e}")
+
+    def _supersede(self) -> None:
+        """The code moves the flow on: late LLM calls from this node are ignored."""
+        if self._node_token is not None:
+            self._superseded.add(self._node_token)
+
+    async def _confirm_in_code(self, node: str) -> None:
+        """The caller said yes to a read back and the LLM called nothing: confirm."""
+        logger.warning(f"[flow] {node}: caller said yes but no function ran; confirming in code")
+        self._supersede()
+        self._progress += 1
+        fm = self.flow_manager
+        if node == "identity_confirm":
+            _, nxt = await self._on_verify_identity({}, fm)
+        else:
+            _, nxt = await self._on_confirm({}, fm)
+        logger.info(f"[flow] {node}: fallback -> {nxt.get('name') if nxt else None}")
+        if fm is not None and isinstance(nxt, dict):
+            await fm.set_node_from_config(nxt)
+
+    async def _stall(self, why: str) -> None:
+        """Hand off with what we have, flagged intake_stalled (IN-7)."""
+        if self.handed_off is not None:
+            return
+        logger.warning(f"[flow] intake stalled in {self.node}: {why}; handing off")
+        self._supersede()
+        await self._flag(FLAG_INTAKE_STALLED)
+        await self._finish("completed")
+        if self.flow_manager is not None:
+            await self.flow_manager.set_node_from_config(self.handoff_node())
+
     # ---- shared functions (IN-7, IN-9) ----------------------------------------
 
     def _escape_functions(self) -> list[FlowsFunctionSchema]:
@@ -295,42 +610,46 @@ class IntakeSession:
 
     def greeting_node(self) -> NodeConfig:
         """Fixed TTS greeting (IN-1, IN-2). No LLM call; start_intake moves on to identity."""
-        return {
-            "name": "greeting",
-            "role_message": ROLE_MESSAGE,
-            "task_messages": self._task("The greeting has been spoken."),
-            "functions": [],
-            "pre_actions": [{"type": "tts_say", "text": GREETING}],
-            "respond_immediately": False,
-        }
+        return self._finalize(
+            {
+                "name": "greeting",
+                "role_message": ROLE_MESSAGE,
+                "task_messages": self._task("The greeting has been spoken."),
+                "functions": [],
+                "pre_actions": [{"type": "tts_say", "text": GREETING}],
+                "respond_immediately": False,
+            }
+        )
 
     def identity_node(self) -> NodeConfig:
-        return {
-            "name": "identity",
-            "task_messages": self._task(
-                f"{self.pack.identity.prompt} When you have all three, call save_identity "
-                "right away without saying anything; the next step reads them back. Pass "
-                "the date of birth as YYYY-MM-DD; a date written like 03/12/1984 is "
-                "MM/DD/YYYY. Pass the member ID as letters and digits with no spaces. If "
-                "part of the member ID seems missing, save what you heard; the caller can "
-                "correct it at the read back."
-            ),
-            "functions": [
-                FlowsFunctionSchema(
-                    name="save_identity",
-                    description=(
-                        "Save the caller's name, date of birth, and member ID once you have "
-                        "all three. They are read back to the caller before the check."
-                    ),
-                    properties=_identity_properties(),
-                    required=["full_name", "date_of_birth", "member_id"],
-                    handler=self._on_save_identity,
+        return self._finalize(
+            {
+                "name": "identity",
+                "task_messages": self._task(
+                    f"{self.pack.identity.prompt} When you have all three, call save_identity "
+                    "right away without saying anything; the next step reads them back. Pass "
+                    "the date of birth as YYYY-MM-DD; a date written like 03/12/1984 is "
+                    "MM/DD/YYYY. Pass the member ID as letters and digits with no spaces. If "
+                    "part of the member ID seems missing, save what you heard; the caller can "
+                    "correct it at the read back."
                 ),
-                *self._escape_functions(),
-            ],
-            # Identity STT settings on for this step only (stt_tuning.py).
-            "pre_actions": [{"type": "identity_stt_on", "handler": self._on_identity_entered}],
-        }
+                "functions": [
+                    FlowsFunctionSchema(
+                        name="save_identity",
+                        description=(
+                            "Save the caller's name, date of birth, and member ID once you have "
+                            "all three. They are read back to the caller before the check."
+                        ),
+                        properties=_identity_properties(),
+                        required=["full_name", "date_of_birth", "member_id"],
+                        handler=self._on_save_identity,
+                    ),
+                    *self._escape_functions(),
+                ],
+                # Identity STT settings on for this step only (stt_tuning.py).
+                "pre_actions": [{"type": "identity_stt_on", "handler": self._on_identity_entered}],
+            }
+        )
 
     async def _on_save_identity(self, args: FlowArgs, flow_manager: FlowManager):
         fields = _identity_fields(args)
@@ -353,36 +672,41 @@ class IntakeSession:
             name=self.intake.get("full_name") or "your name",
             member_id=speak_member_id(self.intake.get("member_id", "")) or "not caught",
         )
-        return {
-            "name": "identity_confirm",
-            "task_messages": self._task(
-                f'You just said: "{text}" If the caller says yes, call verify_identity '
-                "right away without saying anything. If they correct their name, member "
-                "ID, or date of birth, call correct_identity right away without saying "
-                "anything, with only the corrected values (member ID as letters and "
-                "digits, no spaces). If they spell a name letter by letter, join the "
-                "letters into the name."
-            ),
-            "functions": [
-                FlowsFunctionSchema(
-                    name="verify_identity",
-                    description="The caller confirmed the read back. Checks their identity.",
-                    properties={},
-                    required=[],
-                    handler=self._on_verify_identity,
+        return self._finalize(
+            {
+                "name": "identity_confirm",
+                "task_messages": self._task(
+                    f'You just said: "{text}" Every reply in this step is a function call. '
+                    "If the caller says yes in any words (yes, yep, correct, that's right, "
+                    "correctamundo, sounds good), call verify_identity right away without "
+                    "saying anything. If they correct their name, member ID, or date of "
+                    "birth, call correct_identity right away without saying anything, with "
+                    "only the corrected values (member ID as letters and digits, no spaces). "
+                    "If they spell a name letter by letter, join the letters into the name. "
+                    "Only if you cannot tell, use say_to_caller to ask if the details are right."
                 ),
-                FlowsFunctionSchema(
-                    name="correct_identity",
-                    description="The caller corrected their name, member ID, or date of birth.",
-                    properties=_identity_properties(),
-                    required=[],
-                    handler=self._on_correct_identity,
-                ),
-                *self._escape_functions(),
-            ],
-            "pre_actions": [{"type": "tts_say", "text": text}],
-            "respond_immediately": False,
-        }
+                "functions": [
+                    FlowsFunctionSchema(
+                        name="verify_identity",
+                        description="The caller confirmed the read back. Checks their identity.",
+                        properties={},
+                        required=[],
+                        handler=self._on_verify_identity,
+                    ),
+                    FlowsFunctionSchema(
+                        name="correct_identity",
+                        description="The caller corrected their name, member ID, or date of birth.",
+                        properties=_identity_properties(),
+                        required=[],
+                        handler=self._on_correct_identity,
+                    ),
+                    self._say_function(),
+                    *self._escape_functions(),
+                ],
+                "pre_actions": [{"type": "tts_say", "text": text}],
+                "respond_immediately": False,
+            }
+        )
 
     async def _on_correct_identity(self, args: FlowArgs, flow_manager: FlowManager):
         fields = {k: v for k, v in _identity_fields(args).items() if v}
@@ -399,8 +723,8 @@ class IntakeSession:
             note = "Identity verified. Thank them briefly and move on."
         else:
             note = (
-                "Identity could not be confirmed. Do not say which detail did not match. "
-                "Say a person will help confirm it, and move on."
+                "Identity could not be confirmed. Do not say which detail did not match, "
+                "and do not dwell on it; just move on."
             )
         return {"identity": check.result, "note": note}, self.reason_node()
 
@@ -425,25 +749,27 @@ class IntakeSession:
         return check
 
     def reason_node(self) -> NodeConfig:
-        return {
-            "name": "reason",
-            "task_messages": self._task(
-                f"{self.pack.reason.prompt} When they answer, call save_reason with a short "
-                "summary in their words."
-            ),
-            "functions": [
-                FlowsFunctionSchema(
-                    name="save_reason",
-                    description="Save why the caller is calling.",
-                    properties={
-                        "reason": {"type": "string", "description": "Reason in a few words."}
-                    },
-                    required=["reason"],
-                    handler=self._on_reason,
+        return self._finalize(
+            {
+                "name": "reason",
+                "task_messages": self._task(
+                    f"{self.pack.reason.prompt} When they answer, call save_reason with a short "
+                    "summary in their words."
                 ),
-                *self._escape_functions(),
-            ],
-        }
+                "functions": [
+                    FlowsFunctionSchema(
+                        name="save_reason",
+                        description="Save why the caller is calling.",
+                        properties={
+                            "reason": {"type": "string", "description": "Reason in a few words."}
+                        },
+                        required=["reason"],
+                        handler=self._on_reason,
+                    ),
+                    *self._escape_functions(),
+                ],
+            }
+        )
 
     async def _on_reason(self, args: FlowArgs, flow_manager: FlowManager):
         await self._save({"reason": str(args.get("reason", "")).strip()})
@@ -461,23 +787,25 @@ class IntakeSession:
             await self._save({q.key: str(args.get("answer", "")).strip()})
             return {"saved": q.key}, self._node_after(q.key)
 
-        return {
-            "name": f"question_{q.key}",
-            "task_messages": self._task(
-                f'Ask this, in your own words if needed: "{q.ask}" When they answer, call '
-                f'save_answer. If they do not know, save "unknown".'
-            ),
-            "functions": [
-                FlowsFunctionSchema(
-                    name="save_answer",
-                    description=f"Save the answer: {q.description}",
-                    properties={"answer": {"type": "string", "description": q.description}},
-                    required=["answer"],
-                    handler=on_answer,
+        return self._finalize(
+            {
+                "name": f"question_{q.key}",
+                "task_messages": self._task(
+                    f'Ask this, in your own words if needed: "{q.ask}" When they answer, call '
+                    f'save_answer. If they do not know, save "unknown".'
                 ),
-                *self._escape_functions(),
-            ],
-        }
+                "functions": [
+                    FlowsFunctionSchema(
+                        name="save_answer",
+                        description=f"Save the answer: {q.description}",
+                        properties={"answer": {"type": "string", "description": q.description}},
+                        required=["answer"],
+                        handler=on_answer,
+                    ),
+                    *self._escape_functions(),
+                ],
+            }
+        )
 
     def _editable_fields(self) -> list[str]:
         return ["full_name", "dob", "member_id", "reason", *[q.key for q in self.pack.questions]]
@@ -486,41 +814,47 @@ class IntakeSession:
         captured = "; ".join(
             f"{k}: {self.intake[k]}" for k in self._editable_fields() if self.intake.get(k)
         )
-        return {
-            "name": "readback",
-            "task_messages": self._task(
-                f"{self.pack.readback.prompt} Captured so far: {captured or 'nothing'}. "
-                "Do not spell out the member ID or the claim number; both are on file, "
-                "so leave them out. "
-                "If the caller corrects something, call correct_field, then read back the "
-                "fixed part. When they agree it is right, call confirm_summary."
-            ),
-            "functions": [
-                FlowsFunctionSchema(
-                    name="correct_field",
-                    description="Fix one captured field the caller corrected.",
-                    properties={
-                        "field": {"type": "string", "enum": self._editable_fields()},
-                        "value": {"type": "string", "description": "The corrected value."},
-                    },
-                    required=["field", "value"],
-                    handler=self._on_correct,
+        return self._finalize(
+            {
+                "name": "readback",
+                "task_messages": self._task(
+                    f"{self.pack.readback.prompt} Captured so far: {captured or 'nothing'}. "
+                    "Do not spell out the member ID or the claim number; both are on file, "
+                    "so leave them out. "
+                    "Every reply in this step is a function call: speak only through "
+                    "say_to_caller, so read the summary back with say_to_caller. "
+                    "If the caller corrects something, call correct_field, then read back the "
+                    "fixed part with say_to_caller. When they agree it is right in any words "
+                    "(yes, yep, correct, that's right, sounds good), call confirm_summary."
                 ),
-                FlowsFunctionSchema(
-                    name="confirm_summary",
-                    description="The caller confirmed the read back. Ends intake.",
-                    properties={
-                        "summary": {
-                            "type": "string",
-                            "description": "One or two sentence summary for the agent.",
-                        }
-                    },
-                    required=["summary"],
-                    handler=self._on_confirm,
-                ),
-                *self._escape_functions(),
-            ],
-        }
+                "functions": [
+                    FlowsFunctionSchema(
+                        name="correct_field",
+                        description="Fix one captured field the caller corrected.",
+                        properties={
+                            "field": {"type": "string", "enum": self._editable_fields()},
+                            "value": {"type": "string", "description": "The corrected value."},
+                        },
+                        required=["field", "value"],
+                        handler=self._on_correct,
+                    ),
+                    FlowsFunctionSchema(
+                        name="confirm_summary",
+                        description="The caller confirmed the read back. Ends intake.",
+                        properties={
+                            "summary": {
+                                "type": "string",
+                                "description": "One or two sentence summary for the agent.",
+                            }
+                        },
+                        required=["summary"],
+                        handler=self._on_confirm,
+                    ),
+                    self._say_function(),
+                    *self._escape_functions(),
+                ],
+            }
+        )
 
     async def _on_correct(self, args: FlowArgs, flow_manager: FlowManager):
         name = str(args.get("field", ""))
@@ -538,28 +872,32 @@ class IntakeSession:
         return {"status": "ready_for_queue"}, self.handoff_node()
 
     def handoff_node(self) -> NodeConfig:
-        return {
-            "name": "handoff",
-            "task_messages": self._task(
-                "Intake is over and a person is being connected. If the caller speaks, say "
-                "briefly that a person will be with them shortly. Do not ask more questions."
-            ),
-            "functions": [],
-            "pre_actions": [{"type": "tts_say", "text": HANDOFF_LINE}],
-            "respond_immediately": False,
-        }
+        return self._finalize(
+            {
+                "name": "handoff",
+                "task_messages": self._task(
+                    "Intake is over and a person is being connected. If the caller speaks, say "
+                    "briefly that a person will be with them shortly. Do not ask more questions."
+                ),
+                "functions": [],
+                "pre_actions": [{"type": "tts_say", "text": HANDOFF_LINE}],
+                "respond_immediately": False,
+            }
+        )
 
     def emergency_node(self) -> NodeConfig:
-        return {
-            "name": "emergency",
-            "task_messages": self._task(
-                "The caller described an emergency and was told to hang up and call 911. "
-                "If they speak again, repeat that they should call 911 now. No medical advice."
-            ),
-            "functions": [],
-            "pre_actions": [{"type": "tts_say", "text": EMERGENCY_LINE}],
-            "respond_immediately": False,
-        }
+        return self._finalize(
+            {
+                "name": "emergency",
+                "task_messages": self._task(
+                    "The caller described an emergency and was told to hang up and call 911. "
+                    "If they speak again, repeat that they should call 911 now. No medical advice."
+                ),
+                "functions": [],
+                "pre_actions": [{"type": "tts_say", "text": EMERGENCY_LINE}],
+                "respond_immediately": False,
+            }
+        )
 
     def all_nodes(self) -> list[NodeConfig]:
         """The intake steps in order (IN-3). For tests and docs."""

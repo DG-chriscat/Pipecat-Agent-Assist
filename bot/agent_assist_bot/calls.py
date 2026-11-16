@@ -40,6 +40,8 @@ FLAG_NOT_VERIFIED = "identity_not_verified"
 FLAG_NOT_FOUND = "identity_not_found"
 FLAG_ASKED_FOR_PERSON = "asked_for_person"
 FLAG_EMERGENCY = "emergency"
+# Intake made no progress (watchdog in intake.py); handed off with what was captured.
+FLAG_INTAKE_STALLED = "intake_stalled"
 
 
 @dataclass(frozen=True)

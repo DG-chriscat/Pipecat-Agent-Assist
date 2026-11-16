@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { heroCard, msg, PLAN_STEPS, planMsg, recordCard } from "../test/assistFixtures";
+import { askCard, heroCard, msg, PLAN_STEPS, planMsg, recordCard } from "../test/assistFixtures";
 import {
   applyAssist,
   assistHighlights,
@@ -180,6 +180,39 @@ describe("localAssist (agent actions)", () => {
     // A later bot update does not undo the agent's untick.
     s = apply(s, planMsg(tickFirst()), 90);
     expect(planView(s)!.steps[0].done).toBe(false);
+  });
+});
+
+describe("Ask bar (P4-6, AP-8)", () => {
+  it("parses ask_result and tracks each question until it is answered", () => {
+    expect(
+      parseAssistMessage(msg("ask_result", { ask_id: "ask-1", status: "answered", card_id: "ask:ask-1", message: null })),
+    ).toMatchObject({ event: "ask_result", ask_id: "ask-1", status: "answered", card_id: "ask:ask-1" });
+    expect(parseAssistMessage(msg("ask_result", { ask_id: "ask-1", status: "maybe" }))).toBeNull();
+    expect(parseAssistMessage(msg("ask_result", { status: "answered" }))).toBeNull();
+
+    let s = localAssist(emptyAssist(), { type: "ask", askId: "ask-1", text: "Show the last 3 claims" }, 5);
+    expect(s.asks).toEqual([{ askId: "ask-1", text: "Show the last 3 claims", status: "pending", cardId: null, message: null }]);
+    s = apply(s, msg("card_added", { card: askCard() }));
+    s = apply(s, msg("ask_result", { ask_id: "ask-1", status: "answered", card_id: "ask:ask-1", message: null }));
+    expect(s.asks[0]).toMatchObject({ status: "answered", cardId: "ask:ask-1" });
+    expect(s.cards.map((c) => c.id)).toEqual(["ask:ask-1"]);
+  });
+
+  it("a question with no answer keeps the reason", () => {
+    let s = localAssist(emptyAssist(), { type: "ask", askId: "ask-2", text: "payments" }, 5);
+    s = apply(s, msg("ask_result", { ask_id: "ask-2", status: "no_answer", card_id: null, message: "No payments." }));
+    expect(s.asks[0]).toMatchObject({ status: "no_answer", message: "No payments." });
+  });
+
+  it("ignores results for questions it never asked", () => {
+    const s = apply(emptyAssist(), msg("ask_result", { ask_id: "nope", status: "answered", card_id: null }));
+    expect(s.asks).toEqual([]);
+  });
+
+  it("an empty question is not sent", () => {
+    const s = emptyAssist();
+    expect(localAssist(s, { type: "ask", askId: "a", text: "   " }, 1)).toBe(s);
   });
 });
 

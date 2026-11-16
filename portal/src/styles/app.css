@@ -726,6 +726,27 @@
 .ask input { flex: 1; background: none; border: 0; outline: none; font-size: 15px; padding: 8px 0; }
 .ask input::placeholder { color: var(--text-faint); }
 .ask input:disabled { cursor: not-allowed; }
+.ask:focus-within { box-shadow: 0 0 0 2px var(--fuchsia); }
+/* Ask bar status (P4-6): the question being looked up, or why there is no answer. It
+   sits just above the bar, so the bar itself never moves. */
+.assist > .ask-note { flex: none; margin-top: auto; }
+.ask-note + .ask { margin-top: 0; }
+.ask-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 22px;
+  font-size: 13px;
+  color: var(--text-muted);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ask-note > svg { width: 14px; height: 14px; color: var(--fuchsia); flex: none; }
+.ask-note.is-pending > svg { animation: ask-pulse 1.1s ease-in-out infinite; }
+@keyframes ask-pulse { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .ask-note.is-pending > svg { animation: none; } }
 
 /* conversation */
 .transcript { padding: 22px 20px 10px; display: flex; flex-direction: column; gap: 2px; min-height: 0; position: relative; }

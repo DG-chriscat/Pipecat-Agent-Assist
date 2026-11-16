@@ -23,7 +23,9 @@ import {
   isNextStepBody,
   isTableBody,
   isToneTipBody,
+  MAX_ASK_CHARS,
   planView,
+  type AskItem,
   type AssistCard,
   type AssistState,
   type Cell,
@@ -293,6 +295,12 @@ const statusField = (fields: string[]) => fields.find((f) => f === "status");
 
 /** One big answer and one line of context for a record, article, or alert. */
 function answer(card: AssistCard): { big: string; context: string | null } {
+  const a = baseAnswer(card);
+  // An Ask bar answer (P4-6) says which question it answers.
+  return card.trigger.role === "ask" ? { big: a.big, context: `You asked “${card.trigger.text}”` } : a;
+}
+
+function baseAnswer(card: AssistCard): { big: string; context: string | null } {
   if (isNextStepBody(card.body)) return { big: card.body.action.label, context: card.body.headline };
   if (card.kind === "tone_tip" && isToneTipBody(card.body)) return { big: card.body.headline, context: card.body.why };
   if (!isTableBody(card.body) || card.body.rows.length === 0) return { big: card.title, context: null };
@@ -625,6 +633,79 @@ function useHeroKeys(assist: AssistState, onAction: (a: LocalAction) => void) {
   }, []);
 }
 
+let askSeq = 0;
+const newAskId = () => `ask-${Date.now().toString(36)}-${++askSeq}`;
+
+/** What happened to the latest question: shown above the bar until it is answered. */
+function askNote(asks: AskItem[]): string | null {
+  const last = asks.at(-1);
+  if (!last || last.status === "answered") return null;
+  if (last.status === "pending") return `Looking up “${last.text}”`;
+  return last.message || "No answer for that question.";
+}
+
+/**
+ * Ask bar (DESIGN.md: pinned to the bottom, spark icon, "Ask about Maria", Cmd+K; AP-8).
+ * Cmd+K (Ctrl+K) focuses it from anywhere on the call; Enter sends the question to the
+ * assist (same connectors and pack); Esc clears and leaves the field. The answer lands on
+ * the shelf as a supporting card with its source.
+ */
+function AskBar({ asks, onAction, firstName }: { asks: AskItem[]; onAction: (a: LocalAction) => void; firstName: string }) {
+  const [text, setText] = useState("");
+  const input = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        input.current?.focus();
+        input.current?.select();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+  const note = askNote(asks);
+  const pending = asks.at(-1)?.status === "pending";
+  return (
+    <>
+      {note && (
+        <p className={`ask-note${pending ? " is-pending" : ""}`} role="status" data-testid="ask-note">
+          <Sparkles strokeWidth={1.7} aria-hidden="true" />
+          {note}
+        </p>
+      )}
+      <label className="panel ask">
+        <Sparkles strokeWidth={1.7} aria-hidden="true" />
+        <input
+          ref={input}
+          type="text"
+          aria-label="Ask"
+          placeholder={`Ask about ${firstName}`}
+          maxLength={MAX_ASK_CHARS}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+              e.preventDefault();
+              const q = text.trim();
+              if (!q) return;
+              onAction({ type: "ask", askId: newAskId(), text: q });
+              setText("");
+            } else if (e.key === "Escape") {
+              e.preventDefault();
+              setText("");
+              e.currentTarget.blur();
+            }
+          }}
+        />
+        <span className="kbd" aria-hidden="true">
+          ⌘ K
+        </span>
+      </label>
+    </>
+  );
+}
+
 /**
  * Assist column (DESIGN.md "Assist column", docs/assist.md): the next best step hero,
  * the shelf of supporting cards with the call plan, Earlier this call, and the Ask bar.
@@ -636,13 +717,7 @@ export function AssistColumn({ assist, onAction, firstName }: AssistColumnProps)
       <Hero assist={assist} onAction={onAction} />
       <Shelf assist={assist} onAction={onAction} />
       <Earlier assist={assist} />
-      <label className="panel ask">
-        <Sparkles strokeWidth={1.7} aria-hidden="true" />
-        <input type="text" aria-label="Ask" placeholder={`Ask about ${firstName}`} disabled />
-        <span className="kbd" aria-hidden="true">
-          ⌘ K
-        </span>
-      </label>
+      <AskBar asks={assist.asks} onAction={onAction} firstName={firstName} />
     </section>
   );
 }

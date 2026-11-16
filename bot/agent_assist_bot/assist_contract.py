@@ -15,6 +15,13 @@ Portal -> bot: agent feedback as an RTVI client message (`client.sendClientMessa
               "action": "accept" | "dismiss" | "pin" | "unpin" | "rate",
               "rating": "up" | "down" (rate only)}}}
 
+Ask bar (P4-6, AP-8): the agent's typed question, same envelope:
+
+    {"label": "rtvi-ai", "type": "client-message", "id": "...",
+     "data": {"t": "assist_ask", "d": {"v": 1, "ask_id": "...", "text": "..."}}}
+
+The answer is a `card_added` (card id `ask:<ask_id>`), then one `ask_result`.
+
 Only messages whose Daily sender is the agent's participant id count.
 """
 
@@ -26,7 +33,19 @@ from typing import Any, Literal
 VERSION = 1
 MESSAGE_TYPE = "assist"
 FEEDBACK_TYPE = "assist_feedback"
-EVENTS = ("hero", "card_added", "card_removed", "plan_update", "assist_status", "mood")
+ASK_TYPE = "assist_ask"
+ASK_STATUSES = ("answered", "no_answer", "error")
+MAX_ASK_CHARS = 300
+MAX_ASK_ID_CHARS = 64
+EVENTS = (
+    "hero",
+    "card_added",
+    "card_removed",
+    "plan_update",
+    "assist_status",
+    "mood",
+    "ask_result",
+)
 HERO_REASONS = ("new", "higher_rank", "accepted", "dismissed", "updated")
 REMOVE_REASONS = ("dismissed", "accepted", "promoted", "replaced")
 FEEDBACK_ACTIONS = ("accept", "dismiss", "pin", "unpin", "rate")
@@ -175,6 +194,63 @@ def mood_message(
     )
 
 
+def ask_result_message(
+    ask_id: str,
+    status: str,
+    card_id: str | None,
+    *,
+    seq: int,
+    ts: float,
+    message: str | None = None,
+) -> dict[str, Any]:
+    """How an Ask ended (P4-6): `answered` (the card is `card_id`), `no_answer`, `error`."""
+    if status not in ASK_STATUSES:
+        raise ValueError(f"unknown ask status {status!r}")
+    return assist_message(
+        "ask_result",
+        seq=seq,
+        ts=ts,
+        ask_id=ask_id,
+        status=status,
+        card_id=card_id,
+        message=message,
+    )
+
+
+@dataclass(frozen=True)
+class Ask:
+    ask_id: str
+    text: str
+
+
+def _client_data(message: Any, sender: str | None, agent_id: str | None, t: str) -> dict | None:
+    """The `d` of an agent's RTVI client message of type `t`, or None."""
+    if agent_id is None or sender != agent_id or not isinstance(message, dict):
+        return None
+    if message.get("label") != "rtvi-ai" or message.get("type") != "client-message":
+        return None
+    data = message.get("data")
+    if not isinstance(data, dict) or data.get("t") != t:
+        return None
+    d = data.get("d")
+    if not isinstance(d, dict) or d.get("v", VERSION) != VERSION:
+        return None
+    return d
+
+
+def parse_ask_message(message: Any, sender: str | None, agent_id: str | None) -> Ask | None:
+    """The agent's typed question (P4-6, AP-8), or None. Only the agent may ask."""
+    d = _client_data(message, sender, agent_id, ASK_TYPE)
+    if d is None:
+        return None
+    ask_id, text = d.get("ask_id"), d.get("text")
+    if not isinstance(ask_id, str) or not ask_id.strip() or len(ask_id) > MAX_ASK_ID_CHARS:
+        return None
+    if not isinstance(text, str) or not text.strip() or len(text) > MAX_ASK_CHARS:
+        return None
+    return Ask(ask_id=ask_id.strip(), text=text.strip())
+
+
 @dataclass(frozen=True)
 class Feedback:
     card_id: str
@@ -188,15 +264,8 @@ def parse_feedback(message: Any, sender: str | None, agent_id: str | None) -> Fe
     Only the agent's own participant may send feedback; the caller and the REST API
     (sender "api") cannot.
     """
-    if agent_id is None or sender != agent_id or not isinstance(message, dict):
-        return None
-    if message.get("label") != "rtvi-ai" or message.get("type") != "client-message":
-        return None
-    data = message.get("data")
-    if not isinstance(data, dict) or data.get("t") != FEEDBACK_TYPE:
-        return None
-    d = data.get("d")
-    if not isinstance(d, dict) or d.get("v", VERSION) != VERSION:
+    d = _client_data(message, sender, agent_id, FEEDBACK_TYPE)
+    if d is None:
         return None
     card_id, action, rating = d.get("card_id"), d.get("action"), d.get("rating")
     if not isinstance(card_id, str) or not card_id.strip() or len(card_id) > 200:

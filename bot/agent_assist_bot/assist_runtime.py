@@ -14,7 +14,9 @@
   sent straight through the output transport, never broadcast. With no agent in the
   room nothing is sent; when the agent (re)joins, the whole state is sent again;
 - applies agent feedback (RTVI client messages from the agent's participant only)
-  and logs it, with every card sent, to `assist_events` (`EventRecorder`).
+  and logs it, with every card sent, to `assist_events` (`EventRecorder`);
+- answers the agent's Ask bar questions (P4-6, AP-8; agent only), each as its own
+  task so a slow lookup never blocks Daily events or transcript cards.
 
 It never queues frames into the pipeline, so it has no way to make the bot speak.
 """
@@ -29,7 +31,7 @@ from loguru import logger
 from pipecat.transports.daily.transport import DailyOutputTransportMessageUrgentFrame
 
 from agent_assist_bot.assist import AssistEngine, max_cards_from_env
-from agent_assist_bot.assist_contract import parse_feedback
+from agent_assist_bot.assist_contract import parse_ask_message, parse_feedback
 from agent_assist_bot.packs import Pack
 from agent_assist_bot.transcript import CallRoles, rtvi_server_message
 
@@ -120,6 +122,7 @@ class AssistSession:
         self._connectors = None
         self._lines: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
         self._worker: asyncio.Task | None = None
+        self._asks: set[asyncio.Task] = set()
         self.sent = 0
 
     # ---- lifecycle ----
@@ -165,6 +168,8 @@ class AssistSession:
             except TimeoutError:
                 self._worker.cancel()
             self._worker = None
+        for t in list(self._asks):
+            t.cancel()
         if self.engine is not None:
             await self.engine.stop()
         reader = getattr(self._connectors, "reader", None)
@@ -199,10 +204,30 @@ class AssistSession:
                 self._lines.task_done()
 
     async def on_app_message(self, message: Any, sender: str) -> None:
+        if self.engine is None:
+            return
+        ask = parse_ask_message(message, sender, self.roles.agent_id)
+        if ask is not None:
+            # An Ask may wait on a connector or the LLM: never block the Daily handler.
+            task = asyncio.get_running_loop().create_task(self._ask(ask))
+            self._asks.add(task)
+            task.add_done_callback(self._asks.discard)
+            return
         fb = parse_feedback(message, sender, self.roles.agent_id)
-        if fb is None or self.engine is None:
+        if fb is None:
             return
         await self.engine.on_feedback(fb)
+
+    async def _ask(self, ask) -> None:
+        try:
+            await self.engine.on_ask(ask)
+        except Exception as e:  # noqa: BLE001 - one bad ask never ends assist
+            logger.error(f"[assist] ask failed: {type(e).__name__}: {e}")
+
+    async def drain_asks(self) -> None:
+        """Wait for every running Ask (tests)."""
+        while self._asks:
+            await asyncio.gather(*list(self._asks), return_exceptions=True)
 
     async def on_participant_joined(self, participant_id: str) -> None:
         if self.engine is not None and participant_id == self.roles.agent_id:

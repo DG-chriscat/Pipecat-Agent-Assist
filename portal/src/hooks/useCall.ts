@@ -6,6 +6,7 @@ import {
   ASSIST_VERSION,
   emptyAssist,
   localAssist,
+  MAX_ASK_CHARS,
   parseAssistMessage,
   type AssistState,
   type LocalAction,
@@ -213,9 +214,9 @@ export function useCall(createMedia: CreateMedia) {
   const highlight = useCallback((ranges: HighlightRange[]) => patch({ highlights: ranges }), [patch]);
 
   /**
-   * The agent acted on an assist card or the call plan: update the screen at once and
-   * tell the bot (docs/assist.md "Portal to bot: feedback"). Manual plan ticks and the
-   * end of the accepted or dismissed hero state are portal only.
+   * The agent acted on an assist card or the call plan, or typed an Ask bar question:
+   * update the screen at once and tell the bot (docs/assist.md "Portal to bot"). Manual
+   * plan ticks and the end of the accepted or dismissed hero state are portal only.
    */
   const assistAction = useCallback((a: LocalAction) => {
     const c = callRef.current;
@@ -225,6 +226,11 @@ export function useCall(createMedia: CreateMedia) {
       cur && cur.sessionId === sessionId ? { ...cur, assist: localAssist(cur.assist, a, callSecs(cur)) } : cur,
     );
     if (a.type === "tick" || a.type === "settle") return;
+    if (a.type === "ask") {
+      const text = a.text.trim().slice(0, MAX_ASK_CHARS);
+      media.current?.sendClientMessage("assist_ask", { v: ASSIST_VERSION, ask_id: a.askId, text });
+      return;
+    }
     const d: Record<string, unknown> = { v: ASSIST_VERSION, card_id: a.cardId, action: a.type };
     if (a.type === "rate") d.rating = a.rating;
     media.current?.sendClientMessage("assist_feedback", d);

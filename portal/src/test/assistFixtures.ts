@@ -96,6 +96,61 @@ export function toneTipCard(over: Partial<AssistCard> = {}): AssistCard {
   };
 }
 
+/** An Ask bar answer as the bot sends it (P4-6): the agent's question is the trigger. */
+export function askCard(over: Partial<AssistCard> = {}): AssistCard {
+  return {
+    id: "ask:ask-1",
+    kind: "record",
+    title: "Claims",
+    pack_id: "claims_status",
+    rank: 0,
+    ai_suggested: true,
+    trigger: {
+      phrase: null,
+      text: "Show the last 3 claims",
+      role: "ask",
+      line_id: "ask-ask-1",
+      start: null,
+      end: null,
+      heard_at: 1794800801.2,
+    },
+    source: {
+      label: "Claims system",
+      records: [
+        { connector: "claims", id: "CLM-900001" },
+        { connector: "claims", id: "CLM-900002" },
+      ],
+    },
+    rule_id: null,
+    template_id: "claims_table",
+    body: {
+      fields: ["claim_id", "service_date", "provider", "service", "billed_amount", "status", "denial_code"],
+      rows: [
+        {
+          claim_id: "CLM-900001",
+          service_date: "2026-10-13",
+          provider: "Riverside Imaging Center",
+          service: "MRI, knee, left",
+          billed_amount: 1850,
+          status: "denied",
+          denial_code: "CO-197",
+        },
+        {
+          claim_id: "CLM-900002",
+          service_date: "2026-09-07",
+          provider: "Lakeside Family Medicine",
+          service: "Office visit, established patient",
+          billed_amount: 180,
+          status: "paid",
+          denial_code: null,
+        },
+      ],
+      summary: null,
+    },
+    ...over,
+  };
+}
+
 /** One tone reading as it appears in a mood message. */
 export function reading(step: number, lineId: string, emotion = "neutral") {
   const moods = ["Pleased", "Calm", "Uneasy", "Worried", "Frustrated"];

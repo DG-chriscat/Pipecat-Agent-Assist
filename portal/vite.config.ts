@@ -10,6 +10,8 @@ export default defineConfig({
   base: "/agent/",
   plugins: [react()],
   server: {
+    // The architecture content test reads ../docs to trace each number to its source.
+    fs: { allow: [".", "../docs"] },
     proxy: {
       "/agents": server,
       "/queue": server,

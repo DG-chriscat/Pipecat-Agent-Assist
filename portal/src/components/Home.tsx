@@ -18,7 +18,9 @@ import { useCall } from "../hooks/useCall";
 import type { LocalAction } from "../state/assist";
 import { useQueueSocket } from "../hooks/useQueueSocket";
 import { offerFor, type Offer } from "../state/offer";
+import { pageFromPath, pathForPage } from "../state/route";
 import type { Theme } from "../state/theme";
+import { Architecture } from "./Architecture";
 import { InCall } from "./InCall";
 import { IncomingCall } from "./IncomingCall";
 import type { PhiFieldName } from "./PhiField";
@@ -77,7 +79,18 @@ export function Home({ agent: signedIn, theme, onTheme, createSocket, createMedi
   const [wrapAttempt, setWrapAttempt] = useState(0);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [page, setPage] = useState<Page>("calls");
+  const [page, setPageState] = useState<Page>(() => pageFromPath(window.location.pathname));
+  /** The rail moves the page and the URL (/agent/architecture, AP-21). */
+  const setPage = useCallback((p: Page) => {
+    setPageState(p);
+    const path = pathForPage(p);
+    if (window.location.pathname !== path) window.history.pushState(null, "", path);
+  }, []);
+  useEffect(() => {
+    const onPop = () => setPageState(pageFromPath(window.location.pathname));
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
   const { call, start, prepare, discard, setDetails, leave, toggleMute, toggleHold, assistAction } =
     useCall(createMedia);
 
@@ -215,13 +228,15 @@ export function Home({ agent: signedIn, theme, onTheme, createSocket, createMedi
 
   const live = status === "open" && state.synced && !!agent;
   const available = agentState === "available";
-  // P5-5: the Settings page. A ringing, live, or wrap up call always shows Calls, and
-  // moves the rail back to Calls so the agent lands there after the call too.
+  // P5-5: the Settings page (and the Architecture page, P5-6). A ringing, live, or wrap
+  // up call always shows Calls, and moves the rail back to Calls so the agent lands there
+  // after the call too.
   const busyWithCall = !!call || !!offer || !!wrapSession;
   useEffect(() => {
     if (busyWithCall) setPage("calls");
-  }, [busyWithCall]);
+  }, [busyWithCall, setPage]);
   const onSettings = page === "settings" && !busyWithCall;
+  const onArchitecture = page === "architecture" && !busyWithCall;
 
   function toggle() {
     const target: AgentState = available ? "offline" : "available";
@@ -341,9 +356,13 @@ export function Home({ agent: signedIn, theme, onTheme, createSocket, createMedi
     theme,
     onTheme,
     onSignOut: signOut,
-    page: onSettings ? "settings" : "calls",
+    page: onSettings ? "settings" : onArchitecture ? "architecture" : "calls",
     onPage: setPage,
   };
+
+  // AP-21: the Architecture page has its own header (view toggle, walk, export, present).
+  // Home stays mounted, so the queue socket keeps running and a ring still comes through.
+  if (onArchitecture) return <Architecture shell={shellAgent} />;
 
   if (call) {
     return (

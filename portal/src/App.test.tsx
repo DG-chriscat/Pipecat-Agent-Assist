@@ -342,4 +342,59 @@ describe("App", () => {
       expect(screen.getByRole("button", { name: "Calls" })).toHaveAttribute("aria-current", "page");
     });
   });
+
+  describe("architecture page (AP-21)", () => {
+    afterEach(() => window.history.replaceState(null, "", "/"));
+
+    it("sits on the rail between History and Settings and sets /agent/architecture", async () => {
+      const { user, sock } = await signInAsAna();
+      sendSnapshot(sock);
+      const rail = screen.getByRole("navigation", { name: /main/i });
+      const labels = [...rail.querySelectorAll("button.ri")].map((b) => b.getAttribute("aria-label"));
+      expect(labels).toEqual(["Calls", "Queue", "History", "Architecture", "Settings"]);
+      await user.click(screen.getByRole("button", { name: "Architecture" }));
+      expect(screen.getByRole("region", { name: "Architecture" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Architecture" })).toHaveAttribute("aria-current", "page");
+      expect(window.location.pathname).toBe("/agent/architecture");
+      await user.click(screen.getByRole("button", { name: "Calls" }));
+      expect(screen.getByText("Waiting for the next call")).toBeInTheDocument();
+      expect(window.location.pathname).toBe("/agent/");
+    });
+
+    it("opening /agent/architecture after sign in shows the page, and Back returns", async () => {
+      window.history.replaceState(null, "", "/agent/architecture");
+      const user = userEvent.setup();
+      render(<App createSocket={makeSocket} />);
+      await user.type(screen.getByLabelText(/your name/i), "Ana");
+      await user.click(screen.getByRole("button", { name: /sign in/i }));
+      expect(await screen.findByRole("region", { name: "Architecture" })).toBeInTheDocument();
+      const sock = MockWebSocket.last();
+      act(() => sock.serverOpen());
+      sendSnapshot(sock);
+      expect(screen.getByRole("region", { name: "Architecture" })).toBeInTheDocument();
+      act(() => {
+        window.history.replaceState(null, "", "/agent/");
+        window.dispatchEvent(new PopStateEvent("popstate"));
+      });
+      expect(screen.getByText("Waiting for the next call")).toBeInTheDocument();
+    });
+
+    it("a ringing call takes the agent back to Calls", async () => {
+      const { user, sock } = await signInAsAna();
+      sendSnapshot(sock, [{ ...ana, state: "available" }]);
+      await user.click(screen.getByRole("button", { name: "Architecture" }));
+      const call = { ...queued("s9"), offered_to: "agent-1" };
+      const exp = Date.now() / 1000 + 20;
+      act(() => {
+        sock.serverSend({ type: "call_queued", call, position: 1 });
+        sock.serverSend({
+          type: "agent_updated",
+          agent: { ...ana, state: "ringing", offer_call_id: "s9", offer_expires_at: exp },
+        });
+        sock.serverSend({ type: "offer", agent_id: "agent-1", call, expires_at: exp });
+      });
+      expect(screen.queryByRole("region", { name: "Architecture" })).not.toBeInTheDocument();
+      expect(screen.getByRole("dialog", { name: /incoming call/i })).toBeInTheDocument();
+    });
+  });
 });

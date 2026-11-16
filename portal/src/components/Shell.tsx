@@ -1,12 +1,13 @@
-import { Check, History, List, LogOut, Moon, Phone, Settings, Sun } from "lucide-react";
+import { Check, History, List, LogOut, Moon, Network, Phone, Settings, Sun } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import dTile from "../assets/d-tile.png";
 import wordmark from "../assets/wordmark.png";
 import type { Theme } from "../state/theme";
 import { initials } from "../state/names";
+import type { Page } from "../state/route";
 import { PhiMaskedChip } from "./PhiMaskedChip";
 
-export type Page = "calls" | "settings";
+export type { Page };
 
 export interface ShellAgent {
   name: string;
@@ -88,8 +89,8 @@ function AgentMenu({ agent }: { agent: ShellAgent }) {
   );
 }
 
-/** Left rail (DESIGN.md "Left rail"): D tile, Calls, Queue, History, Settings (P5-5),
- * agent avatar. */
+/** Left rail (DESIGN.md "Left rail"): D tile, Calls, Queue, History, Architecture (P5-6),
+ * Settings (P5-5), agent avatar. */
 function Rail({ agent }: { agent?: ShellAgent }) {
   const page = agent?.page ?? "calls";
   const item = (p: Page, label: string, icon: ReactNode) => (
@@ -116,6 +117,7 @@ function Rail({ agent }: { agent?: ShellAgent }) {
           <button type="button" className="ri" aria-label="History" title="History (coming later)" disabled>
             <History strokeWidth={1.7} aria-hidden="true" />
           </button>
+          {agent.onPage && item("architecture", "Architecture", <Network strokeWidth={1.7} aria-hidden="true" />)}
           {agent.onPage && item("settings", "Settings", <Settings strokeWidth={1.7} aria-hidden="true" />)}
           <AgentMenu agent={agent} />
         </>
@@ -132,6 +134,8 @@ interface ShellProps {
   /** Where the aurora orb sits: behind the hero (in call) or the center card. */
   orb?: "hero" | "center";
   className?: string;
+  /** Present mode (AP-21): no rail and no header, the stage fills the screen. */
+  bare?: boolean;
   children: ReactNode;
 }
 
@@ -139,25 +143,27 @@ interface ShellProps {
  * Studio frame (DESIGN.md "Layout"): material backdrop, left rail, header with the
  * wordmark, "Vitals", the PHI masked chip, the centered call island, and controls.
  */
-export function Shell({ agent, island, right, orb = "center", className, children }: ShellProps) {
+export function Shell({ agent, island, right, orb = "center", className, bare, children }: ShellProps) {
   return (
     <>
       <div className="backdrop" aria-hidden="true" />
       <div className="backdrop-horizon" aria-hidden="true" />
       <div className={`backdrop-orb orb-${orb}`} aria-hidden="true" />
-      <div className="app">
-        <Rail agent={agent} />
+      <div className={`app${bare ? " is-bare" : ""}`}>
+        {!bare && <Rail agent={agent} />}
         <div className={`stage${className ? ` ${className}` : ""}`}>
-          <header className="head">
-            <div className="brand">
-              <img className="brand-wordmark" src={wordmark} alt="Deepgram" height={16} />
-              <span className="brand-sep" aria-hidden="true" />
-              <span className="brand-product">Vitals</span>
-              <PhiMaskedChip />
-            </div>
-            <div className="head-center">{island}</div>
-            <div className="head-right">{right}</div>
-          </header>
+          {!bare && (
+            <header className="head">
+              <div className="brand">
+                <img className="brand-wordmark" src={wordmark} alt="Deepgram" height={16} />
+                <span className="brand-sep" aria-hidden="true" />
+                <span className="brand-product">Vitals</span>
+                <PhiMaskedChip />
+              </div>
+              <div className="head-center">{island}</div>
+              <div className="head-right">{right}</div>
+            </header>
+          )}
           {children}
         </div>
       </div>

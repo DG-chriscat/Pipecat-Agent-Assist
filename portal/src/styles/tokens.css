@@ -1,0 +1,157 @@
+/* Deepgram Vitals design tokens. Source: docs/DESIGN.md (binding, AP-15).
+   Only the Deepgram 2026 brand fonts, colors, and materials. */
+
+:root {
+  /* Brand colors */
+  --fuchsia: #E042FF;
+  --led: #7F39FF;
+  --off-black: #1D1D1D;
+  --off-white: #FCFAF8;
+  --clay: #EB2A2E;
+  --bakelite: #FA8100;
+  --phosphor: #7CD941;
+  --glass-blue: #00B2FF;
+  --brass: #F7F300;
+  --gray: #C4C4C4;
+
+  /* Fonts */
+  --font-sans: 'Work Sans', system-ui, sans-serif;
+  --font-mono: 'Azeret Mono', ui-monospace, monospace;
+
+  /* Page and text */
+  --bg: #0b0b0c;
+  --text: #FCFAF8;
+  --text-muted: rgba(252, 250, 248, .58);
+  --text-faint: rgba(252, 250, 248, .38);
+  --line: rgba(255, 255, 255, .09);
+
+  /* Glass */
+  --glass-bg: rgba(255, 255, 255, .055);
+  --glass-line: rgba(255, 255, 255, .12);
+  --glass-blur: blur(24px) saturate(140%);
+  --radius: 22px;
+  --radius-sm: 12px;
+  --radius-pill: 999px;
+
+  /* Hero card */
+  --hero-line: rgba(224, 66, 255, .45);
+  --hero-glow: 0 30px 80px -30px rgba(224, 66, 255, .45);
+
+  /* Background glows: LED top left at 30%, fuchsia bottom right at 22% */
+  --glow-led: radial-gradient(900px 520px at 18% -5%, rgba(127,57,255,.30), transparent 60%);
+  --glow-fuchsia: radial-gradient(800px 600px at 105% 110%, rgba(224,66,255,.22), transparent 60%);
+
+  /* Paper grain: SVG fractal noise, 45% overlay */
+  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+
+  /* Layout */
+  --page-pad: 22px;
+  --gap: 18px;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body, #root { height: 100%; }
+
+body {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  background: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  position: relative;
+  overflow: hidden;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: -20%;
+  background: var(--glow-led), var(--glow-fuchsia);
+  pointer-events: none;
+}
+
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: .45;
+  mix-blend-mode: overlay;
+  background-image: var(--grain);
+}
+
+button, input { font: inherit; color: inherit; }
+
+/* Shared primitives */
+.glass {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-line);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border-radius: var(--radius);
+}
+
+.label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.mono { font-family: var(--font-mono); }
+
+.chip {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  padding: 4px 9px;
+  border-radius: var(--radius-pill);
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  white-space: nowrap;
+}
+.chip-ok { background: rgba(124, 217, 65, .15); color: var(--phosphor); }
+.chip-warn { background: rgba(250, 129, 0, .16); color: var(--bakelite); }
+.chip-bad { background: rgba(235, 42, 46, .18); color: var(--clay); }
+.chip-ai { background: rgba(224, 66, 255, .16); color: var(--fuchsia); }
+.chip-info { background: rgba(0, 178, 255, .15); color: var(--glass-blue); }
+.chip-neutral { background: rgba(255, 255, 255, .08); color: var(--text-muted); }
+
+.btn {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  border-radius: var(--radius-pill);
+  padding: 11px 18px;
+  border: 1px solid var(--glass-line);
+  background: transparent;
+  color: var(--text);
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.btn svg { width: 14px; height: 14px; }
+.btn:focus-visible { outline: 2px solid var(--text); outline-offset: 3px; }
+.btn:disabled { opacity: .5; cursor: default; }
+.btn-primary {
+  background: linear-gradient(135deg, var(--fuchsia), var(--led));
+  border: 0;
+  color: #fff;
+  box-shadow: 0 8px 28px rgba(224, 66, 255, .35);
+}
+.btn-solid { background: var(--text); color: #111; border-color: var(--text); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}

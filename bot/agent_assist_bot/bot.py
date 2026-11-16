@@ -1,7 +1,8 @@
 """Intake bot: joins a Daily room as "Vitals Assistant" and runs the intake flow.
 
-Pipeline: Daily in -> Deepgram STT (Nova 3) -> user aggregator -> LLM -> Deepgram TTS
-(Aura-2 or Flux, per the call's settings) -> Daily out -> assistant aggregator. A Pipecat
+Pipeline: Daily in -> Deepgram STT (Flux or Nova-3, per the call's settings) -> user
+aggregator -> LLM -> Deepgram TTS (Aura-2 or Flux, per the call's settings) -> Daily out
+-> assistant aggregator. A Pipecat
 Flow (`intake.py`) drives the LLM through the intake steps from the use case pack (PRD
 IN-3, IN-4) and writes each answer to the `calls` row (IN-5).
 
@@ -24,8 +25,10 @@ The greeting is the flow's first node: a fixed `tts_say` pre-action with no LLM 
 so the first utterance needs only a TTS round trip to hit the <2 s target (PRD IN-1).
 
 Settings (P5-5, `call_settings.py`): the TTS model and voice, greeting, intake pack,
-identity read back, and hold line and interval come from the portal's Settings page,
-read by the server when it assigns the call. Without them the bot runs its defaults.
+identity read back, hold line and interval, and the STT model for intake and for the
+listen only assist branches (P5-7, IN-14, `stt.py`) come from the portal's Settings
+page, read by the server when it assigns the call. Without them the bot runs its
+defaults.
 
 Env: DATABASE_URL (calls row + identity check; in memory when unset),
 INTAKE_PACK (default pack when no settings, default claims_status), HOLD_MUSIC /
@@ -49,17 +52,14 @@ from pipecat.pipeline.parallel_pipeline import ParallelPipeline
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
-from pipecat.processors.aggregators.llm_response_universal import (
-    LLMContextAggregatorPair,
-    LLMUserAggregatorParams,
-)
+from pipecat.processors.aggregators.llm_response_universal import LLMContextAggregatorPair
 from pipecat.processors.audio.vad_processor import VADProcessor
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.processors.frameworks.rtvi import RTVIObserverParams
-from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.transports.daily.transport import DailyParams, DailyTransport
 from pipecat.workers.runner import WorkerRunner
 
+from agent_assist_bot import stt as stt_models
 from agent_assist_bot.assist import LLM_DEBOUNCE_SECS
 from agent_assist_bot.assist_llm import LLMProposer
 from agent_assist_bot.assist_runtime import AssistSession
@@ -88,7 +88,6 @@ from agent_assist_bot.intake import (
 from agent_assist_bot.llm import create_llm
 from agent_assist_bot.packs import MAX_KEYTERMS, Pack, load_pack, load_packs
 from agent_assist_bot.server_channel import ServerChannel
-from agent_assist_bot.stt_tuning import IdentitySTTTuning, build_intake_stt
 from agent_assist_bot.timing import FirstAudioTimer, log_timing
 from agent_assist_bot.tone import IntakeToneTap, MoodTrend, tone_reader_from_env
 from agent_assist_bot.transcript import (
@@ -102,7 +101,6 @@ from agent_assist_bot.wrap_up import WrapUpDrafter, WrapUpReporter
 from agent_assist_bot.wrap_up import drain_pending as drain_wrap_ups
 
 BOT_NAME = "Vitals Assistant"
-STT_MODEL = "nova-3-general"
 PACK_ENV = "INTAKE_PACK"
 REQUIRED_KEYS = ("DAILY_API_KEY", "DEEPGRAM_API_KEY", "ANTHROPIC_API_KEY")
 
@@ -398,16 +396,20 @@ def listen_branch(
     on_final,
     keyterms: list[str] | None = None,
     reader: FrameProcessor | None = None,
+    model: str = stt_models.DEFAULT_ASSIST_MODEL,
 ) -> list[FrameProcessor]:
-    """One role's live transcript (S2): its own audio, VAD, and Deepgram stream.
-    `reader` (the caller's tone reader, P4-5) goes right after the STT."""
+    """One role's live transcript (S2): its own audio and Deepgram stream, with a Silero
+    VAD for Nova-3 (Flux detects turns itself; P5-7, `stt.py`). `reader` (the caller's
+    tone reader, P4-5) goes right after the STT."""
+    vad = (
+        [VADProcessor(vad_analyzer=SileroVADAnalyzer())]
+        if stt_models.listen_uses_vad(model)
+        else []
+    )
     return [
         AudioRoute(role, roles),
-        VADProcessor(vad_analyzer=SileroVADAnalyzer()),
-        DeepgramSTTService(
-            api_key=os.environ["DEEPGRAM_API_KEY"],
-            settings=DeepgramSTTService.Settings(model=STT_MODEL, keyterm=keyterms or None),
-        ),
+        *vad,
+        stt_models.build_listen_stt(os.environ["DEEPGRAM_API_KEY"], model, keyterms),
         *([reader] if reader is not None else []),
         TranscriptRelay(role, roles, on_final=on_final),
     ]
@@ -448,18 +450,19 @@ def build_worker(
     music = hold_music_from_env()
     transport = build_transport(room_url, token, mixer=music)
     pack = pack or load_pack(settings.intake_pack)
-    # Intake STT: the pack's fixed keyterms; identity step tuning in stt_tuning.py.
-    stt = build_intake_stt(os.environ["DEEPGRAM_API_KEY"], STT_MODEL, pack.keyterms)
+    # Intake STT (P5-7, IN-14, `stt.py`): Flux or Nova-3 per the settings, with the
+    # pack's fixed keyterms. Flux owns turn taking (no VAD, no smart turn); Nova-3 keeps
+    # Silero VAD plus smart turn. Identity step tuning per model in stt_tuning.py.
+    stt = stt_models.build_intake_stt(
+        os.environ["DEEPGRAM_API_KEY"], settings.stt_intake_model, pack.keyterms
+    )
     # Aura-2 (/v1/speak) or Flux (/v2/speak) from the settings (call_settings.build_tts).
     tts = build_tts(settings, api_key=os.environ["DEEPGRAM_API_KEY"])
     llm = create_llm(system_instruction=ROLE_MESSAGE)
 
     context = LLMContext()
-    vad = SileroVADAnalyzer()
-    aggregators = LLMContextAggregatorPair(
-        context,
-        user_params=LLMUserAggregatorParams(vad_analyzer=vad),
-    )
+    turns = stt_models.intake_turn_taking(settings.stt_intake_model)
+    aggregators = LLMContextAggregatorPair(context, user_params=turns.user_params)
 
     store = store or call_store_from_env()
     session = IntakeSession(
@@ -500,7 +503,14 @@ def build_worker(
     on_final = FanOut(*targets)
     keyterms = listen_keyterms(packs)
     listen = [
-        listen_branch(role, roles, on_final, keyterms, caller_reader if role == "caller" else None)
+        listen_branch(
+            role,
+            roles,
+            on_final,
+            keyterms,
+            caller_reader if role == "caller" else None,
+            model=settings.stt_assist_model,
+        )
         for role in ROLES
     ]
     intake_tone = (
@@ -545,7 +555,7 @@ def build_worker(
 
     # Intake (PRD IN-3 to IN-9): a Pipecat Flow driven by the use case pack. When it
     # ends (completed, request_person, or emergency) the hook enqueues the call.
-    session.identity_tuning = IdentitySTTTuning(stt, vad, worker.queue_frames)
+    session.identity_tuning = stt_models.identity_tuning(stt, turns.vad, worker.queue_frames)
     flow_manager = FlowManager(
         llm=llm, context_aggregator=aggregators, worker=worker, transport=transport
     )

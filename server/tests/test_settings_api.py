@@ -63,6 +63,25 @@ def test_get_returns_defaults_packs_and_limits(client):
     assert body["limits"]["hold_update_secs"] == [5, 600]
 
 
+def test_get_lists_the_stt_model_choices_per_side(client):
+    body = client.get("/settings").json()
+    assert body["stt_models"] == {
+        "intake": ["flux-general-en", "nova-3-general"],
+        "assist": ["nova-3-general", "nova-3-medical", "flux-general-en"],
+    }
+
+
+def test_put_saves_stt_models_and_rejects_a_medical_intake(client):
+    new = {**values(client), "stt_intake_model": "nova-3-general"}
+    new["stt_assist_model"] = "nova-3-medical"
+    r = client.put("/settings", json={"values": new})
+    assert r.status_code == 200, r.text
+    assert values(client)["stt_assist_model"] == "nova-3-medical"
+    r = client.put("/settings", json={"values": {**new, "stt_intake_model": "nova-3-medical"}})
+    assert r.status_code == 422
+    assert set(r.json()["detail"]["errors"]) == {"stt_intake_model"}
+
+
 def test_put_saves_and_the_next_get_returns_it(client, app):
     new = {**values(client), "tts_model": "aura-2", "tts_voice": "aura-2-orion-en"}
     r = client.put("/settings", json={"values": new, "agent": "Ana Ruiz"})

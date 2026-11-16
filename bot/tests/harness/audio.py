@@ -68,3 +68,13 @@ def find_speech_segments(
         else:
             segments.append([ts, end])
     return [(s, e) for s, e in segments]
+
+
+def trailing_silence(pcm: bytes, sample_rate: int, threshold: float = 300.0) -> float:
+    """Seconds of quiet after the last speech in `pcm` (0 when there is no speech).
+
+    Subtracted from a clip's playback end to get when the voice actually stopped."""
+    chunk = sample_rate * 2 * 20 // 1000
+    chunks = [(i / 2 / sample_rate, pcm[i : i + chunk]) for i in range(0, len(pcm), chunk)]
+    segments = find_speech_segments(chunks, threshold=threshold, sample_rate=sample_rate)
+    return pcm_duration(pcm, sample_rate) - segments[-1][1] if segments else 0.0

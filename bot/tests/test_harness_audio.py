@@ -7,10 +7,18 @@ from harness.audio import (
     pcm_duration,
     read_wav,
     rms,
+    trailing_silence,
     write_wav,
 )
 
 SR = 16000
+
+
+def test_trailing_silence_is_the_quiet_tail_after_the_last_speech():
+    pcm = tone(500) + b"\x00\x00" * (SR * 300 // 1000)
+    assert abs(trailing_silence(pcm, SR) - 0.3) < 0.03
+    assert trailing_silence(tone(200), SR) < 0.03
+    assert trailing_silence(b"\x00\x00" * SR, SR) == 0.0  # no speech at all
 
 
 def tone(ms: int, amp: int = 8000) -> bytes:

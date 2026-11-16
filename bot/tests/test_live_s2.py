@@ -1,7 +1,8 @@
 """Live S2 test: one listen only bot transcribes caller and agent on separate tracks.
 
 Run: uv run pytest -m live bot/tests/test_live_s2.py -s
-Needs DAILY_API_KEY and DEEPGRAM_API_KEY. Set S2_RESULT=/path.json to keep the results.
+Needs DAILY_API_KEY and DEEPGRAM_API_KEY. Set S2_RESULT=/path.json to keep the results,
+S2_STT_MODEL to pick the assist STT model (P5-7; default nova-3-general).
 """
 
 from __future__ import annotations
@@ -80,12 +81,15 @@ def _require_env():
 
 
 async def _start_bot(room_url: str):
+    # P5-7: S2_STT_MODEL picks the assist STT (nova-3-general, nova-3-medical, flux-general-en).
+    model = ["--stt-model", m] if (m := os.getenv("S2_STT_MODEL")) else []
     proc = await asyncio.create_subprocess_exec(
         sys.executable,
         "-m",
         "agent_assist_bot.spike_s2",
         "--room-url",
         room_url,
+        *model,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
     )

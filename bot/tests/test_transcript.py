@@ -19,12 +19,16 @@ from agent_assist_bot.transcript import (
 )
 from pipecat.frames.frames import (
     InterimTranscriptionFrame,
+    ProposedUserStartedSpeakingFrame,
+    ProposedUserStoppedSpeakingFrame,
+    STTMetadataFrame,
     TextFrame,
     TranscriptionFrame,
     UserAudioRawFrame,
 )
 from pipecat.tests.utils import run_test
 from pipecat.transports.daily.transport import DailyOutputTransportMessageUrgentFrame
+from pipecat.turns.user_turn_strategies import ExternalUserTurnStrategies
 
 PCM = b"\x00\x00" * 320
 
@@ -242,6 +246,27 @@ async def test_relay_skips_blank_text_and_consumes_stt_frames():
     await run_test(
         TranscriptRelay(CALLER, roles, clock=lambda: 1.0),
         frames_to_send=[TranscriptionFrame("   ", "c1", "t"), TextFrame("keep")],
+        expected_down_frames=[TextFrame],
+    )
+
+
+async def test_relay_keeps_a_flux_listen_branchs_turn_frames_from_the_intake():
+    """P5-7: a Flux listen STT proposes turn starts/stops and recommends turn strategies
+    (STTMetadataFrame). Downstream they would reach the intake user aggregator: the
+    agent talking would barge in on the bot, or switch a Nova intake to Flux turns."""
+    roles = _accepted_roles()
+    await run_test(
+        TranscriptRelay(AGENT, roles, clock=lambda: 1.0),
+        frames_to_send=[
+            ProposedUserStartedSpeakingFrame(),
+            ProposedUserStoppedSpeakingFrame(),
+            STTMetadataFrame(
+                service_name="flux",
+                ttfs_p99_latency=0.0,
+                user_turn_strategies=ExternalUserTurnStrategies(enable_interruptions=False),
+            ),
+            TextFrame("keep"),
+        ],
         expected_down_frames=[TextFrame],
     )
 

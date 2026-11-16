@@ -23,6 +23,8 @@ FLUX = {
     "identity_read_back": False,
     "hold_update_text": "Still with us. {place}",
     "hold_update_secs": 20,
+    "stt_intake_model": "nova-3-general",
+    "stt_assist_model": "nova-3-medical",
 }
 
 
@@ -59,7 +61,42 @@ def test_bot_and_server_defaults_agree():
         "identity_read_back": bot.identity_read_back,
         "hold_update_text": bot.hold_update_text,
         "hold_update_secs": bot.hold_update_secs,
+        "stt_intake_model": bot.stt_intake_model,
+        "stt_assist_model": bot.stt_assist_model,
     }
+
+
+def test_bot_and_server_stt_model_lists_agree():
+    from agent_assist_bot import stt
+    from agent_assist_server import bot_settings as server
+
+    assert server.STT_INTAKE_MODELS == stt.INTAKE_MODELS
+    assert server.STT_ASSIST_MODELS == stt.ASSIST_MODELS
+
+
+def test_stt_defaults_are_flux_intake_and_nova_3_assist():
+    d = cs.CallSettings.defaults({})
+    assert (d.stt_intake_model, d.stt_assist_model) == ("flux-general-en", "nova-3-general")
+
+
+@pytest.mark.parametrize(
+    "over",
+    [
+        {"stt_intake_model": "nova-3-medical"},  # no medical intake
+        {"stt_intake_model": 7},
+        {"stt_assist_model": "flux-general-multi"},
+    ],
+)
+def test_an_unusable_stt_model_falls_back_to_its_default(over):
+    s = cs.CallSettings.from_mapping({**FLUX, **over}, env={})
+    d = cs.CallSettings.defaults({})
+    for key in over:
+        assert getattr(s, key) == getattr(d, key)
+
+
+def test_log_line_names_the_stt_models():
+    line = cs.CallSettings.from_mapping(FLUX, env={}).describe()
+    assert "stt_intake=nova-3-general" in line and "stt_assist=nova-3-medical" in line
 
 
 def test_env_knobs_still_set_the_default_pack_and_interval():

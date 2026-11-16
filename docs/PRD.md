@@ -65,6 +65,7 @@ The bot greets the caller, checks who they are, and learns why they called, all 
 | IN-10 | Pipecat Tone reads the caller's tone on each turn, and the reading is saved with the transcript. | Should |
 | IN-11 | Speech to text and text to speech use Deepgram. Flux TTS is the default voice when it reads member IDs, dates, amounts, and claim numbers at least as well as Aura-2 (docs/spikes/tts-flux-vs-aura.md); Aura-2 stays selectable. Expressive conversation may be turned on for a warmer bot voice. | Should |
 | IN-12 | For the PoC a caller can start a call from a browser page. The server creates the room, starts the same bot as the phone path, and the caller hears the greeting within 5 seconds of the bot joining. Live phone verification of IN-1 waits until a number is bought (ADR 0002). | Must |
+| IN-14 | Speech to text is chosen per side on the Settings page (Chris, Nov 16). Intake uses Deepgram Flux by default, which decides when the caller has finished speaking; Nova-3 stays selectable. Live assist uses Nova-3 by default; Nova-3 Medical or Flux are selectable. A change applies to the next call (docs/spikes/stt-flux-intake.md). | Should |
 
 ## Requirements: queue and handoff
 
@@ -174,7 +175,7 @@ One bot per call does intake, then switches to listen only assist in the same ro
 | --- | --- | --- |
 | Framework | Pipecat 1.15, pinned | Flows is built in; expressive conversation is alpha |
 | Phone and media | Daily phone number and Daily rooms | Daily numbers are US and Canada only |
-| Speech | Deepgram speech to text and text to speech | Swap points stay open |
+| Speech | Deepgram speech to text and text to speech | STT per side (IN-14): Flux for intake, Nova-3 for assist; swap points stay open |
 | LLM | Any Pipecat supported model | Picked in the spike |
 | Tone | Pipecat Tone reader | Feeds tone badges and alerts |
 | Portal | React with the Pipecat client SDK | Audio over WebRTC, cards over RTVI |

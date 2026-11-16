@@ -17,10 +17,30 @@ always takes the agent back to Calls.
 | `identity_read_back` | on | on: read the name and member ID back before the identity check; off: check right after they are given |
 | `hold_update_text` | `Thanks for waiting. {place} A person will be with you shortly.` | 1 to 300 characters; `{place}` is the only placeholder ("You're next in line.") |
 | `hold_update_secs` | `HOLD_UPDATE_SECS` or 60 | whole seconds, 5 to 600 |
+| `stt_intake_model` | `flux-general-en` | `flux-general-en` or `nova-3-general` (P5-7, IN-14) |
+| `stt_assist_model` | `nova-3-general` | `nova-3-general`, `nova-3-medical`, or `flux-general-en` (P5-7, IN-14) |
 
 Why Flux Alexis is the default: docs/spikes/tts-flux-vs-aura.md (Flux Alexis 80/80 key
 entities, Aura-2 Thalia 79/80). The intake questions of the chosen pack are shown read
 only; edit them in `packs/<id>.yaml` (docs/packs.md).
+
+## Listening: speech to text per side (P5-7, IN-14)
+
+The Voice section has a **Listening** group with two pickers, each with one line of
+help:
+
+- **Intake bot** (`stt_intake_model`): Flux (default) or Nova-3. With Flux, Flux decides
+  when the caller has finished (no Silero VAD, no smart turn); with Nova-3 the bot uses
+  Silero VAD plus smart turn, as before P5-7. The caller can interrupt the bot either way.
+- **Live assist** (`stt_assist_model`): Nova-3 (default), Nova-3 Medical, or Flux. These
+  are the listen only streams per person track after an agent accepts. Flux there never
+  interrupts anything and lines are still labeled by the track they came from.
+
+There is no Flux medical model, so Nova-3 Medical is offered on the assist side only.
+`GET /settings` lists the choices per side in `stt_models: {intake: [...], assist:
+[...]}`; the page shows exactly those. How the bot builds each one, the identity step
+tuning per model, and why eager end of turn is off: `bot/agent_assist_bot/stt.py` and
+docs/spikes/stt-flux-intake.md.
 
 ## Voices
 
@@ -40,7 +60,8 @@ and returns MP3. The Deepgram key never reaches the browser.
 
 ## API (behind the login)
 
-    GET  /settings          -> {values, defaults, is_default, updated_at, packs, limits}
+    GET  /settings          -> {values, defaults, is_default, updated_at, packs, limits,
+                                stt_models}
     PUT  /settings          {values: {...all fields}, agent?: name} -> same shape
                             422 {detail: {errors: {field: message}}} when a field is wrong
     POST /settings/reset    {agent?: name} -> the defaults
@@ -51,7 +72,8 @@ The bot key does not open these routes.
 
 ## Storage and the change log
 
-- `bot_settings` (migration 0007): one row, `id = 1`. No row means the defaults in code
+- `bot_settings` (migration 0008; the STT columns in 0010): one row, `id = 1`. No row
+  means the defaults in code
   (`agent_assist_server/bot_settings.py`). Reset deletes the row.
 - `settings_events`: every save and reset, with `session_id` (a hash of the login
   cookie's nonce, never the cookie; "local" when the login is off), the agent's name
@@ -75,7 +97,7 @@ gets what was saved when the call came in.
 
 The bot (`agent_assist_bot/call_settings.py`) logs one line per call, no free text:
 
-    [settings] session=... tts=flux/flux-alexis-en pack=claims_status read_back=on hold_every=60s
+    [settings] session=... tts=flux/flux-alexis-en pack=claims_status read_back=on hold_every=60s stt_intake=flux-general-en stt_assist=nova-3-general
 
 A value it cannot use falls back to its default (logged); a call never fails over
 settings. `build_tts` builds `DeepgramTTSService` (`/v1/speak`) for Aura-2 and

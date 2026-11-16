@@ -5,6 +5,8 @@ separate `UserAudioRawFrame` stream (`audio_in_user_tracks=True`, Pipecat's defa
 A `ParallelPipeline` has one branch per role ("caller", "agent"); each branch keeps only
 its role's audio, runs its own Silero VAD and its own Deepgram live STT stream, and
 emits labeled transcript lines. Roles come from the participant's Daily user_name.
+The STT model is any assist model (P5-7, `stt.py`): Nova-3 general (default), Nova-3
+Medical, or Flux (no VAD; Flux detects turns itself).
 
     transport.input() -> ParallelPipeline(
         [RoleAudioFilter(caller), VAD, Deepgram STT, TranscriptEmitter(caller)],
@@ -33,12 +35,12 @@ from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.processors.audio.vad_processor import VADProcessor
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
-from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.transports.daily.transport import DailyParams, DailyTransport
 from pipecat.workers.runner import WorkerRunner
 
+from agent_assist_bot.stt import DEFAULT_ASSIST_MODEL, build_listen_stt, listen_uses_vad
+
 LISTENER_NAME = "Assist Listener"
-STT_MODEL = "nova-3-general"
 ROLES = ("caller", "agent")
 LINE_PREFIX = "S2LINE "
 
@@ -138,14 +140,14 @@ def print_line(line: TranscriptLine) -> None:
         print(LINE_PREFIX + line.to_json(), flush=True)
 
 
-def _branch(role: str, roles: ParticipantRoles, on_line) -> list[FrameProcessor]:
+def _branch(
+    role: str, roles: ParticipantRoles, on_line, model: str = DEFAULT_ASSIST_MODEL
+) -> list[FrameProcessor]:
+    vad = [VADProcessor(vad_analyzer=SileroVADAnalyzer())] if listen_uses_vad(model) else []
     return [
         RoleAudioFilter(role, roles),
-        VADProcessor(vad_analyzer=SileroVADAnalyzer()),
-        DeepgramSTTService(
-            api_key=os.environ["DEEPGRAM_API_KEY"],
-            settings=DeepgramSTTService.Settings(model=STT_MODEL),
-        ),
+        *vad,
+        build_listen_stt(os.environ["DEEPGRAM_API_KEY"], model),
         TranscriptEmitter(role, roles, on_line),
     ]
 
@@ -155,7 +157,9 @@ def build_listen_worker(
     token: str | None = None,
     *,
     on_line: Callable[[TranscriptLine], None] = print_line,
+    model: str = DEFAULT_ASSIST_MODEL,
 ) -> tuple[PipelineWorker, DailyTransport, ParticipantRoles]:
+    """`model` (P5-7): the assist STT model, as in the bot's listen branches (stt.py)."""
     transport = DailyTransport(
         room_url,
         token,
@@ -171,7 +175,7 @@ def build_listen_worker(
     pipeline = Pipeline(
         [
             transport.input(),
-            ParallelPipeline(*(_branch(role, roles, on_line) for role in ROLES)),
+            ParallelPipeline(*(_branch(role, roles, on_line, model) for role in ROLES)),
         ]
     )
     worker = PipelineWorker(
@@ -197,8 +201,10 @@ def build_listen_worker(
     return worker, transport, roles
 
 
-async def run_listen_bot(room_url: str, token: str | None = None) -> None:
-    worker, _, _ = build_listen_worker(room_url, token)
+async def run_listen_bot(
+    room_url: str, token: str | None = None, *, model: str = DEFAULT_ASSIST_MODEL
+) -> None:
+    worker, _, _ = build_listen_worker(room_url, token, model=model)
     runner = WorkerRunner(handle_sigint=True)
     await runner.add_workers(worker)
     await runner.run()

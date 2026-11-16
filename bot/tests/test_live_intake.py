@@ -20,6 +20,10 @@ the LLM's wording.
 Passes when the calls row is ready_for_queue with the persona's expected identity
 result (verified; not_verified for Daniel Okafor, who gives a wrong DOB on purpose),
 the right member ID, a reason, and the intake took under 2 minutes (PRD target).
+
+P5-7: INTAKE_STT_MODEL=nova-3-general|flux-general-en picks the intake STT (unset: the
+bot's default, Flux). Each result line also has `response_gaps`: seconds from the end
+of each caller line's voice to the bot's first audio after it.
 """
 
 from __future__ import annotations
@@ -34,7 +38,9 @@ import uuid
 
 import pytest
 from agent_assist_bot.bot import BOT_NAME
+from agent_assist_bot.call_settings import SETTINGS_ENV
 from agent_assist_bot.calls import PostgresCallStore
+from harness.audio import trailing_silence
 from harness.intake_script import PERSONAS, Persona, next_line
 from harness.participant import SAMPLE_RATE, HarnessParticipant
 from harness.tts import synthesize
@@ -93,6 +99,10 @@ async def _call_row(store: PostgresCallStore, session_id: str) -> dict | None:
 
 async def _start_bot(room_url: str, token: str, schema: str, session_id: str):
     env = dict(os.environ, DAILY_ROOM_TOKEN=token, DATABASE_SCHEMA=schema)
+    # P5-7: INTAKE_STT_MODEL picks the intake STT (the Settings value, as a cold bot
+    # gets it); unset runs the bot's default (Flux).
+    if model := os.getenv("INTAKE_STT_MODEL"):
+        env[SETTINGS_ENV] = json.dumps({"stt_intake_model": model})
     proc = await asyncio.create_subprocess_exec(
         sys.executable,
         "-m",
@@ -133,6 +143,7 @@ async def test_live_intake(schema, who: Persona, run: int):
     session_id = f"live-intake-{who.key}-{uuid.uuid4().hex[:6]}"
     script = who.lines
     audio = {k: await synthesize(v, sample_rate=SAMPLE_RATE) for k, v in script.items()}
+    trailing = {k: trailing_silence(v, SAMPLE_RATE) for k, v in audio.items()}
     daily = DailyRestClient.from_env()
     room = await daily.create_browser_room()
     bot_token = await daily.create_meeting_token(room.name)
@@ -142,6 +153,10 @@ async def test_live_intake(schema, who: Persona, run: int):
     proc, bot_log = await _start_bot(room.url, bot_token, schema, session_id)
     transcript: list[tuple[str, tuple]] = []
     lines_said: list[str] = []
+    # P5-7: caller stop (end of the caller's audio, minus its trailing silence) to the
+    # bot's first audio after it, one per caller line the bot answered.
+    response_gaps: list[float] = []
+    caller_stop: float | None = None
     row = None
     t_start = t_done = time.time()
     try:
@@ -156,6 +171,8 @@ async def test_live_intake(schema, who: Persona, run: int):
                 turn = await _wait_bot_turn(rec, after)
                 if turn is None:
                     break
+                if caller_stop is not None:
+                    response_gaps.append(turn[0] - caller_stop)
                 # Transcribed after the call, so the harness adds no delay per turn.
                 transcript.append(("bot", turn))
                 row = await _call_row(store, session_id)
@@ -167,6 +184,7 @@ async def test_live_intake(schema, who: Persona, run: int):
                 # write_frames never completes if the call dropped; don't hang on it.
                 s, e = await asyncio.wait_for(caller.play(audio[key]), 60)
                 transcript.append(("caller", (s, script[key])))
+                caller_stop = e - trailing[key]
                 after = e
             # Give the last function call a moment to land.
             for _ in range(20):
@@ -211,6 +229,8 @@ async def test_live_intake(schema, who: Persona, run: int):
         "caller_lines": lines_said,
         "flags": row and row["flags"],
         "intake_seconds": round(intake_secs, 1),
+        "stt_intake_model": os.getenv("INTAKE_STT_MODEL") or "default",
+        "response_gaps": [round(g, 3) for g in response_gaps],
     }
     print("INTAKE RESULT " + json.dumps(result, indent=2, default=str))
     if out := os.getenv("INTAKE_RESULTS"):

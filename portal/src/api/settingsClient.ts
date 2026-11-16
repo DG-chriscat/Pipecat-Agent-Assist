@@ -2,6 +2,9 @@
 
 export type TtsModel = "aura-2" | "flux";
 
+/** Deepgram STT models (P5-7, IN-14). The server lists which ones each side offers. */
+export type SttModel = "flux-general-en" | "nova-3-general" | "nova-3-medical";
+
 export interface SettingsValues {
   tts_model: TtsModel;
   tts_voice: string;
@@ -10,6 +13,8 @@ export interface SettingsValues {
   identity_read_back: boolean;
   hold_update_text: string;
   hold_update_secs: number;
+  stt_intake_model: SttModel;
+  stt_assist_model: SttModel;
 }
 
 export interface PackSummary {
@@ -25,6 +30,7 @@ export interface SettingsResponse {
   updated_at: string | null;
   packs: PackSummary[];
   limits: { greeting_text: number; hold_update_text: number; hold_update_secs: [number, number] };
+  stt_models: { intake: SttModel[]; assist: SttModel[] };
 }
 
 export interface Voice {

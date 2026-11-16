@@ -146,3 +146,36 @@ def test_build_listen_worker_wires_without_network(monkeypatch):
     assert transport._params.audio_out_enabled is False
     assert transport._params.audio_in_enabled is True
     assert transport._params.audio_in_user_tracks is True
+
+
+def _branch_types(worker) -> list[list[str]]:
+    from pipecat.pipeline.parallel_pipeline import ParallelPipeline
+
+    inner = next(p for p in worker._pipeline.processors if type(p).__name__ == "Pipeline")
+    par = next(p for p in inner.processors if isinstance(p, ParallelPipeline))
+    return [[type(x).__name__ for x in b.processors] for b in par._pipelines]
+
+
+def test_listen_worker_defaults_to_nova_3_with_vad(monkeypatch):
+    monkeypatch.setenv("DEEPGRAM_API_KEY", "dg-test")
+    worker, _, _ = build_listen_worker("https://x.daily.co/r", on_line=lambda line: None)
+    for names in _branch_types(worker):
+        assert "VADProcessor" in names and "DeepgramSTTService" in names
+
+
+@pytest.mark.parametrize(
+    "model, stt_name, vad",
+    [
+        ("nova-3-medical", "DeepgramSTTService", True),
+        ("flux-general-en", "ChunkedFluxSTTService", False),
+    ],
+)
+def test_listen_worker_runs_the_assist_model_given(monkeypatch, model, stt_name, vad):
+    """P5-7: the S2 harness measures each assist STT model on the same script."""
+    monkeypatch.setenv("DEEPGRAM_API_KEY", "dg-test")
+    worker, _, _ = build_listen_worker(
+        "https://x.daily.co/r", on_line=lambda line: None, model=model
+    )
+    for names in _branch_types(worker):
+        assert stt_name in names
+        assert ("VADProcessor" in names) is vad

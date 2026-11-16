@@ -70,11 +70,14 @@ function Waveform({ level }: { level: number }) {
 function CallIsland({ caller, phase, held, remoteLevel, elapsedSecs, assist }: InCallProps) {
   const status = phase === "connecting" ? "Connecting" : held ? "On hold" : null;
   const mood = moodChip(assist?.mood);
+  const gate = assist?.identity?.state;
+  const decision = gate === "verified" || gate === "not_verified" ? gate : null;
+  const ok = caller.verified === "verified" || decision === "verified";
   return (
     <div className={`island call-island${held ? " is-held" : ""}`} role="group" aria-label="Call">
-      <span className={`vdot vdot-${caller.verified === "verified" ? "ok" : "warn"}`} aria-hidden="true" />
+      <span className={`vdot vdot-${ok ? "ok" : "warn"}`} aria-hidden="true" />
       <b className="island-name">{caller.name}</b>
-      <VerifiedChip result={caller.verified} />
+      <VerifiedChip result={caller.verified} decision={decision} />
       <Waveform level={held || phase !== "live" ? 0 : remoteLevel} />
       {status && <span className="chip chip-neutral">{status}</span>}
       <span className={`chip chip-${mood.tone}`} data-testid="mood-chip" title={MOOD_TOOLTIP}>
@@ -153,6 +156,7 @@ export function InCall(props: InCallProps) {
           detailsState={props.detailsState ?? "loading"}
           mood={assist.mood}
           onRevealPhi={props.onRevealPhi}
+          identityGate={assist.identity}
         />
         <AssistColumn assist={assist} onAction={onAssist} firstName={firstName} />
         <TranscriptColumn

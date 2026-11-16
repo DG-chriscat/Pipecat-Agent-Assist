@@ -1,11 +1,11 @@
 import { ShieldCheck } from "lucide-react";
 import type { CallerDetails, CallerEvent } from "../api/types";
-import type { MoodState } from "../state/assist";
+import type { IdentityGate, MoodState } from "../state/assist";
 import { eventTone, formatIsoDate } from "../state/caller";
 import { MOOD_TOOLTIP, moodChip, WORRIED } from "../state/mood";
 import { initials } from "../state/names";
 import type { CallerInfo } from "../state/offer";
-import { identityBadge, maskDob, maskMemberId } from "../state/privacy";
+import { agentIdentityBadge, identityBadge, maskDob, maskMemberId } from "../state/privacy";
 import { PhiField, type PhiFieldName } from "./PhiField";
 
 export type DetailsState = "loading" | "ready" | "error";
@@ -23,6 +23,11 @@ export interface CallerPanelProps {
   mood?: MoodState | null;
   /** AP-17: the agent revealed a masked field; the parent logs it on the call record. */
   onRevealPhi: (field: PhiFieldName) => void;
+  /**
+   * IN-13: the assist's identity gate (pending until the agent decides). Reveal is off
+   * and the member record waits until it is verified; null for a call without one.
+   */
+  identityGate?: IdentityGate | null;
 }
 
 const text = (v: unknown): string => (typeof v === "string" ? v.trim() : "");
@@ -111,6 +116,7 @@ export function CallerPanel({
   detailsState,
   mood,
   onRevealPhi,
+  identityGate = null,
 }: CallerPanelProps) {
   const member = details && !details.not_verified ? details.member : null;
   const notVerified = details ? details.not_verified : caller.verified !== "verified";
@@ -120,8 +126,18 @@ export function CallerPanel({
   const dob = member?.dob ?? text(intake.dob);
   const wait = details ? details.wait_secs : waitSecs;
   const showCalls = !!member && details!.calls_30d !== null;
-  const identity = identityBadge(details ? details.identity_result : caller.identity, intake.identity_checks);
+  const decision =
+    identityGate ??
+    (details?.identity_decision
+      ? { state: details.identity_decision.decision, by: details.identity_decision.agent_name }
+      : null);
+  const identity = agentIdentityBadge(
+    identityBadge(details ? details.identity_result : caller.identity, intake.identity_checks),
+    decision,
+  );
   const confirmed = identity.state === "confirmed";
+  // IN-13: PHI Reveal is off until the caller is verified (at intake or by the agent).
+  const revealOff = !!decision && decision.state !== "verified";
   const events = member ? details!.recent_events : [];
   const lastCall = events.find((e) => e.kind === "call");
   const words = text(intake.reason) || caller.reason;
@@ -148,7 +164,14 @@ export function CallerPanel({
           <div className="caller-id" data-testid="caller-id">
             {plan && <span className="caller-plan">{plan}</span>}
             {id ? (
-              <PhiField field="member_id" label="Member ID" value={id} masked={maskMemberId(id)} onReveal={onRevealPhi} />
+              <PhiField
+                field="member_id"
+                label="Member ID"
+                value={id}
+                masked={maskMemberId(id)}
+                onReveal={onRevealPhi}
+                disabled={revealOff}
+              />
             ) : (
               <span>No member ID</span>
             )}
@@ -158,7 +181,15 @@ export function CallerPanel({
 
       <div className="badges">
         <span
-          className={`chip ${confirmed ? "chip-ok" : identity.state === "partial" ? "chip-warn" : "chip-neutral"}`}
+          className={`chip ${
+            confirmed
+              ? "chip-ok"
+              : identity.state === "refused"
+                ? "chip-bad"
+                : identity.state === "partial"
+                  ? "chip-warn"
+                  : "chip-neutral"
+          }`}
           data-testid="identity-badge"
           title={identity.detail}
         >
@@ -195,6 +226,7 @@ export function CallerPanel({
                 value={formatIsoDate(dob)}
                 masked={maskDob(dob)}
                 onReveal={onRevealPhi}
+                disabled={revealOff}
               />
             </dd>
           </div>

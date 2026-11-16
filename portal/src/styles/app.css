@@ -491,6 +491,8 @@
 }
 .phi-reveal:hover { text-decoration: underline; }
 .phi-reveal:focus-visible { outline: 2px solid var(--fuchsia); outline-offset: 2px; border-radius: 3px; }
+/* IN-13: off until the caller is verified. */
+.phi-reveal:disabled { color: var(--text-muted); cursor: not-allowed; text-decoration: none; }
 .phi.is-shown .phi-value { color: var(--text); }
 .timeline { list-style: none; }
 .tl-item { display: flex; gap: 10px; align-items: flex-start; padding: 4px 0; font-size: 13px; }
@@ -639,6 +641,29 @@
 .ack-check svg { width: 24px; height: 24px; }
 .ack-check.is-dismissed { background: var(--soft-fill); color: var(--text-muted); box-shadow: none; }
 .hero.is-dismissed .hero-headline { color: var(--text-muted); }
+/* IN-13 verify hero: bakelite rim for a close/partial match, clay for not found. */
+.hero.is-verify.is-partial { border-color: rgba(250,129,0,.45); box-shadow: var(--hero-shadow), 0 0 0 1px rgba(250,129,0,.25); }
+.hero.is-verify.is-not-found { border-color: rgba(235,42,46,.45); box-shadow: var(--hero-shadow), 0 0 0 1px rgba(235,42,46,.22); }
+.hero-headline-plain::after { content: none; }
+.verify-items { list-style: none; display: grid; gap: 6px; margin: 6px 0 4px; max-width: 640px; }
+.verify-items li {
+  display: grid;
+  grid-template-columns: 22px 120px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--rows-bg);
+  font-size: 14px;
+}
+.verify-mark { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; }
+.verify-mark svg { width: 13px; height: 13px; }
+.verify-items li.is-ok .verify-mark { background: var(--ok-bg); color: var(--ok); }
+.verify-items li.is-miss .verify-mark { background: var(--warn-bg); color: var(--warn); }
+.verify-note { color: var(--text-muted); display: flex; gap: 14px; flex-wrap: wrap; min-width: 0; }
+.verify-items li.is-miss .verify-note span:first-child { color: var(--text); }
+.tile.is-locked { min-height: 140px; }
+.tile.is-locked .locked-big { color: var(--text-muted); font-size: clamp(15px, 9cqi, 18px); font-weight: 500; }
 .shelf {
   display: grid;
   grid-auto-flow: column;

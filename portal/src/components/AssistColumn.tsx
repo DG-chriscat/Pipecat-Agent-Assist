@@ -8,7 +8,11 @@ import {
   HeartPulse,
   Link2,
   ListChecks,
+  Lock,
   Pin,
+  ShieldAlert,
+  ShieldCheck,
+  ShieldX,
   Sparkles,
   ThumbsDown,
   ThumbsUp,
@@ -23,8 +27,10 @@ import {
   isNextStepBody,
   isTableBody,
   isToneTipBody,
+  isVerifyBody,
   MAX_ASK_CHARS,
   planView,
+  recordsLocked,
   type AskItem,
   type AssistCard,
   type AssistState,
@@ -123,6 +129,73 @@ function WhyPanel({ card, cards, panelRef }: { card: AssistCard; cards: AssistCa
   );
 }
 
+/** Intake results that are not a member match at all: the clay treatment (DESIGN.md). */
+const NOT_FOUND = new Set(["not_found"]);
+
+/**
+ * Human verification step (IN-13): the first hero when intake did not fully verify the
+ * caller. Shows what matched and what did not, a line to confirm the first mismatch,
+ * and the agent's two decisions. Nothing else takes the hero until the agent chooses.
+ */
+function HeroVerify({ card, onAction }: { card: AssistCard; onAction: (a: LocalAction) => void }) {
+  if (!isVerifyBody(card.body)) return null;
+  const body = card.body;
+  const decide = (verified: boolean) => onAction({ type: "verify", cardId: card.id, verified });
+  const Icon = NOT_FOUND.has(body.result) ? ShieldX : ShieldAlert;
+  return (
+    <>
+      <div className="eyebrow">
+        <span className={`chip ${NOT_FOUND.has(body.result) ? "chip-bad" : "chip-warn"}`}>
+          <Icon strokeWidth={1.7} aria-hidden="true" />
+          Verify caller
+        </span>
+        <span className="label">{body.why}</span>
+      </div>
+      <h2 className="hero-headline hero-headline-plain">{body.headline}</h2>
+      <ul className="verify-items" aria-label="Identity checks">
+        {body.items.map((i) => (
+          <li key={i.field} className={i.ok ? "is-ok" : "is-miss"} data-ok={i.ok ? "true" : "false"}>
+            <span className="verify-mark" aria-hidden="true">
+              {i.ok ? <Check strokeWidth={2.2} /> : <X strokeWidth={2.2} />}
+            </span>
+            <b>{i.label}</b>
+            {i.ok ? (
+              <span className="verify-note">Match</span>
+            ) : i.heard || i.on_file ? (
+              <span className="verify-note">
+                {i.heard && <span>Heard “{i.heard}”</span>}
+                {i.on_file && <span>On file “{i.on_file}”</span>}
+              </span>
+            ) : (
+              <span className="verify-note">Not matched</span>
+            )}
+          </li>
+        ))}
+      </ul>
+      <div className="script">
+        <div className="label">Say this</div>
+        <p>{body.script}</p>
+      </div>
+      <div className="acts">
+        <button type="button" className="btn btn-primary" onClick={() => decide(true)}>
+          <ShieldCheck strokeWidth={1.7} aria-hidden="true" />
+          Mark verified
+          <span className="kbd kbd-on-primary" aria-hidden="true">
+            <CornerDownLeft strokeWidth={1.7} />
+          </span>
+        </button>
+        <button type="button" className="btn" onClick={() => decide(false)}>
+          Could not verify
+        </button>
+        <span className="src" data-testid="hero-source" title={card.source.label}>
+          <Link2 strokeWidth={1.7} aria-hidden="true" />
+          {card.source.label}
+        </span>
+      </div>
+    </>
+  );
+}
+
 function HeroSuggestion({ card, cards, onAction }: { card: AssistCard; cards: AssistCard[]; onAction: (a: LocalAction) => void }) {
   const [open, setOpen] = useState(false);
   const more = useRef<HTMLDivElement>(null);
@@ -184,7 +257,13 @@ function HeroSuggestion({ card, cards, onAction }: { card: AssistCard; cards: As
 
 function Hero({ assist, onAction }: { assist: AssistState; onAction: (a: LocalAction) => void }) {
   const { ack, hero, cards, status } = assist;
-  const state = ack ? ack.outcome : hero && isNextStepBody(hero.body) ? "suggestion" : "listening";
+  const state = ack
+    ? ack.outcome
+    : hero?.kind === "verify" && isVerifyBody(hero.body)
+      ? "verify"
+      : hero && isNextStepBody(hero.body)
+        ? "suggestion"
+        : "listening";
   const key = ack ? `${ack.outcome}:${ack.card.id}` : hero ? `hero:${hero.id}` : "listening";
   const box = useRef<HTMLDivElement>(null);
   const lastHeight = useRef(0);
@@ -202,7 +281,7 @@ function Hero({ assist, onAction }: { assist: AssistState; onAction: (a: LocalAc
 
   // Hold the suggestion's height through the ack so nothing below jumps.
   useLayoutEffect(() => {
-    if (state === "suggestion" && box.current) lastHeight.current = box.current.offsetHeight;
+    if ((state === "suggestion" || state === "verify") && box.current) lastHeight.current = box.current.offsetHeight;
   });
   // A new hero starts at its top.
   useLayoutEffect(() => {
@@ -211,7 +290,31 @@ function Hero({ assist, onAction }: { assist: AssistState; onAction: (a: LocalAc
   const hold = ack && lastHeight.current ? { minHeight: lastHeight.current } : undefined;
 
   let content: ReactNode;
-  if (ack && isNextStepBody(ack.card.body)) {
+  if (ack && (ack.outcome === "verified" || ack.outcome === "not_verified")) {
+    const verified = ack.outcome === "verified";
+    content = (
+      <div className="hero-ack">
+        {verified ? (
+          <span className="ack-check" data-testid="ack-check" aria-hidden="true">
+            <ShieldCheck strokeWidth={2} />
+          </span>
+        ) : (
+          <span className="ack-check is-dismissed" aria-hidden="true">
+            <ShieldX strokeWidth={2} />
+          </span>
+        )}
+        <div>
+          <div className="label">{verified ? "Verified by you" : "Could not verify"}</div>
+          <h2 className="hero-headline">{verified ? "Caller verified" : "Identity not confirmed"}</h2>
+          <p className="hero-why">
+            {verified
+              ? "Records are unlocked. Logged on this call."
+              : "Records stay hidden for this call. Offer a callback once identity is confirmed."}
+          </p>
+        </div>
+      </div>
+    );
+  } else if (ack && isNextStepBody(ack.card.body)) {
     const accepted = ack.outcome === "accepted";
     content = (
       <div className="hero-ack">
@@ -235,6 +338,8 @@ function Hero({ assist, onAction }: { assist: AssistState; onAction: (a: LocalAc
         </div>
       </div>
     );
+  } else if (state === "verify" && hero) {
+    content = <HeroVerify card={hero} onAction={onAction} />;
   } else if (state === "suggestion" && hero) {
     content = <HeroSuggestion card={hero} cards={cards} onAction={onAction} />;
   } else {
@@ -269,14 +374,17 @@ function Hero({ assist, onAction }: { assist: AssistState; onAction: (a: LocalAc
     );
   }
 
+  const verifyResult = state === "verify" && hero && isVerifyBody(hero.body) ? hero.body.result : undefined;
+  const tone = verifyResult ? (NOT_FOUND.has(verifyResult) ? " is-not-found" : " is-partial") : "";
   return (
     <div
       ref={box}
-      className={`hero is-${state}`}
+      className={`hero is-${state}${tone}`}
       data-testid="hero"
       data-state={state}
+      data-result={verifyResult}
       data-degraded={state === "listening" && assist.degraded ? assist.degraded : undefined}
-      data-card-id={state === "suggestion" && hero ? hero.id : undefined}
+      data-card-id={(state === "suggestion" || state === "verify") && hero ? hero.id : undefined}
       style={hold}
       aria-live="polite"
     >
@@ -295,7 +403,38 @@ const SWATCH: Record<AssistCard["kind"], { tex: string; icon: ReactNode }> = {
   alert: { tex: tileClay, icon: <AlertTriangle strokeWidth={1.7} /> },
   next_step: { tex: tileStone, icon: <Sparkles strokeWidth={1.7} /> },
   tone_tip: { tex: tileBakelite, icon: <HeartPulse strokeWidth={1.7} /> },
+  verify: { tex: tileBakelite, icon: <ShieldAlert strokeWidth={1.7} /> },
 };
+
+/**
+ * A record the agent may not see yet (IN-13): stone swatch with a lock, no values, no
+ * source records, no tools. Mark verified replaces it with the real tile.
+ */
+function LockedTile({ card }: { card: AssistCard }) {
+  const asked = card.trigger.role === "ask" ? `You asked “${card.trigger.text}”` : null;
+  return (
+    <article
+      className="panel tile is-locked"
+      data-testid={`tile-${card.id}`}
+      data-kind={card.kind}
+      data-locked="true"
+      aria-label="Locked record"
+    >
+      <div className="tile-top">
+        <span data-testid="tile-lock">
+          <Swatch tex={tileStone} icon={<Lock strokeWidth={1.7} />} />
+        </span>
+        <b>Locked record</b>
+      </div>
+      <div className="big locked-big">Verify the caller to see records</div>
+      {asked && (
+        <p className="tile-context" title={asked}>
+          {asked}
+        </p>
+      )}
+    </article>
+  );
+}
 
 function Swatch({ tex, icon }: { tex: string; icon: ReactNode }) {
   return (
@@ -559,9 +698,13 @@ function Shelf({ assist, onAction }: { assist: AssistState; onAction: (a: LocalA
     shown.current = answered;
     if (!box.matches(":hover")) tile.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [answered, ordered]);
-  const tile = (c: AssistCard) => (
-    <CardTile key={c.id} card={c} pinned={assist.pinned.includes(c.id)} rating={assist.ratings[c.id]} onAction={onAction} />
-  );
+  const tile = (c: AssistCard) =>
+    c.locked ? (
+      <LockedTile key={c.id} card={c} />
+    ) : (
+      <CardTile key={c.id} card={c} pinned={assist.pinned.includes(c.id)} rating={assist.ratings[c.id]} onAction={onAction} />
+    );
+  const locked = recordsLocked(assist);
   // Fixed slots (Studio: record, call plan, tone tip): the first non tone card takes the
   // record slot, the plan keeps the second, the tone tip the third, more cards follow to
   // the right. Nothing shifts.
@@ -573,10 +716,10 @@ function Shelf({ assist, onAction }: { assist: AssistState; onAction: (a: LocalA
         tile(first)
       ) : (
         <EmptyTile
-          tex={tileAluminum}
-          icon={<FileText strokeWidth={1.7} />}
+          tex={locked ? tileStone : tileAluminum}
+          icon={locked ? <Lock strokeWidth={1.7} /> : <FileText strokeWidth={1.7} />}
           title="Records"
-          empty="Claims and payments appear when they come up."
+          empty={locked ? "Verify the caller to see records." : "Claims and payments appear when they come up."}
         />
       )}
       {plan ? (
@@ -654,6 +797,13 @@ function useHeroKeys(assist: AssistState, onAction: (a: LocalAction) => void) {
       if (e.key === "Enter" && t instanceof Element && t.closest("button, a, [role=button]")) return;
       const { assist: a, onAction: act } = latest.current;
       const hero = a.ack ? null : a.hero;
+      if (hero?.kind === "verify") {
+        // Enter marks verified; Esc does nothing (only a decision closes it, IN-13).
+        if (e.key !== "Enter") return;
+        e.preventDefault();
+        act({ type: "verify", cardId: hero.id, verified: true });
+        return;
+      }
       if (!hero || !isNextStepBody(hero.body)) return;
       e.preventDefault();
       act({ type: e.key === "Enter" ? "accept" : "dismiss", cardId: hero.id });

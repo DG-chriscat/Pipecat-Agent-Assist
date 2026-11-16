@@ -1,7 +1,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { AcceptResult } from "../api/types";
-import { heroCard, msg, planMsg, recordCard } from "../test/assistFixtures";
+import { heroCard, msg, planMsg, recordCard, verifyCard } from "../test/assistFixtures";
 import { createFakeMedia, FakeMedia } from "../test/fakeMedia";
 import { useCall } from "./useCall";
 
@@ -143,6 +143,25 @@ describe("useCall assist (P4-4, docs/assist.md)", () => {
     act(() => result.current.start(res));
     act(() => result.current.assistAction({ type: "accept", cardId: heroCard().id }));
     expect(FakeMedia.last().sent).toEqual([]);
+  });
+
+  it("sends the identity decision to the bot (IN-13)", () => {
+    const { result } = renderHook(() => useCall(createFakeMedia));
+    act(() => result.current.start(res));
+    const m = FakeMedia.last();
+    act(() => m.events.onServerMessage(msg("hero", { card: verifyCard(), reason: "new", replaces: null })));
+    act(() => result.current.assistAction({ type: "verify", cardId: "verify:identity", verified: true }));
+    expect(m.sent).toEqual([["assist_feedback", { v: 1, card_id: "verify:identity", action: "mark_verified" }]]);
+    expect(result.current.call?.assist.history.at(-1)?.label).toBe("Caller verified");
+  });
+
+  it("could not verify goes to the bot as could_not_verify", () => {
+    const { result } = renderHook(() => useCall(createFakeMedia));
+    act(() => result.current.start(res));
+    const m = FakeMedia.last();
+    act(() => m.events.onServerMessage(msg("hero", { card: verifyCard(), reason: "new", replaces: null })));
+    act(() => result.current.assistAction({ type: "verify", cardId: "verify:identity", verified: false }));
+    expect(m.sent).toEqual([["assist_feedback", { v: 1, card_id: "verify:identity", action: "could_not_verify" }]]);
   });
 
   it("sends an Ask as an assist_ask client message and tracks it (P4-6)", () => {

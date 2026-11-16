@@ -9,6 +9,7 @@ export function heroCard(over: Partial<AssistCard> = {}): AssistCard {
     pack_id: "claims_status",
     rank: 105,
     ai_suggested: true,
+    locked: false,
     trigger: {
       phrase: "denied",
       text: "So why did my MRI claim get denied?",
@@ -42,6 +43,7 @@ export function recordCard(over: Partial<AssistCard> = {}): AssistCard {
     pack_id: "claims_status",
     rank: 0,
     ai_suggested: true,
+    locked: false,
     trigger: heroCard().trigger,
     source: { label: "Claims system", records: [{ connector: "claims", id: "CLM-900001" }] },
     rule_id: null,
@@ -73,6 +75,7 @@ export function toneTipCard(over: Partial<AssistCard> = {}): AssistCard {
     pack_id: "claims_status",
     rank: 4,
     ai_suggested: true,
+    locked: false,
     trigger: {
       phrase: null,
       text: "I've called three times and nobody fixes this.",
@@ -105,6 +108,7 @@ export function askCard(over: Partial<AssistCard> = {}): AssistCard {
     pack_id: "claims_status",
     rank: 0,
     ai_suggested: true,
+    locked: false,
     trigger: {
       phrase: null,
       text: "Show the last 3 claims",
@@ -149,6 +153,70 @@ export function askCard(over: Partial<AssistCard> = {}): AssistCard {
     },
     ...over,
   };
+}
+
+/** A locked tile as the bot sends it before the agent verifies the caller (IN-13). */
+export function lockedCard(over: Partial<AssistCard> = {}): AssistCard {
+  return {
+    id: "locked:3f9a1c2b7d4e",
+    kind: "record",
+    title: "Locked record",
+    pack_id: "claims_status",
+    rank: 0,
+    ai_suggested: true,
+    locked: true,
+    trigger: heroCard().trigger,
+    source: { label: "Records", records: [] },
+    rule_id: null,
+    template_id: null,
+    body: { locked: true },
+    ...over,
+  };
+}
+
+/** The verify hero (IN-13): Linda Nguyen heard as "Linda Yuen", ID and DOB exact. */
+export function verifyCard(over: Partial<AssistCard> = {}, result = "close_match"): AssistCard {
+  return {
+    id: "verify:identity",
+    kind: "verify",
+    title: "Verify caller",
+    pack_id: "claims_status",
+    rank: 1000,
+    ai_suggested: false,
+    locked: false,
+    trigger: {
+      phrase: null,
+      text: "Identity check at intake",
+      role: "intake",
+      line_id: "intake",
+      start: null,
+      end: null,
+      heard_at: 1794800780,
+    },
+    source: { label: "Intake identity check", records: [] },
+    rule_id: null,
+    template_id: null,
+    body: {
+      headline: "Confirm who you're speaking with.",
+      why: "Member ID and date of birth match; the name was heard differently.",
+      result,
+      items: [
+        { field: "member_id", label: "Member ID", ok: true, heard: null, on_file: null },
+        { field: "dob", label: "Date of birth", ok: true, heard: null, on_file: null },
+        { field: "full_name", label: "Name", ok: false, heard: "Linda Yuen", on_file: "Linda Nguyen" },
+      ],
+      script: "Thanks. So I have it right, could you spell your last name for me, please?",
+      actions: [
+        { id: "mark_verified", label: "Mark verified" },
+        { id: "could_not_verify", label: "Could not verify" },
+      ],
+    },
+    ...over,
+  };
+}
+
+export function identityMsg(state: string, over: Record<string, unknown> = {}): Record<string, unknown> {
+  return msg("identity", { state, result: "close_match", checks: ["dob", "member_id"], by: null, at: null, ...over });
 }
 
 /** One tone reading as it appears in a mood message. */

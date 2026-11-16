@@ -1,8 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { askCard, heroCard, msg, PLAN_STEPS, planMsg, recordCard } from "../test/assistFixtures";
+import {
+  askCard,
+  heroCard,
+  identityMsg,
+  lockedCard,
+  msg,
+  PLAN_STEPS,
+  planMsg,
+  recordCard,
+  verifyCard,
+} from "../test/assistFixtures";
 import {
   applyAssist,
   assistHighlights,
+  isVerifyBody,
   emptyAssist,
   localAssist,
   parseAssistMessage,
@@ -242,5 +253,71 @@ describe("assistHighlights", () => {
     });
     s = apply(s, msg("card_added", { card: noPhrase }));
     expect(assistHighlights(s)).toEqual([{ lineId: "caller-3", start: 28, end: 34 }]);
+  });
+});
+
+describe("identity gate (IN-13)", () => {
+  it("parses the identity event and keeps it in state", () => {
+    const s = apply(emptyAssist(), identityMsg("pending"));
+    expect(s.identity).toEqual({ state: "pending", result: "close_match", checks: ["dob", "member_id"], by: null, at: null });
+    expect(parseAssistMessage(msg("identity", { state: "maybe" }))).toBeNull();
+  });
+
+  it("starts verified when the bot never sends one (older bots)", () => {
+    expect(emptyAssist().identity).toBeNull();
+  });
+
+  it("parses the verify hero and locked tiles", () => {
+    let s = apply(emptyAssist(), msg("hero", { card: verifyCard(), reason: "new", replaces: null }));
+    expect(s.hero?.kind).toBe("verify");
+    expect(isVerifyBody(s.hero?.body)).toBe(true);
+    s = apply(s, msg("card_added", { card: lockedCard() }));
+    expect(s.cards[0]).toMatchObject({ locked: true, kind: "record" });
+    // A verify card without its items is malformed.
+    expect(parseAssistMessage(msg("hero", { card: verifyCard({ body: { headline: "x" } }), reason: "new" }))).toBeNull();
+  });
+
+  it("a locked tile is replaced by the unlocked one", () => {
+    let s = apply(emptyAssist(), msg("card_added", { card: lockedCard() }));
+    s = apply(s, msg("card_removed", { card_id: lockedCard().id, reason: "unlocked" }));
+    s = apply(s, msg("card_added", { card: recordCard() }));
+    expect(s.cards.map((c) => [c.id, c.locked])).toEqual([["card:denied_claim", false]]);
+  });
+
+  it("mark verified: the hero acks, the decision shows in Earlier this call", () => {
+    let s = apply(emptyAssist(), identityMsg("pending"));
+    s = apply(s, msg("hero", { card: verifyCard(), reason: "new", replaces: null }));
+    s = localAssist(s, { type: "verify", cardId: "verify:identity", verified: true }, 42);
+    expect(s.hero).toBeNull();
+    expect(s.ack).toMatchObject({ outcome: "verified" });
+    expect(s.gone).toContain("verify:identity");
+    expect(s.history.at(-1)).toEqual({ key: "identity", label: "Caller verified", detail: "By you", atSecs: 42 });
+  });
+
+  it("could not verify: logged in Earlier this call, records stay locked", () => {
+    let s = apply(emptyAssist(), identityMsg("pending"));
+    s = apply(s, msg("hero", { card: verifyCard(), reason: "new", replaces: null }));
+    s = localAssist(s, { type: "verify", cardId: "verify:identity", verified: false }, 50);
+    expect(s.ack).toMatchObject({ outcome: "not_verified" });
+    expect(s.history.at(-1)).toMatchObject({ key: "identity", label: "Could not verify the caller" });
+    s = apply(s, identityMsg("not_verified", { by: "Ana", at: 1794800900 }));
+    expect(s.identity?.state).toBe("not_verified");
+  });
+
+  it("the bot's identity event after the decision names who and when", () => {
+    let s = apply(emptyAssist(), identityMsg("pending"));
+    s = apply(s, identityMsg("verified", { by: "Ana", at: 1794800900 }));
+    expect(s.identity).toMatchObject({ state: "verified", by: "Ana", at: 1794800900 });
+  });
+
+  it("verify actions only apply to the verify hero", () => {
+    const s = apply(emptyAssist(), msg("hero", { card: heroCard(), reason: "new", replaces: null }));
+    expect(localAssist(s, { type: "verify", cardId: heroCard().id, verified: true }, 1)).toBe(s);
+  });
+
+  it("accept and dismiss never close the verify hero", () => {
+    const s = apply(emptyAssist(), msg("hero", { card: verifyCard(), reason: "new", replaces: null }));
+    expect(localAssist(s, { type: "accept", cardId: "verify:identity" }, 1)).toBe(s);
+    expect(localAssist(s, { type: "dismiss", cardId: "verify:identity" }, 1)).toBe(s);
   });
 });

@@ -19,7 +19,7 @@ export function maskDob(iso: string): string {
   return `${DOT}${DOT}/${DOT}${DOT}/${m ? m[1] : DOT.repeat(4)}`;
 }
 
-export type IdentityState = "unchecked" | "partial" | "confirmed";
+export type IdentityState = "unchecked" | "partial" | "confirmed" | "refused";
 
 export interface IdentityBadge {
   state: IdentityState;
@@ -52,4 +52,23 @@ export function identityBadge(result: IdentityResult | null, checks: unknown): I
     label: `Identity ${passed.size} of 3`,
     detail,
   };
+}
+
+/**
+ * The agent's decision on the verification step (IN-13) wins over the intake badge:
+ * Mark verified is "Verified by agent" (phosphor, the agent's name on hover); Could not
+ * verify is "Not verified by agent" (clay).
+ */
+export function agentIdentityBadge(
+  base: IdentityBadge,
+  decision: { state: "verified" | "pending" | "not_verified"; by: string | null } | null,
+): IdentityBadge {
+  if (!decision || decision.state === "pending") return base;
+  const who = decision.by || "the agent";
+  if (decision.state === "verified") {
+    // Verified at intake: keep "Identity 3 of 3".
+    if (base.state === "confirmed" && !decision.by) return base;
+    return { state: "confirmed", label: "Verified by agent", detail: `Verified by ${who} on the call` };
+  }
+  return { state: "refused", label: "Not verified by agent", detail: `${who} could not verify the caller` };
 }

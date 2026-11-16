@@ -13,10 +13,42 @@ import type { HighlightRange } from "./transcript";
 
 export const ASSIST_VERSION = 1;
 
-export type CardKind = "next_step" | "record" | "article" | "alert" | "tone_tip";
-const KINDS: readonly CardKind[] = ["next_step", "record", "article", "alert", "tone_tip"];
+export type CardKind = "next_step" | "record" | "article" | "alert" | "tone_tip" | "verify";
+const KINDS: readonly CardKind[] = ["next_step", "record", "article", "alert", "tone_tip", "verify"];
 const STATUS_STATES = ["listening", "rate_limited", "error", "stopped"] as const;
 export type AssistStatusState = (typeof STATUS_STATES)[number];
+
+/** IN-13: records are locked until the agent decides on the verify hero. */
+const IDENTITY_STATES = ["verified", "pending", "not_verified"] as const;
+export type IdentityGateState = (typeof IDENTITY_STATES)[number];
+
+export interface IdentityGate {
+  state: IdentityGateState;
+  /** The intake result (verified, close_match, not_verified, not_found, incomplete). */
+  result: string | null;
+  checks: string[];
+  /** The agent who decided, and when (epoch s); null until then. */
+  by: string | null;
+  at: number | null;
+}
+
+/** One line of the verify hero: what matched and what did not (IN-13). */
+export interface VerifyItem {
+  field: string;
+  label: string;
+  ok: boolean;
+  heard: string | null;
+  on_file: string | null;
+}
+
+export interface VerifyBody {
+  headline: string;
+  why: string;
+  result: string;
+  items: VerifyItem[];
+  script: string;
+  actions: { id: string; label: string }[];
+}
 
 export interface Trigger {
   phrase: string | null;
@@ -88,11 +120,13 @@ export interface AssistCard {
   pack_id: string;
   rank: number;
   ai_suggested: boolean;
+  /** IN-13: a record the agent may not see yet (caller not verified); no values. */
+  locked: boolean;
   trigger: Trigger;
   source: CardSource;
   rule_id: string | null;
   template_id: string | null;
-  body: NextStepBody | TableBody | ToneTipBody | Record<string, unknown>;
+  body: NextStepBody | TableBody | ToneTipBody | VerifyBody | Record<string, unknown>;
 }
 
 export type StepBy = "transcript" | "action" | "manual" | null;
@@ -117,6 +151,7 @@ export type AssistMessage =
   | (Base & { event: "card_added"; card: AssistCard })
   | (Base & { event: "card_removed"; card_id: string; reason: string })
   | (Base & { event: "mood" } & MoodState)
+  | (Base & { event: "identity" } & IdentityGate)
   | (Base & { event: "ask_result"; ask_id: string; status: AskStatus; card_id: string | null; message: string | null });
 
 /** How an Ask bar question ended (P4-6, AP-8); `pending` until the bot answers. */
@@ -165,9 +200,23 @@ export function isToneTipBody(b: unknown): b is ToneTipBody {
   return isObj(b) && isStr(b.headline) && isStr(b.why) && isStr(b.mood);
 }
 
-function bodyOk(kind: CardKind, body: unknown): boolean {
+export function isVerifyBody(b: unknown): b is VerifyBody {
+  return (
+    isObj(b) &&
+    isStr(b.headline) &&
+    isStr(b.script) &&
+    isStr(b.result) &&
+    Array.isArray(b.items) &&
+    b.items.every((i) => isObj(i) && isStr(i.field) && isStr(i.label) && typeof i.ok === "boolean") &&
+    Array.isArray(b.actions)
+  );
+}
+
+function bodyOk(kind: CardKind, body: unknown, locked: boolean): boolean {
+  if (locked) return isObj(body);
   if (kind === "next_step") return isNextStepBody(body);
   if (kind === "tone_tip") return isToneTipBody(body);
+  if (kind === "verify") return isVerifyBody(body);
   return isTableBody(body);
 }
 
@@ -199,7 +248,8 @@ function parseCard(x: unknown): AssistCard | null {
     (r): r is { connector: string; id: string } => isObj(r) && isStr(r.connector) && isStr(r.id),
   );
   const kind = x.kind as CardKind;
-  if (!bodyOk(kind, x.body)) return null;
+  const locked = x.locked === true;
+  if (!bodyOk(kind, x.body, locked)) return null;
   return {
     id: x.id,
     kind,
@@ -207,6 +257,7 @@ function parseCard(x: unknown): AssistCard | null {
     pack_id: isStr(x.pack_id) ? x.pack_id : "",
     rank: isNum(x.rank) ? x.rank : 0,
     ai_suggested: x.ai_suggested !== false,
+    locked,
     trigger: {
       phrase: (t.phrase as string | null | undefined) ?? null,
       text: t.text,
@@ -287,6 +338,18 @@ export function parseAssistMessage(data: unknown): AssistMessage | null {
         readings,
       };
     }
+    case "identity": {
+      if (!IDENTITY_STATES.includes(data.state as IdentityGateState)) return null;
+      return {
+        ...base,
+        event: "identity",
+        state: data.state as IdentityGateState,
+        result: isStr(data.result) ? data.result : null,
+        checks: Array.isArray(data.checks) ? data.checks.filter(isStr) : [],
+        by: isStr(data.by) ? data.by : null,
+        at: isNum(data.at) ? data.at : null,
+      };
+    }
     case "ask_result": {
       if (!isStr(data.ask_id) || !ASK_STATUSES.includes(data.status as AskStatus)) return null;
       return {
@@ -314,7 +377,7 @@ export interface HistoryItem {
 
 export interface HeroAck {
   card: AssistCard;
-  outcome: "accepted" | "dismissed";
+  outcome: "accepted" | "dismissed" | "verified" | "not_verified";
 }
 
 export interface AssistState {
@@ -343,6 +406,8 @@ export interface AssistState {
   mood: MoodState | null;
   /** The agent's Ask bar questions this call, oldest first (P4-6). */
   asks: AskItem[];
+  /** IN-13: the identity gate from the bot; null until the first identity event. */
+  identity: IdentityGate | null;
 }
 
 export function emptyAssist(): AssistState {
@@ -361,7 +426,13 @@ export function emptyAssist(): AssistState {
     gone: [],
     mood: null,
     asks: [],
+    identity: null,
   };
+}
+
+/** True while records are locked: the caller is not verified yet, or could not be (IN-13). */
+export function recordsLocked(s: AssistState): boolean {
+  return !!s.identity && s.identity.state !== "verified";
 }
 
 function effectiveSteps(steps: PlanStep[], manual: Record<string, boolean>): PlanStep[] {
@@ -414,6 +485,9 @@ export function applyAssist(s: AssistState, m: AssistMessage, atSecs: number): A
     case "mood":
       next.mood = { label: m.label, tone: m.tone, step: m.step, readings: m.readings };
       return next;
+    case "identity":
+      next.identity = { state: m.state, result: m.result, checks: m.checks, by: m.by, at: m.at };
+      return next;
     case "ask_result":
       if (!s.asks.some((a) => a.askId === m.ask_id)) return next;
       next.asks = s.asks.map((a) =>
@@ -431,7 +505,9 @@ export type LocalAction =
   | { type: "unpin"; cardId: string }
   | { type: "rate"; cardId: string; rating: "up" | "down" }
   | { type: "tick"; stepId: string; done: boolean }
-  | { type: "ask"; askId: string; text: string };
+  | { type: "ask"; askId: string; text: string }
+  /** IN-13: Mark verified (true) or Could not verify (false) on the verify hero. */
+  | { type: "verify"; cardId: string; verified: boolean };
 
 /** Longest Ask bar question the bot takes (assist_contract.MAX_ASK_CHARS). */
 export const MAX_ASK_CHARS = 300;
@@ -464,6 +540,7 @@ export function localAssist(s: AssistState, a: LocalAction, atSecs: number): Ass
     }
     case "dismiss":
       if (s.hero?.id === a.cardId) {
+        if (s.hero.kind === "verify") return s; // only the agent's decision closes it
         return { ...s, hero: null, ack: { card: s.hero, outcome: "dismissed" }, gone: [...s.gone, a.cardId] };
       }
       return {
@@ -474,6 +551,23 @@ export function localAssist(s: AssistState, a: LocalAction, atSecs: number): Ass
       };
     case "settle":
       return s.ack ? { ...s, ack: null } : s;
+    case "verify": {
+      const card = s.hero;
+      if (!card || card.id !== a.cardId || card.kind !== "verify") return s;
+      const row: HistoryItem = {
+        key: "identity",
+        label: a.verified ? "Caller verified" : "Could not verify the caller",
+        detail: a.verified ? "By you" : "Records stay hidden",
+        atSecs,
+      };
+      return {
+        ...s,
+        hero: null,
+        ack: { card, outcome: a.verified ? "verified" : "not_verified" },
+        history: [...s.history.filter((h) => h.key !== "identity"), row],
+        gone: [...s.gone, card.id],
+      };
+    }
     case "pin":
       return s.pinned.includes(a.cardId) ? s : { ...s, pinned: [...s.pinned, a.cardId] };
     case "unpin":

@@ -58,4 +58,5 @@ Source: docs/PRD.md (Nov 14, 2026)
 - Exit: each pack's trigger shows its card on a live call.
 
 ## Phase 5
+- P5-5 Settings page (voice, greeting, intake, hold) and Flux TTS, default if the read back test passes (AP-20, IN-11).
 Demo polish: wrap up summary and reason code (AP-9), pre warmed bot, scripted caller runs against the success measures.

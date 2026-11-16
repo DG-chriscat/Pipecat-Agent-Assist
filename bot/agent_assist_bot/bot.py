@@ -64,6 +64,7 @@ from agent_assist_bot.intake import GREETING as GREETING  # re-export (PRD IN-2)
 from agent_assist_bot.intake import ROLE_MESSAGE, HandoffHook, IntakeSession, NoopHandoff
 from agent_assist_bot.llm import create_llm
 from agent_assist_bot.packs import DEFAULT_PACK, MAX_KEYTERMS, Pack, load_pack, load_packs
+from agent_assist_bot.stt_tuning import IdentitySTTTuning, build_intake_stt
 from agent_assist_bot.timing import FirstAudioTimer, log_timing
 from agent_assist_bot.transcript import (
     ROLES,
@@ -323,10 +324,9 @@ def build_worker(
     session_id = session_id or str(uuid.uuid4())
     handoff = handoff or handoff_from_env()
     transport = build_transport(room_url, token)
-    stt = DeepgramSTTService(
-        api_key=os.environ["DEEPGRAM_API_KEY"],
-        settings=DeepgramSTTService.Settings(model=STT_MODEL),
-    )
+    pack = pack or load_pack(os.environ.get(PACK_ENV) or DEFAULT_PACK)
+    # Intake STT: the pack's fixed keyterms; identity step tuning in stt_tuning.py.
+    stt = build_intake_stt(os.environ["DEEPGRAM_API_KEY"], STT_MODEL, pack.keyterms)
     tts = DeepgramTTSService(
         api_key=os.environ["DEEPGRAM_API_KEY"],
         settings=DeepgramTTSService.Settings(voice=TTS_VOICE),
@@ -334,14 +334,15 @@ def build_worker(
     llm = create_llm(system_instruction=ROLE_MESSAGE)
 
     context = LLMContext()
+    vad = SileroVADAnalyzer()
     aggregators = LLMContextAggregatorPair(
         context,
-        user_params=LLMUserAggregatorParams(vad_analyzer=SileroVADAnalyzer()),
+        user_params=LLMUserAggregatorParams(vad_analyzer=vad),
     )
 
     store = store or call_store_from_env()
     session = IntakeSession(
-        pack=pack or load_pack(os.environ.get(PACK_ENV) or DEFAULT_PACK),
+        pack=pack,
         store=store,
         session_id=session_id,
         handoff=handoff,
@@ -396,6 +397,7 @@ def build_worker(
 
     # Intake (PRD IN-3 to IN-9): a Pipecat Flow driven by the use case pack. When it
     # ends (completed, request_person, or emergency) the hook enqueues the call.
+    session.identity_tuning = IdentitySTTTuning(stt, vad, worker.queue_frames)
     flow_manager = FlowManager(
         llm=llm, context_aggregator=aggregators, worker=worker, transport=transport
     )

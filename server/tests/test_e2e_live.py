@@ -171,7 +171,8 @@ async def test_live_voice_intake_to_queue_to_agent(schema, monkeypatch):
                     if queued:
                         break
                     row = await call_row(store, session_id)
-                    key = next_line((row or {}).get("intake"))
+                    row = row or {}
+                    key = next_line(row.get("intake"), row.get("identity_result"))
                     s, e = await asyncio.wait_for(caller.play(audio[key]), 60)
                     transcript.append(("caller", (s, SCRIPT[key])))
                     after = e

@@ -139,4 +139,25 @@ describe("InCall shell (AP-4)", () => {
     setup({ error: "Could not join the call audio." });
     expect(screen.getByRole("alert")).toHaveTextContent("Could not join the call audio.");
   });
+
+  it("the transcript empty state names the connection while the audio connects (P5-3)", () => {
+    const { rerender, props } = setup({ phase: "connecting" });
+    const transcript = () => screen.getByRole("complementary", { name: /conversation/i });
+    expect(within(transcript()).getByText(/connecting the call audio/i)).toBeInTheDocument();
+    expect(within(transcript()).queryByText("Live")).not.toBeInTheDocument();
+    rerender(<InCall {...props} phase="live" />);
+    expect(within(transcript()).getByText(/once the caller and you talk/i)).toBeInTheDocument();
+    expect(within(transcript()).getByText("Live")).toBeInTheDocument();
+  });
+
+  it("the call frame has a skip-free tab order: controls, then caller, assist, conversation (P5-3)", () => {
+    setup();
+    const order = Array.from(document.querySelectorAll<HTMLElement>("button:not([disabled]), input:not([disabled])")).map(
+      (el) => el.getAttribute("aria-label") ?? el.textContent?.trim(),
+    );
+    // Header controls come before the call grid; End is reachable right after Hold.
+    expect(order.indexOf("Hold")).toBeLessThan(order.indexOf("End call"));
+    expect(order.indexOf("End call")).toBeLessThan(order.indexOf("Reveal member ID"));
+    expect(order.indexOf("Reveal member ID")).toBeLessThan(order.indexOf("Ask"));
+  });
 });

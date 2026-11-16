@@ -14,11 +14,16 @@ import time
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
-from agent_assist_server.bot_launcher import BotLauncher, BotLaunchRequest
+from agent_assist_server.bot_launcher import (
+    BotLaunchRequest,
+    get_launcher,
+    launch_in_background,
+    log_timing,
+)
 from agent_assist_server.daily import (
     TOKEN_EXP_SECONDS,
     DailyAPIError,
@@ -47,22 +52,15 @@ def _daily_client(request: Request) -> DailyRestClient:
     return factory() if factory else DailyRestClient.from_env()
 
 
-def _bot_launcher(request: Request) -> BotLauncher:
-    launcher = getattr(request.app.state, "bot_launcher", None)
-    if launcher is None:
-        launcher = BotLauncher()
-        request.app.state.bot_launcher = launcher
-    return launcher
-
-
 @router.post(BROWSER_CALL_PATH)
-async def start_browser_call(request: Request) -> BrowserCallResponse:
+async def start_browser_call(request: Request, background: BackgroundTasks) -> BrowserCallResponse:
     try:
         daily = _daily_client(request)
     except DailyConfigError:
         raise HTTPException(status_code=503, detail="DAILY_API_KEY is not configured") from None
 
     session_id = str(uuid.uuid4())
+    log_timing("call_requested", session=session_id)
     try:
         room = await daily.create_browser_room()
         bot_token = await daily.create_meeting_token(room.name)
@@ -73,10 +71,13 @@ async def start_browser_call(request: Request) -> BrowserCallResponse:
         logger.error("browser call room setup failed: %s", e)
         raise HTTPException(status_code=502, detail="Failed to create Daily room") from None
 
-    await _bot_launcher(request).launch(
-        BotLaunchRequest(room_url=room.url, token=bot_token, session_id=session_id)
-    )
     get_queue(request.app).register_session(session_id, room.url)
+    # P5-2: after the response; a warm bot from the pool when one is ready.
+    background.add_task(
+        launch_in_background,
+        get_launcher(request.app),
+        BotLaunchRequest(room_url=room.url, token=bot_token, session_id=session_id),
+    )
     logger.info("browser call started session=%s room=%s", session_id, room.url)
     return BrowserCallResponse(session_id=session_id, room_url=room.url, caller_token=caller_token)
 

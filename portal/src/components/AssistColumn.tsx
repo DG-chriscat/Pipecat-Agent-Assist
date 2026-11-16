@@ -40,6 +40,12 @@ import { segmentText } from "../state/transcript";
 /** How long the accepted or dismissed hero shows before the next state (ms). */
 export const ACK_MS = 1600;
 
+/** Listening, but the bot said the suggestion model failed or the assist stopped (P5-3). */
+const DEGRADED: Record<"error" | "stopped", string> = {
+  error: "Suggestions are paused: the assist model is not answering. Records and the call plan still update.",
+  stopped: "The assist stopped for this call. Records already on screen stay here.",
+};
+
 export interface AssistColumnProps {
   assist: AssistState;
   onAction: (a: LocalAction) => void;
@@ -233,6 +239,7 @@ function Hero({ assist, onAction }: { assist: AssistState; onAction: (a: LocalAc
     content = <HeroSuggestion card={hero} cards={cards} onAction={onAction} />;
   } else {
     const pending = status?.state === "rate_limited" ? (status.pending ?? 0) : 0;
+    const degraded = assist.degraded;
     content = (
       <>
         <div className="eyebrow">
@@ -242,7 +249,7 @@ function Hero({ assist, onAction }: { assist: AssistState; onAction: (a: LocalAc
           </span>
         </div>
         <div className="hero-listening">
-          <div className="orb orb-sm" aria-hidden="true" />
+          <div className={`orb orb-sm${degraded ? " orb-rest" : ""}`} aria-hidden="true" />
           <div>
             <h2 className="hero-title">Listening with you</h2>
             <p className="hero-why">
@@ -252,6 +259,12 @@ function Hero({ assist, onAction }: { assist: AssistState; onAction: (a: LocalAc
             </p>
           </div>
         </div>
+        {degraded && (
+          <p className="hero-degraded" role="status">
+            <AlertTriangle strokeWidth={1.7} aria-hidden="true" />
+            {DEGRADED[degraded]}
+          </p>
+        )}
       </>
     );
   }
@@ -262,6 +275,7 @@ function Hero({ assist, onAction }: { assist: AssistState; onAction: (a: LocalAc
       className={`hero is-${state}`}
       data-testid="hero"
       data-state={state}
+      data-degraded={state === "listening" && assist.degraded ? assist.degraded : undefined}
       data-card-id={state === "suggestion" && hero ? hero.id : undefined}
       style={hold}
       aria-live="polite"
@@ -470,12 +484,14 @@ function PlanTile({ plan, onAction }: { plan: PlanView; onAction: (a: LocalActio
       <div className="tile-top">
         <Swatch tex={tileStone} icon={<ListChecks strokeWidth={1.7} />} />
         <b>Call plan</b>
+      </div>
+      <div className="plan-progress">
+        <div className="progress" role="progressbar" aria-valuenow={plan.done} aria-valuemin={0} aria-valuemax={plan.total} aria-label="Call plan progress">
+          <i style={{ width: `${pct}%` }} />
+        </div>
         <span className="tile-count mono">
           {plan.done} of {plan.total}
         </span>
-      </div>
-      <div className="progress" role="progressbar" aria-valuenow={plan.done} aria-valuemin={0} aria-valuemax={plan.total} aria-label="Call plan progress">
-        <i style={{ width: `${pct}%` }} />
       </div>
       <ul className="plan" ref={box}>
         {plan.steps.map((s) => (
@@ -650,12 +666,33 @@ function useHeroKeys(assist: AssistState, onAction: (a: LocalAction) => void) {
 let askSeq = 0;
 const newAskId = () => `ask-${Date.now().toString(36)}-${++askSeq}`;
 
+/** Cmd on Apple keyboards, Ctrl elsewhere: the hint names the key the agent has (P5-3). */
+const isMac = () => typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
+
 /** What happened to the latest question: shown above the bar until it is answered. */
-function askNote(asks: AskItem[]): string | null {
+function askNote(asks: AskItem[], slow: boolean): string | null {
   const last = asks.at(-1);
   if (!last || last.status === "answered") return null;
-  if (last.status === "pending") return `Looking up “${last.text}”`;
+  if (last.status === "pending") {
+    return slow ? `Still looking up “${last.text}”. The records system is slow.` : `Looking up “${last.text}”`;
+  }
   return last.message || "No answer for that question.";
+}
+
+/** After this long without an answer the Ask note says the lookup is slow (P5-3). */
+export const SLOW_ASK_MS = 4000;
+
+/** True once the pending question has waited SLOW_ASK_MS. */
+function useSlowAsk(asks: AskItem[]): boolean {
+  const last = asks.at(-1);
+  const pendingId = last?.status === "pending" ? last.askId : null;
+  const [slowId, setSlowId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!pendingId) return;
+    const t = setTimeout(() => setSlowId(pendingId), SLOW_ASK_MS);
+    return () => clearTimeout(t);
+  }, [pendingId]);
+  return !!pendingId && slowId === pendingId;
 }
 
 /**
@@ -678,7 +715,8 @@ function AskBar({ asks, onAction, firstName }: { asks: AskItem[]; onAction: (a: 
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
-  const note = askNote(asks);
+  const slow = useSlowAsk(asks);
+  const note = askNote(asks, slow);
   const pending = asks.at(-1)?.status === "pending";
   return (
     <>
@@ -712,8 +750,8 @@ function AskBar({ asks, onAction, firstName }: { asks: AskItem[]; onAction: (a: 
             }
           }}
         />
-        <span className="kbd" aria-hidden="true">
-          ⌘ K
+        <span className="kbd" aria-hidden="true" data-testid="ask-kbd">
+          {isMac() ? "⌘ K" : "Ctrl K"}
         </span>
       </label>
     </>

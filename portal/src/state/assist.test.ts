@@ -102,6 +102,23 @@ describe("applyAssist", () => {
     const s = apply(emptyAssist(), msg("assist_status", { state: "rate_limited", pending: 2, pack_id: "claims_status" }));
     expect(s.status).toEqual({ state: "rate_limited", pending: 2 });
   });
+
+  it("an LLM error outlives the listening status that follows it, until a new suggestion", () => {
+    // The bot sends error then listening right away (assist.py); the agent still needs to see it.
+    let s = apply(emptyAssist(), msg("assist_status", { state: "error", message: "assist model unavailable" }));
+    s = apply(s, msg("assist_status", { state: "listening" }));
+    expect(s.status).toEqual({ state: "listening" });
+    expect(s.degraded).toBe("error");
+    s = apply(s, msg("card_added", { card: recordCard() }));
+    expect(s.degraded).toBe("error");
+    s = apply(s, msg("hero", { card: heroCard(), reason: "new", replaces: null }));
+    expect(s.degraded).toBeNull();
+  });
+
+  it("stopped is kept as degraded", () => {
+    const s = apply(emptyAssist(), msg("assist_status", { state: "stopped" }));
+    expect(s.degraded).toBe("stopped");
+  });
 });
 
 describe("localAssist (agent actions)", () => {

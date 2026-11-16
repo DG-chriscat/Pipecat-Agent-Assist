@@ -146,8 +146,7 @@ export function CallerPanel({
             )}
           </h1>
           <div className="caller-id" data-testid="caller-id">
-            {plan && <span>{plan}</span>}
-            {plan && id && <span aria-hidden="true"> · </span>}
+            {plan && <span className="caller-plan">{plan}</span>}
             {id ? (
               <PhiField field="member_id" label="Member ID" value={id} masked={maskMemberId(id)} onReveal={onRevealPhi} />
             ) : (

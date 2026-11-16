@@ -79,6 +79,14 @@ describe("IncomingCall (AP-3)", () => {
     expect(props.onDecline).toHaveBeenCalledTimes(1);
   });
 
+  it("Enter on a focused button presses that button, not Accept (tab order, P5-3)", () => {
+    const { props } = setup();
+    const decline = screen.getByRole("button", { name: /decline/i });
+    decline.focus();
+    fireEvent.keyDown(decline, { key: "Enter" });
+    expect(props.onAccept).not.toHaveBeenCalled();
+  });
+
   it("ignores keys and clicks while a command is in flight", () => {
     const { props } = setup({ busy: true });
     fireEvent.keyDown(window, { key: "Enter" });

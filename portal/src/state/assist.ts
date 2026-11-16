@@ -321,6 +321,11 @@ export interface AssistState {
   /** Highest seq applied; older or repeated messages are dropped. */
   seq: number;
   status: { state: AssistStatusState; pending?: number } | null;
+  /**
+   * P5-3: the last error or stop the bot reported. The bot follows an LLM error with
+   * `listening` at once, so `status` alone loses it; this keeps it until the next hero.
+   */
+  degraded: "error" | "stopped" | null;
   plan: { packId: string; packName: string; steps: PlanStep[] } | null;
   hero: AssistCard | null;
   /** Supporting cards in arrival order. */
@@ -344,6 +349,7 @@ export function emptyAssist(): AssistState {
   return {
     seq: 0,
     status: null,
+    degraded: null,
     plan: null,
     hero: null,
     cards: [],
@@ -384,6 +390,7 @@ export function applyAssist(s: AssistState, m: AssistMessage, atSecs: number): A
   switch (m.event) {
     case "assist_status":
       next.status = m.pending === undefined ? { state: m.state } : { state: m.state, pending: m.pending };
+      if (m.state === "error" || m.state === "stopped") next.degraded = m.state;
       return next;
     case "plan_update": {
       next.plan = { packId: m.pack_id, packName: m.pack_name, steps: m.steps };
@@ -393,6 +400,7 @@ export function applyAssist(s: AssistState, m: AssistMessage, atSecs: number): A
     case "hero":
       next.hero = m.card && !s.gone.includes(m.card.id) ? m.card : null;
       next.cards = m.card ? s.cards.filter((c) => c.id !== m.card?.id) : s.cards;
+      if (m.card) next.degraded = null;
       return next;
     case "card_added": {
       if (s.gone.includes(m.card.id)) return next;

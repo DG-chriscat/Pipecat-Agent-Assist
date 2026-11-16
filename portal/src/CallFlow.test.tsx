@@ -271,6 +271,8 @@ describe("incoming call and in-call shell (AP-3, AP-4, QH-6, QH-7)", () => {
     });
     expect(screen.queryByRole("dialog", { name: /incoming call/i })).not.toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent(/missed a call/i);
+    // P5-3: a missed call is a warning, not body copy.
+    expect(screen.getByRole("status")).toHaveClass("notice", "is-warn");
     expect(screen.getByRole("switch", { name: /available/i })).toHaveAttribute("aria-checked", "false");
   });
 
@@ -458,6 +460,7 @@ describe("incoming call and in-call shell (AP-3, AP-4, QH-6, QH-7)", () => {
     expect(screen.queryByRole("region", { name: /wrap up/i })).not.toBeInTheDocument();
     expect(screen.getByRole("switch", { name: /available/i })).toHaveAttribute("aria-checked", "true");
     expect(screen.getByRole("status")).toHaveTextContent(/call saved/i);
+    expect(screen.getByRole("status")).toHaveClass("notice", "is-ok");
   });
 
   it("P5-1: the view polls until the bot's draft lands, then saves the edited summary with the suggested code", async () => {
@@ -542,6 +545,7 @@ describe("incoming call and in-call shell (AP-3, AP-4, QH-6, QH-7)", () => {
     await waitFor(() => expect(media.left).toBe(1));
     expect(screen.queryByRole("group", { name: /call/i })).not.toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent(/lost the connection/i);
+    expect(screen.getByRole("status")).toHaveClass("notice", "is-warn");
     expect(screen.getByRole("status")).toHaveTextContent(/front of the queue/i);
     expect(screen.getByRole("switch", { name: /available/i })).toHaveAttribute("aria-checked", "false");
   });
@@ -642,7 +646,8 @@ describe("incoming call and in-call shell (AP-3, AP-4, QH-6, QH-7)", () => {
         }),
       ),
     );
-    expect(panel).toHaveTextContent("Evergreen HMO Silver · ••••31");
+    // P5-3: plan on its own line, the masked ID with Reveal under it.
+    expect(within(panel).getByTestId("caller-id")).toHaveTextContent(/^Evergreen HMO Silver••••31Reveal$/);
     expect(panel).toHaveTextContent("••/••/1984");
     expect(panel).not.toHaveTextContent("Mar 12, 1984");
     expect(within(panel).getByText("Repeat caller")).toBeInTheDocument();

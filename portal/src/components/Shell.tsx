@@ -1,10 +1,12 @@
-import { Check, History, List, LogOut, Moon, Phone, Sun } from "lucide-react";
+import { Check, History, List, LogOut, Moon, Phone, Settings, Sun } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import dTile from "../assets/d-tile.png";
 import wordmark from "../assets/wordmark.png";
 import type { Theme } from "../state/theme";
 import { initials } from "../state/names";
 import { PhiMaskedChip } from "./PhiMaskedChip";
+
+export type Page = "calls" | "settings";
 
 export interface ShellAgent {
   name: string;
@@ -13,6 +15,9 @@ export interface ShellAgent {
   theme: Theme;
   onTheme: (t: Theme) => void;
   onSignOut: () => void;
+  /** The rail's current page (P5-5) and how to change it. No onPage: Settings is hidden. */
+  page?: Page;
+  onPage?: (p: Page) => void;
 }
 
 function AgentMenu({ agent }: { agent: ShellAgent }) {
@@ -83,22 +88,35 @@ function AgentMenu({ agent }: { agent: ShellAgent }) {
   );
 }
 
-/** Left rail (DESIGN.md "Left rail"): D tile, Calls (active), Queue, History, agent avatar. */
+/** Left rail (DESIGN.md "Left rail"): D tile, Calls, Queue, History, Settings (P5-5),
+ * agent avatar. */
 function Rail({ agent }: { agent?: ShellAgent }) {
+  const page = agent?.page ?? "calls";
+  const item = (p: Page, label: string, icon: ReactNode) => (
+    <button
+      type="button"
+      className={`ri${page === p ? " is-on" : ""}`}
+      aria-label={label}
+      aria-current={page === p ? "page" : undefined}
+      title={label}
+      onClick={() => agent?.onPage?.(p)}
+    >
+      {icon}
+    </button>
+  );
   return (
     <nav className="rail" aria-label="Main">
       <img className="rail-tile" src={dTile} alt="" width={36} height={36} />
       {agent && (
         <>
-          <button type="button" className="ri is-on" aria-label="Calls" aria-current="page" title="Calls">
-            <Phone strokeWidth={1.7} aria-hidden="true" />
-          </button>
+          {item("calls", "Calls", <Phone strokeWidth={1.7} aria-hidden="true" />)}
           <button type="button" className="ri" aria-label="Queue" title="Queue (coming later)" disabled>
             <List strokeWidth={1.7} aria-hidden="true" />
           </button>
           <button type="button" className="ri" aria-label="History" title="History (coming later)" disabled>
             <History strokeWidth={1.7} aria-hidden="true" />
           </button>
+          {agent.onPage && item("settings", "Settings", <Settings strokeWidth={1.7} aria-hidden="true" />)}
           <AgentMenu agent={agent} />
         </>
       )}

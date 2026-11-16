@@ -6,10 +6,13 @@ room: the Anthropic SDK, Silero VAD, the tone reader model (shared per process, 
 the call's readers reuse it), the use case packs, and the Daily SDK. Then it prints
 READY_LINE on stdout and blocks on stdin for one JSON line naming its call:
 
-    {"room_url": ..., "token": ..., "session_id": ..., "call_id": ..., "call_domain": ...}
+    {"room_url": ..., "token": ..., "session_id": ..., "call_id": ..., "call_domain": ...,
+     "settings": {...}}
 
-call_id/call_domain are null for a browser caller. EOF instead of a line means the
-server is shutting down: exit 0 without joining anything.
+call_id/call_domain are null for a browser caller. `settings` (P5-5) are the bot
+settings the server read at assignment (agent_assist_bot.call_settings); absent means
+defaults. EOF instead of a line means the server is shutting down: exit 0 without
+joining anything.
 """
 
 from __future__ import annotations
@@ -51,12 +54,16 @@ def read_assignment(stream: IO[str]):
         raise AssignmentError(f"assignment is missing {', '.join(missing)}")
     if bool(data.get("call_id")) != bool(data.get("call_domain")):
         raise AssignmentError("call_id and call_domain must come together")
+    settings = data.get("settings")
+    if settings is not None and not isinstance(settings, dict):
+        raise AssignmentError("settings must be an object")
     return DialinArgs(
         room_url=data["room_url"],
         token=data["token"],
         call_id=data.get("call_id") or None,
         call_domain=data.get("call_domain") or None,
         session_id=data.get("session_id") or "",
+        settings=settings,
     )
 
 

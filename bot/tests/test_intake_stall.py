@@ -483,3 +483,58 @@ async def test_yes_split_in_two_still_confirms(session, fm, store):
     await session.on_caller_turn("amundo.")
     await settle()
     assert store.calls[session.call_id].identity_result == "verified"
+
+
+# ---- a barge-in during a fixed line must not freeze the flow (P5-5 live, Flux) ---------
+
+
+class _ActionWorker:
+    def __init__(self):
+        self.frames = []
+
+    async def queue_frame(self, frame):
+        self.frames.append(frame)
+
+    async def queue_frames(self, frames):
+        self.frames.extend(frames)
+
+
+async def test_tts_say_end_marker_survives_an_interruption():
+    """Flows' built-in tts_say queues an ActionFinishedFrame that a barge-in can drop;
+    the next node then waits forever and keeps the old node's tools (seen live: the
+    caller's "That's right" cut the identity read back and save_identity looped)."""
+    from pipecat.flows.actions import ActionFinishedFrame
+
+    worker = _ActionWorker()
+
+    class FM:
+        pass
+
+    counts = []
+
+    class Actions:
+        def _increment_ongoing_actions_count(self):
+            counts.append(1)
+
+    fm = FM()
+    fm.worker = worker
+    fm._action_manager = Actions()
+    handler = intake.uninterruptible_tts_say
+    await handler({"type": "tts_say", "text": "Is that right?"}, fm)
+    speak, done = worker.frames
+    assert isinstance(speak, TTSSpeakFrame) and speak.text == "Is that right?"
+    assert speak.interruptible  # the caller may still talk over the line
+    assert isinstance(done, ActionFinishedFrame) and not done.interruptible
+    assert counts == [1]
+
+
+async def test_tts_say_without_text_does_nothing():
+    worker = _ActionWorker()
+
+    class FM:
+        pass
+
+    fm = FM()
+    fm.worker = worker
+    await intake.uninterruptible_tts_say({"type": "tts_say"}, fm)
+    assert worker.frames == []

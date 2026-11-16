@@ -224,6 +224,33 @@ _HANDOFF_PROMISE = re.compile(
 Outcome = Literal["completed", "asked_for_person", "emergency"]
 
 
+async def uninterruptible_tts_say(action: dict, flow_manager: FlowManager) -> None:
+    """Replaces Flows' built-in `tts_say` action (registered in bot.build_worker).
+
+    Flows queues the line and then an ActionFinishedFrame that marks the action done;
+    the next node change waits for it. That marker is an ordinary interruptible frame,
+    so a caller who talks over the line (often while the TTS holds frames until the
+    line's audio is out) gets it dropped: the flow then waits forever, the next node's
+    task and tools never reach the LLM, and the caller's answer goes to the old node.
+    Seen live in P5-5 (the identity read back looped on save_identity). The line itself
+    stays interruptible; only the marker must get through.
+    """
+    from pipecat.flows.actions import ActionFinishedFrame
+
+    text = action.get("text")
+    if not text:
+        logger.error("[flow] tts_say without text")
+        return
+    worker = flow_manager.worker
+    flow_manager._action_manager._increment_ongoing_actions_count()
+    await worker.queue_frame(
+        TTSSpeakFrame(text=text, append_to_context=action.get("append_text_to_context", True))
+    )
+    done = ActionFinishedFrame()
+    done.interruptible = False
+    await worker.queue_frame(done)
+
+
 @dataclass(frozen=True)
 class IntakeHandoff:
     """What the queue receives when intake ends."""
@@ -287,11 +314,17 @@ class IntakeSession:
         identity_tuning: Callable[[bool], Awaitable[None]] | None = None,
         intake_max_secs: float = INTAKE_MAX_SECS,
         check_after_turn_secs: float = CHECK_AFTER_TURN_SECS,
+        greeting: str = GREETING,
+        identity_read_back: bool = True,
     ):
         self.pack = pack
         self.store = store
         self.session_id = session_id
         self.handoff = handoff or NoopHandoff()
+        # P5-5 settings: the greeting (keeps the IN-2 disclosure, checked on save) and
+        # whether the name and member ID are read back before the identity check.
+        self.greeting = greeting
+        self.identity_read_back = identity_read_back
         # Turns the identity step's STT settings on/off (stt_tuning.IdentitySTTTuning).
         self.identity_tuning = identity_tuning
         self.call_id: str | None = None
@@ -624,7 +657,7 @@ class IntakeSession:
                 "role_message": ROLE_MESSAGE,
                 "task_messages": self._task("The greeting has been spoken."),
                 "functions": [],
-                "pre_actions": [{"type": "tts_say", "text": GREETING}],
+                "pre_actions": [{"type": "tts_say", "text": self.greeting}],
                 "respond_immediately": False,
             }
         )
@@ -635,11 +668,16 @@ class IntakeSession:
                 "name": "identity",
                 "task_messages": self._task(
                     f"{self.pack.identity.prompt} When you have all three, call save_identity "
-                    "right away without saying anything; the next step reads them back. Pass "
+                    "right away without saying anything; the next step "
+                    f"{'reads them back' if self.identity_read_back else 'checks them'}. Pass "
                     "the date of birth as YYYY-MM-DD; a date written like 03/12/1984 is "
-                    "MM/DD/YYYY. Pass the member ID as letters and digits with no spaces. If "
-                    "part of the member ID seems missing, save what you heard; the caller can "
-                    "correct it at the read back."
+                    "MM/DD/YYYY. Pass the member ID as letters and digits with no spaces. "
+                    + (
+                        "If part of the member ID seems missing, save what you heard; the "
+                        "caller can correct it at the read back."
+                        if self.identity_read_back
+                        else "If part of the member ID seems missing, ask for it once."
+                    )
                 ),
                 "functions": [
                     FlowsFunctionSchema(
@@ -671,6 +709,9 @@ class IntakeSession:
             return await self._on_verify_identity({}, flow_manager)
         await self._save(fields)
         self._confirm_fixes = 0
+        if not self.identity_read_back:
+            # P5-5: read back off in Settings: check the details as saved.
+            return await self._on_verify_identity({}, flow_manager)
         return {"saved": "identity"}, self.identity_confirm_node()
 
     def identity_confirm_node(self) -> NodeConfig:

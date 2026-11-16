@@ -371,3 +371,35 @@ def test_the_bot_starts_after_the_response_and_a_failure_is_logged(path, monkeyp
     finally:
         del app.state.daily_client_factory
         del app.state.bot_launcher
+
+
+# ---- P5-5: the call's settings go with the assignment ---------------------------------
+
+SETTINGS = {"tts_model": "flux", "tts_voice": "flux-hannah-en", "hold_update_secs": 30}
+
+
+async def test_warm_bot_gets_the_calls_settings_with_its_assignment(tmp_path):
+    pool = make_pool(tmp_path)
+    launcher = make_launcher(tmp_path, pool)
+    await launcher.start()
+    try:
+        await until(lambda: pool.ready_count == 1)
+        req = BotLaunchRequest(REQ.room_url, "tok-1", "s1", settings=SETTINGS)
+        pid = await launcher.launch(req)
+        out = tmp_path / f"{pid}.json"
+        await until(out.exists)
+        assert json.loads(out.read_text())["settings"] == SETTINGS
+    finally:
+        await stop(launcher)
+
+
+def test_cold_bot_gets_the_calls_settings_in_its_env():
+    req = BotLaunchRequest(REQ.room_url, "tok-1", "s1", settings=SETTINGS)
+    env = bot_launcher.build_bot_env(req, base={"PATH": "/bin"})
+    assert json.loads(env[bot_launcher.SETTINGS_ENV]) == SETTINGS
+
+
+def test_no_settings_leaves_the_env_and_assignment_without_them():
+    env = bot_launcher.build_bot_env(REQ, base={bot_launcher.SETTINGS_ENV: "stale"})
+    assert bot_launcher.SETTINGS_ENV not in env
+    assert "settings" not in bot_launcher.assignment_line(REQ)

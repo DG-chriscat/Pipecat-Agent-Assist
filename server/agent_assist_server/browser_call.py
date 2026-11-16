@@ -31,6 +31,7 @@ from agent_assist_server.daily import (
     DailyRestClient,
 )
 from agent_assist_server.queue_api import get_queue
+from agent_assist_server.settings_api import get_call_settings
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +78,7 @@ async def start_browser_call(request: Request, background: BackgroundTasks) -> B
         launch_in_background,
         get_launcher(request.app),
         BotLaunchRequest(room_url=room.url, token=bot_token, session_id=session_id),
+        get_call_settings(request.app),
     )
     logger.info("browser call started session=%s room=%s", session_id, room.url)
     return BrowserCallResponse(session_id=session_id, room_url=room.url, caller_token=caller_token)

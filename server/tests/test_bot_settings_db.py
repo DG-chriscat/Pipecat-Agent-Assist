@@ -1,0 +1,100 @@
+"""PostgresSettingsStore against a real Postgres (DATABASE_URL), in a throwaway schema
+per test. Skipped when DATABASE_URL is unset."""
+
+from __future__ import annotations
+
+import os
+import uuid
+
+import pytest
+from agent_assist_server import bot_settings as bs
+from agent_assist_server.db import connect, migrate
+
+pytestmark = pytest.mark.skipif(not os.environ.get("DATABASE_URL"), reason="DATABASE_URL not set")
+
+
+def good(**over) -> dict:
+    return {**bs.defaults({}), **over}
+
+
+@pytest.fixture
+async def schema():
+    name = f"test_{uuid.uuid4().hex[:12]}"
+    async with await connect() as admin:
+        await admin.execute(f'CREATE SCHEMA "{name}"')
+    try:
+        async with await connect(schema=name) as conn:
+            await migrate.apply_migrations(conn)
+        yield name
+    finally:
+        async with await connect() as admin:
+            await admin.execute(f'DROP SCHEMA "{name}" CASCADE')
+
+
+def store(schema):
+    return bs.PostgresSettingsStore(schema=schema, defaults=lambda: good())
+
+
+async def test_no_row_means_defaults(schema):
+    s = await store(schema).get()
+    assert s.values == good() and s.is_default
+
+
+async def test_save_persists_and_logs_the_change(schema):
+    saved = await store(schema).save(
+        good(tts_model="aura-2", tts_voice="aura-2-thalia-en", hold_update_secs=30),
+        session_id="sess-a",
+        agent="Ana",
+    )
+    assert saved.values["tts_voice"] == "aura-2-thalia-en" and saved.updated_by == "sess-a"
+    # A fresh store (another process, or after a restart) reads the same row.
+    again = await store(schema).get()
+    assert again.values == saved.values and not again.is_default
+    (event,) = await store(schema).events()
+    assert event.kind == "save" and event.session_id == "sess-a" and event.agent == "Ana"
+    assert event.changes == {
+        "tts_model": {"from": "flux", "to": "aura-2"},
+        "tts_voice": {"from": "flux-alexis-en", "to": "aura-2-thalia-en"},
+        "hold_update_secs": {"from": 60, "to": 30},
+    }
+
+
+async def test_second_save_updates_the_one_row(schema):
+    s = store(schema)
+    await s.save(good(hold_update_secs=30), session_id="a", agent=None)
+    await s.save(good(hold_update_secs=45), session_id="b", agent=None)
+    async with await connect(schema=schema) as conn:
+        cur = await conn.execute("SELECT count(*), max(hold_update_secs) FROM bot_settings")
+        assert await cur.fetchone() == (1, 45)
+    events = await s.events()
+    assert [e.session_id for e in events] == ["b", "a"]
+    assert events[0].changes == {"hold_update_secs": {"from": 30, "to": 45}}
+
+
+async def test_reset_deletes_the_row_and_logs(schema):
+    s = store(schema)
+    await s.save(good(identity_read_back=False), session_id="a", agent=None)
+    reset = await s.reset(session_id="b", agent="Ben")
+    assert reset.values == good() and reset.is_default
+    assert (await store(schema).get()).is_default
+    latest = (await s.events())[0]
+    assert latest.kind == "reset" and latest.agent == "Ben"
+    assert latest.changes == {"identity_read_back": {"from": False, "to": True}}
+
+
+async def test_tables_have_row_level_security(schema):
+    async with await connect(schema=schema) as conn:
+        cur = await conn.execute(
+            "SELECT relname, relrowsecurity FROM pg_class c JOIN pg_namespace n "
+            "ON n.oid = c.relnamespace WHERE nspname = %s AND relname = ANY(%s)",
+            (schema, ["bot_settings", "settings_events"]),
+        )
+        assert dict(await cur.fetchall()) == {"bot_settings": True, "settings_events": True}
+
+
+async def test_the_row_rejects_a_bad_model(schema):
+    import psycopg
+
+    async with await connect(schema=schema) as conn:
+        with pytest.raises(psycopg.errors.CheckViolation):
+            await conn.execute(bs.UPSERT_SQL, {**good(tts_model="aura-1"), "session_id": "x"})

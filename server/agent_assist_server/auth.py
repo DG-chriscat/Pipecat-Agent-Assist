@@ -148,6 +148,15 @@ class AuthConfig:
             return False
         return iat <= self.clock() < iat + SESSION_MAX_AGE
 
+    def session_id(self, value: str | None) -> str | None:
+        """A stable id for one login session (P5-5 settings log), or None if the cookie
+        is not valid. A hash of the cookie's nonce: the cookie itself is never logged."""
+        if not self.valid_cookie(value):
+            return None
+        data = self._serializer.loads(value)
+        nonce = str(data.get("n") or data.get("iat"))
+        return hashlib.sha256(f"session:{nonce}".encode()).hexdigest()[:16]
+
     def valid_bot_key(self, authorization: str | None) -> bool:
         if not authorization or not authorization.startswith("Bearer "):
             return False

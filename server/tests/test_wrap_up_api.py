@@ -371,6 +371,21 @@ def test_reason_codes_follow_the_drafts_pack(client):
     assert r.json()["wrap_up"]["reason_code"] == "refund_submitted"
 
 
+def test_without_a_draft_reason_codes_follow_the_calls_settings_pack(client):
+    """P5-5: the pack is a setting; before (or without) the bot's draft, the wrap up
+    uses the pack in the settings the call was assigned with."""
+    from agent_assist_server import bot_settings, settings_api
+
+    book = settings_api.get_call_settings(client.app)
+    book._by_session["s1"] = {**bot_settings.defaults({}), "intake_pack": "account_payments"}
+    agent_id = on_call(client)
+    client.post("/queue/calls/s1/end")
+    body = client.get("/calls/s1/wrap-up", params={"agent_id": agent_id}).json()
+    assert body["pack_id"] == "account_payments"
+    assert body["reason_codes"] == wrap_up_api.reason_codes("account_payments")
+    assert wrap_up(client, agent_id, reason_code="refund_submitted").status_code == 200
+
+
 def test_draft_with_a_code_outside_the_pack_is_rejected(client):
     on_call(client)
     assert post_draft(client, reason_code="refund_submitted").status_code == 422

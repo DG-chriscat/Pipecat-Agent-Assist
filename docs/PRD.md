@@ -111,6 +111,10 @@ A call island in the top bar shows the caller, verified status, a live waveform,
 | AP-13 | Caller history: the caller panel shows calls in the last 30 days (with a repeat caller flag) and the last 3 events across calls, claims, and referrals. | Must |
 | AP-14 | Mood trend: tone readings for the caller draw a trend line for the whole call, and a tone tip card appears when mood drops two steps. | Should |
 | AP-15 | Every screen follows DESIGN.md: Deepgram 2026 brand fonts, colors, and materials only. | Must |
+| AP-16 | Light and dark themes with the same layout (Studio, ADR 0005). Light is the default; the agent's choice is saved. | Must |
+| AP-17 | PHI is masked by default: member ID and date of birth show partly hidden with a Reveal control, a "PHI masked" chip shows in the header, and each reveal is logged on the call record and re-masks after 30 seconds. | Must |
+| AP-18 | Identity status is always visible in the caller panel: not checked, n of 3, or 3 of 3 (name, date of birth, member ID), from the intake identity result. | Must |
+| AP-19 | "Earlier this call" lists accepted actions and completed plan steps with call time stamps. | Should |
 
 ## Requirements: real time assist and data
 

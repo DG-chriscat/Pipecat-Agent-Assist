@@ -6,6 +6,7 @@ from agent_assist_server.queue_service import (
     OFFER_TIMEOUT_SECS,
     AgentState,
     CallStatus,
+    IntakeInfo,
     QueueError,
     QueueService,
 )
@@ -671,7 +672,7 @@ async def test_reported_drop_ignores_a_later_agent_on_the_same_call(svc, clock):
 
 
 async def test_phi_reveal_is_logged_on_the_call(svc, clock):
-    a = await on_call(svc, clock)
+    a = await on_call_as(svc, clock, "verified")
     svc.events.clear()
     entry = svc.log_phi_reveal(a.agent_id, "s1", "member_id")
     assert entry == {"field": "member_id", "agent_id": a.agent_id, "at": clock.now()}
@@ -684,7 +685,7 @@ async def test_phi_reveal_is_logged_on_the_call(svc, clock):
 
 
 async def test_phi_reveal_only_by_the_agent_on_the_call(svc, clock):
-    await on_call(svc, clock)
+    await on_call_as(svc, clock, "verified")
     ben = svc.sign_in("Ben")
     with pytest.raises(QueueError):
         svc.log_phi_reveal(ben.agent_id, "s1", "dob")
@@ -695,3 +696,64 @@ async def test_phi_reveal_rejects_unknown_fields(svc, clock):
     a = await on_call(svc, clock)
     with pytest.raises(QueueError):
         svc.log_phi_reveal(a.agent_id, "s1", "ssn")
+
+
+# ---- IN-13: human verification decision ------------------------------------------------
+
+
+async def on_call_as(svc, clock, identity):
+    a = available_agent(svc, clock, "Ana")
+    svc.enqueue_call(
+        "s1", room(1), {"full_name": "Linda Yuen"}, IntakeInfo(identity_result=identity)
+    )
+    await svc.accept(a.agent_id, "s1")
+    return a
+
+
+async def test_identity_decision_is_stored_on_the_call(svc, clock):
+    a = await on_call_as(svc, clock, "close_match")
+    svc.events.clear()
+    entry = svc.set_identity_decision(a.agent_id, "s1", "verified")
+    assert entry == {
+        "decision": "verified",
+        "agent_id": a.agent_id,
+        "agent_name": "Ana",
+        "at": clock.now(),
+    }
+    call = svc.get_call("s1")
+    assert call.identity_decision == entry
+    assert call.to_dict()["identity_decision"] == entry
+    assert types(svc.events) == ["call_updated"]
+
+
+async def test_identity_decision_only_by_the_agent_on_the_call_and_once(svc, clock):
+    a = await on_call_as(svc, clock, "close_match")
+    ben = svc.sign_in("Ben")
+    with pytest.raises(QueueError):
+        svc.set_identity_decision(ben.agent_id, "s1", "verified")
+    svc.set_identity_decision(a.agent_id, "s1", "not_verified")
+    with pytest.raises(QueueError):
+        svc.set_identity_decision(a.agent_id, "s1", "verified")
+    assert svc.get_call("s1").identity_decision["decision"] == "not_verified"
+
+
+async def test_identity_decision_rejects_unknown_values(svc, clock):
+    a = await on_call_as(svc, clock, "close_match")
+    with pytest.raises(QueueError):
+        svc.set_identity_decision(a.agent_id, "s1", "maybe")
+
+
+async def test_phi_reveal_waits_for_the_agent_to_verify(svc, clock):
+    # IN-13: PHI Reveal is disabled until the agent marks the caller verified.
+    a = await on_call_as(svc, clock, "close_match")
+    with pytest.raises(QueueError):
+        svc.log_phi_reveal(a.agent_id, "s1", "dob")
+    svc.set_identity_decision(a.agent_id, "s1", "verified")
+    assert svc.log_phi_reveal(a.agent_id, "s1", "dob")["field"] == "dob"
+
+
+async def test_phi_reveal_stays_off_after_could_not_verify(svc, clock):
+    a = await on_call_as(svc, clock, "not_found")
+    svc.set_identity_decision(a.agent_id, "s1", "not_verified")
+    with pytest.raises(QueueError):
+        svc.log_phi_reveal(a.agent_id, "s1", "member_id")

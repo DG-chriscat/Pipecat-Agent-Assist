@@ -8,7 +8,7 @@ import uuid
 
 import pytest
 from agent_assist_server.db import connect, migrate
-from agent_assist_server.queue_service import AgentState, QueueService
+from agent_assist_server.queue_service import AgentState, IntakeInfo, QueueService
 from agent_assist_server.queue_store import QueueStore
 
 pytestmark = pytest.mark.skipif(not os.environ.get("DATABASE_URL"), reason="DATABASE_URL not set")
@@ -93,7 +93,6 @@ async def test_write_through_keeps_intake_written_by_the_bot(schema):
 async def test_write_through_merges_intake_flags_and_identity(schema):
     """Flags and identity from the bot handoff reach calls; the bot's own flags stay."""
     from agent_assist_server.db import seed
-    from agent_assist_server.queue_service import IntakeInfo
 
     async with await connect(schema=schema) as c:
         await seed.load_seed(c)
@@ -196,7 +195,12 @@ async def test_write_through_saves_phi_reveals_on_the_call(schema):
     svc.subscribe(store.on_event)
     agent = svc.sign_in("Ana")
     svc.set_status(agent.agent_id, AgentState.AVAILABLE)
-    svc.enqueue_call("sess-8", "https://x.daily.co/caller-8", {"dob": "1984-03-12"})
+    svc.enqueue_call(
+        "sess-8",
+        "https://x.daily.co/caller-8",
+        {"dob": "1984-03-12"},
+        IntakeInfo(identity_result="verified"),
+    )
     await svc.accept(agent.agent_id, "sess-8")
     svc.log_phi_reveal(agent.agent_id, "sess-8", "member_id")
     svc.log_phi_reveal(agent.agent_id, "sess-8", "dob")
@@ -207,3 +211,25 @@ async def test_write_through_saves_phi_reveals_on_the_call(schema):
         ("dob", agent.agent_id),
     ]
     assert all(isinstance(r["at"], float) for r in got[0])
+
+
+async def test_write_through_saves_the_identity_decision(schema):
+    """IN-13: the agent's decision, who made it, and when, on calls.identity_decision."""
+    store = QueueStore(schema=schema)
+    svc = QueueService(mint_token=mint)
+    svc.subscribe(store.on_event)
+    agent = svc.sign_in("Ana")
+    svc.set_status(agent.agent_id, AgentState.AVAILABLE)
+    svc.enqueue_call(
+        "sess-9",
+        "https://x.daily.co/caller-9",
+        {"full_name": "Linda Yuen"},
+        IntakeInfo(identity_result="close_match", member_id="EVM100234"),
+    )
+    await svc.accept(agent.agent_id, "sess-9")
+    svc.set_identity_decision(agent.agent_id, "sess-9", "verified")
+    await store.drain()
+    (got,) = await rows(schema, "SELECT identity_result, identity_decision FROM calls")
+    assert got[0] == "close_match"
+    assert got[1]["decision"] == "verified" and got[1]["agent_name"] == "Ana"
+    assert got[1]["agent_id"] == agent.agent_id and isinstance(got[1]["at"], float)

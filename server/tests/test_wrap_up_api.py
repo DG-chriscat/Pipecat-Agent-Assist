@@ -64,9 +64,12 @@ def wait_for(pred, timeout=2.0):
     return False
 
 
-def on_call(client, name="Ana", session_id="s1") -> str:
+def on_call(client, name="Ana", session_id="s1", identity="verified") -> str:
     agent_id = client.post("/agents/sign-in", json={"name": name}).json()["agent_id"]
-    client.post("/queue/calls", json={"session_id": session_id, "summary": MARIA})
+    client.post(
+        "/queue/calls",
+        json={"session_id": session_id, "summary": MARIA, "identity_result": identity},
+    )
     client.post(f"/agents/{agent_id}/status", json={"state": "available"})
     r = client.post(f"/agents/{agent_id}/accept", json={"session_id": session_id})
     assert r.status_code == 200, r.text
@@ -267,3 +270,45 @@ def test_phi_reveal_rejects_unknown_fields(client):
     agent_id = on_call(client)
     r = client.post("/calls/s1/phi-reveal", json={"agent_id": agent_id, "field": "ssn"})
     assert r.status_code == 422
+
+
+# ---- IN-13: the agent's human verification decision ------------------------------------
+
+
+def test_identity_decision_is_stored_and_unlocks_phi_reveal(client):
+    agent_id = on_call(client, identity="close_match")
+    r = client.post("/calls/s1/phi-reveal", json={"agent_id": agent_id, "field": "dob"})
+    assert r.status_code == 403
+    r = client.post(
+        "/calls/s1/identity-decision", json={"agent_id": agent_id, "decision": "verified"}
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["decision"] == "verified" and r.json()["agent_name"] == "Ana"
+    call = queue_api.get_queue(app).get_call("s1")
+    assert call.identity_decision["decision"] == "verified"
+    r = client.post("/calls/s1/phi-reveal", json={"agent_id": agent_id, "field": "dob"})
+    assert r.status_code == 200
+
+
+def test_identity_decision_rules(client):
+    agent_id = on_call(client, identity="close_match")
+    ben = client.post("/agents/sign-in", json={"name": "Ben"}).json()["agent_id"]
+    body = {"agent_id": ben, "decision": "verified"}
+    assert client.post("/calls/s1/identity-decision", json=body).status_code == 403
+    assert client.post("/calls/nope/identity-decision", json=body).status_code == 404
+    bad = {"agent_id": agent_id, "decision": "maybe"}
+    assert client.post("/calls/s1/identity-decision", json=bad).status_code == 422
+    ok = {"agent_id": agent_id, "decision": "not_verified"}
+    assert client.post("/calls/s1/identity-decision", json=ok).status_code == 200
+    # Once per call.
+    assert client.post("/calls/s1/identity-decision", json=ok).status_code == 409
+
+
+def test_enqueue_takes_the_v2_identity_results(client):
+    for sid, result in (("s1", "close_match"), ("s2", "incomplete")):
+        r = client.post(
+            "/queue/calls",
+            json={"session_id": sid, "summary": MARIA, "identity_result": result},
+        )
+        assert r.status_code == 200, r.text
+        assert queue_api.get_queue(app).get_call(sid).identity_result == result

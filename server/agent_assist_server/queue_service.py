@@ -37,6 +37,8 @@ AGENT_DROP_GRACE_SECS = 3.0
 MAX_NOTES = 2000
 # AP-17: the masked fields the portal can reveal.
 PHI_FIELDS = frozenset({"member_id", "dob"})
+# IN-13: the agent's two choices on the verification step.
+IDENTITY_DECISIONS = frozenset({"verified", "not_verified"})
 
 Event = dict[str, Any]
 Listener = Callable[[Event], None]
@@ -49,6 +51,10 @@ class QueueError(Exception):
 
 class TokenError(QueueError):
     """Daily refused or failed to mint the agent's meeting token. The call was re-queued."""
+
+
+class DecisionMadeError(QueueError):
+    """The call's identity decision (IN-13) is already made; it is made once per call."""
 
 
 class AgentState(StrEnum):
@@ -147,6 +153,16 @@ class Call:
     wrap_up: dict[str, Any] | None = None
     # AP-17: each PHI reveal by the agent: {"field", "agent_id", "at"}. Never the value.
     phi_reveals: list[dict[str, Any]] = field(default_factory=list)
+    # IN-13: the agent's human verification decision for a caller intake did not fully
+    # verify: {"decision": "verified" | "not_verified", "agent_id", "agent_name", "at"}.
+    identity_decision: dict[str, Any] | None = None
+
+    @property
+    def records_unlocked(self) -> bool:
+        """Member records and PHI may show: verified at intake, or by the agent."""
+        if self.identity_result == "verified":
+            return True
+        return bool(self.identity_decision and self.identity_decision["decision"] == "verified")
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -167,6 +183,7 @@ class Call:
             "ended_by": self.ended_by,
             "wrap_up": dict(self.wrap_up) if self.wrap_up else None,
             "phi_reveals": [dict(r) for r in self.phi_reveals],
+            "identity_decision": dict(self.identity_decision) if self.identity_decision else None,
         }
 
 
@@ -447,9 +464,38 @@ class QueueService:
         call = self.get_call(session_id)
         if call.agent_id is None or call.agent_id != agent_id:
             raise QueueError("only the agent on this call can reveal its details")
+        if not call.records_unlocked:
+            # IN-13: Reveal is off until the agent marks the caller verified.
+            raise QueueError("verify the caller before revealing their details")
         entry = {"field": field_name, "agent_id": agent_id, "at": self._clock.now()}
         call.phi_reveals.append(entry)
         logger.info("phi reveal: call=%s field=%s agent=%s", session_id, field_name, agent_id)
+        self._emit({"type": "call_updated", "call": call.to_dict()})
+        return dict(entry)
+
+    def set_identity_decision(
+        self, agent_id: str, session_id: str, decision: str
+    ) -> dict[str, Any]:
+        """IN-13: the agent marked the caller verified, or could not verify them. Stored on
+        the call record once; only the agent the call was accepted by may decide."""
+        if decision not in IDENTITY_DECISIONS:
+            raise QueueError(f"unknown identity decision {decision!r}")
+        call = self.get_call(session_id)
+        if call.agent_id is None or call.agent_id != agent_id:
+            raise QueueError("only the agent on this call can verify the caller")
+        if call.identity_decision is not None:
+            raise DecisionMadeError("the identity decision for this call is already made")
+        agent = self._agents.get(agent_id)
+        entry = {
+            "decision": decision,
+            "agent_id": agent_id,
+            "agent_name": agent.name if agent else None,
+            "at": self._clock.now(),
+        }
+        call.identity_decision = entry
+        logger.info(
+            "identity decision: call=%s decision=%s agent=%s", session_id, decision, agent_id
+        )
         self._emit({"type": "call_updated", "call": call.to_dict()})
         return dict(entry)
 

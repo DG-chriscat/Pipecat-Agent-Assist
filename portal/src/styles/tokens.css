@@ -104,6 +104,8 @@
   --info: #00669f;
   --info-bg: rgba(0,178,255,.11);
   --neutral-bg: rgba(29,29,29,.06);
+  /* Neutral chip ink: the muted ink is 4.46:1 on its tint, just under AA (P5-3). */
+  --neutral-ink: rgba(29,29,29,.68);
 }
 
 /* ---- Dark (vinyl) ---- */
@@ -174,6 +176,7 @@
   --info: #7fd6ff;
   --info-bg: rgba(0,178,255,.14);
   --neutral-bg: rgba(255,255,255,.08);
+  --neutral-ink: var(--text-muted);
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -254,7 +257,7 @@ button, input, textarea { font: inherit; color: inherit; }
 .chip-bad { background: var(--bad-bg); color: var(--bad); }
 .chip-ai { background: var(--ai-bg); color: var(--ai); }
 .chip-info { background: var(--info-bg); color: var(--info); }
-.chip-neutral { background: var(--neutral-bg); color: var(--text-muted); }
+.chip-neutral { background: var(--neutral-bg); color: var(--neutral-ink); }
 
 .btn {
   font-family: var(--font-mono);
@@ -277,10 +280,19 @@ button, input, textarea { font: inherit; color: inherit; }
 .btn:disabled { opacity: .5; cursor: default; }
 .btn-primary { background: var(--ai-gradient); color: #fff; box-shadow: var(--primary-shadow); }
 
+/* Keyboard first (P5-3): a visible focus ring on every control, zero specificity so the
+   component rules (offsets, inset rings) still win. */
+:where(button, a, input, textarea, select, [tabindex]):focus-visible {
+  outline: 2px solid var(--fuchsia);
+  outline-offset: 2px;
+}
+
 @media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
   *, *::before, *::after {
     animation-duration: .01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
   }
 }

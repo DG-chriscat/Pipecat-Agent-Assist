@@ -95,7 +95,7 @@ async def test_start_intake_creates_call_row_and_greets_with_tts_only():
     assert [r.session_id for r in store.calls.values()] == ["s-9"]
     node = fm.initialized_with
     assert node["name"] == "greeting"
-    assert node["pre_actions"][0] == {"type": "tts_say", "text": bot.GREETING}
+    assert {"type": "tts_say", "text": bot.GREETING} in node["pre_actions"]
     assert node["respond_immediately"] is False
 
 
@@ -560,11 +560,13 @@ async def test_participant_left_tells_queue_call_ended():
 
 def test_pipeline_has_gate_before_llm(api_keys):
     from agent_assist_bot.hold import BotGate
+    from pipecat.services.anthropic.llm import AnthropicLLMService
 
     worker, _ = bot.build_worker(ROOM, "tok")
     inner = next(p for p in worker._pipeline.processors if type(p).__name__ == "Pipeline")
-    names = [type(p).__name__ for p in inner.processors]
-    assert names.index(BotGate.__name__) == names.index("AnthropicLLMService") - 1
+    procs = inner.processors
+    llm_at = next(i for i, p in enumerate(procs) if isinstance(p, AnthropicLLMService))
+    assert isinstance(procs[llm_at - 1], BotGate)
 
 
 def test_cli_passes_session_id(monkeypatch, api_keys):

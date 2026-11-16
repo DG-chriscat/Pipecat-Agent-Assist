@@ -70,6 +70,11 @@ def record(session, store):
     return store.calls[session.call_id]
 
 
+def tts(node):
+    """The node's fixed tts_say pre-action."""
+    return next(a for a in node["pre_actions"] if a["type"] == "tts_say")
+
+
 # ---- structure -------------------------------------------------------------
 
 
@@ -87,7 +92,7 @@ def test_step_order_follows_prd(session, pack):
 
 def test_greeting_speaks_fixed_line_then_waits(session):
     node = session.greeting_node()
-    assert node["pre_actions"][0] == {"type": "tts_say", "text": intake.GREETING}
+    assert tts(node) == {"type": "tts_say", "text": intake.GREETING}
     assert "AI assistant" in intake.GREETING and "person will join" in intake.GREETING
     assert intake.GREETING == (
         "Hi, thanks for calling. You're speaking with Deepgram Vitals, an AI assistant. "
@@ -241,7 +246,7 @@ async def test_read_back_is_fixed_tts_with_name_and_grouped_member_id(session):
         date_of_birth="1984-03-12",
         member_id="EVM100231",
     )
-    say = confirm["pre_actions"][0]
+    say = tts(confirm)
     assert say["type"] == "tts_say"
     assert say["text"] == (
         "Thanks. I have Maria Alvarez, member ID E V M, one zero zero, two three one. "
@@ -261,7 +266,13 @@ async def test_identity_confirm_node_offers_verify_correct_person_emergency(sess
         member_id="EVM100231",
     )
     names = {f.name for f in confirm["functions"]}
-    assert names == {"verify_identity", "correct_identity", "request_person", "report_emergency"}
+    assert names == {
+        "verify_identity",
+        "correct_identity",
+        "say_to_caller",
+        "request_person",
+        "report_emergency",
+    }
     assert {f.name for f in session.identity_node()["functions"]} == {
         "save_identity",
         "request_person",
@@ -285,8 +296,8 @@ async def test_correction_saves_and_reads_back_again(session, store):
     assert rec.intake["member_id"] == "EVM100231"
     assert rec.identity_result is None
     assert again["name"] == "identity_confirm"
-    assert "Maria Alvarez" in again["pre_actions"][0]["text"]
-    assert "one zero zero, two three one" in again["pre_actions"][0]["text"]
+    assert "Maria Alvarez" in tts(again)["text"]
+    assert "one zero zero, two three one" in tts(again)["text"]
     _, nxt = await call(again, "verify_identity")
     assert record(session, store).identity_result == "verified"
     assert nxt["name"] == "reason"
@@ -559,7 +570,7 @@ async def test_emergency_says_911_flags_and_hands_off(session, store, hook):
     assert rec.intake["emergency"] == "chest pain right now"
     assert rec.status == "ready_for_queue"
     assert nxt["name"] == "emergency"
-    say = nxt["pre_actions"][0]
+    say = tts(nxt)
     assert say["type"] == "tts_say" and "911" in say["text"] and "hang up" in say["text"]
     assert nxt["functions"] == []
     assert hook.handoffs[0].outcome == "emergency"

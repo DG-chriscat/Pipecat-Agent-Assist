@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { QueueSocket, signIn, setStatusRest, getQueue, ApiError, wsUrlFor } from "./queueClient";
+import { QueueSocket, signIn, setStatusRest, getCaller, getQueue, ApiError, wsUrlFor } from "./queueClient";
 import { MockWebSocket } from "../test/mockSocket";
 import type { ServerMessage } from "./types";
 
@@ -44,6 +44,16 @@ describe("REST", () => {
     expect(err).toBeInstanceOf(ApiError);
     expect(err.status).toBe(409);
     expect(err.message).toBe("cannot go from on_call to offline");
+  });
+
+  it("getCaller reads the caller panel data for this agent's call", async () => {
+    const body = { session_id: "s 1", not_verified: false };
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(body), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(getCaller("s 1", "agent-1")).resolves.toEqual(body);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/calls/s%201/caller?agent_id=agent-1");
+    expect(init.method).toBe("GET");
   });
 
   it("getQueue reads the snapshot", async () => {

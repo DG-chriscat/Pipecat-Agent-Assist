@@ -1,6 +1,8 @@
 import { Mic, MicOff, Pause, PhoneOff, Play, Sparkles } from "lucide-react";
+import type { CallerDetails } from "../api/types";
 import type { CallerInfo } from "../state/offer";
 import { formatClock } from "../state/offer";
+import { CallerPanel, type DetailsState } from "./CallerPanel";
 import { TopBar } from "./TopBar";
 import { VerifiedChip } from "./VerifiedChip";
 
@@ -9,6 +11,12 @@ export type CallPhase = "connecting" | "live";
 export interface InCallProps {
   caller: CallerInfo;
   memberId: string | null;
+  /** Intake answers from the accept reply. */
+  intake?: Record<string, unknown>;
+  waitSecs?: number | null;
+  /** Caller history (GET /calls/{id}/caller), once loaded. */
+  details?: CallerDetails | null;
+  detailsState?: DetailsState;
   phase: CallPhase;
   muted: boolean;
   held: boolean;
@@ -92,31 +100,6 @@ function Controls({ phase, muted, held, onMute, onHold, onEnd }: InCallProps) {
   );
 }
 
-function CallerPanel({ caller, memberId }: Pick<InCallProps, "caller" | "memberId">) {
-  return (
-    <aside className="glass caller-panel" aria-label="Caller">
-      <div>
-        <div className="label">Caller</div>
-        <h1 className="caller-name">{caller.name}</h1>
-        <div className="mono caller-id">{memberId ?? "No member ID"}</div>
-      </div>
-      <div className="why">
-        <div className="label">Why they called</div>
-        <p>{caller.reason}</p>
-        {caller.summary && caller.summary !== caller.reason && <p className="why-summary">{caller.summary}</p>}
-      </div>
-      <div>
-        <div className="label section-label">Before this call</div>
-        <p className="muted-note">History loads here.</p>
-      </div>
-      <div className="mood-area">
-        <div className="label section-label">Mood over call</div>
-        <p className="muted-note">Mood shows up once the caller talks.</p>
-      </div>
-    </aside>
-  );
-}
-
 function AssistColumn() {
   return (
     <section className="assist" aria-label="Assist">
@@ -175,7 +158,14 @@ export function InCall(props: InCallProps) {
         </p>
       )}
       <main className="call-grid">
-        <CallerPanel caller={props.caller} memberId={props.memberId} />
+        <CallerPanel
+          caller={props.caller}
+          memberId={props.memberId}
+          intake={props.intake ?? {}}
+          waitSecs={props.waitSecs ?? null}
+          details={props.details ?? null}
+          detailsState={props.detailsState ?? "loading"}
+        />
         <AssistColumn />
         <TranscriptColumn />
       </main>

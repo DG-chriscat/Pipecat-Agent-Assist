@@ -4,6 +4,7 @@ import type {
   AcceptResult,
   Agent,
   AgentState,
+  CallerDetails,
   ClientCommand,
   QueueSnapshot,
   ServerMessage,
@@ -62,6 +63,13 @@ export const declineRest = (agentId: string, sessionId: string) =>
   });
 
 export const getQueue = () => request<QueueSnapshot>("GET", "/queue");
+
+/** Caller panel data for the call this agent accepted (docs/queue.md, P3-3). */
+export const getCaller = (sessionId: string, agentId: string) =>
+  request<CallerDetails>(
+    "GET",
+    `/calls/${encodeURIComponent(sessionId)}/caller?agent_id=${encodeURIComponent(agentId)}`,
+  );
 
 export function wsUrlFor(loc: Pick<Location, "protocol" | "host">): string {
   return `${loc.protocol === "https:" ? "wss:" : "ws:"}//${loc.host}/ws/queue`;

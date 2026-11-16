@@ -1,6 +1,6 @@
 import { Headphones, LogOut, WifiOff } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { acceptRest, declineRest, setStatusRest, type QueueSocket } from "../api/queueClient";
+import { acceptRest, declineRest, getCaller, setStatusRest, type QueueSocket } from "../api/queueClient";
 import type { Agent, AgentState, ServerMessage } from "../api/types";
 import type { CreateMedia } from "../call/media";
 import { useCall } from "../hooks/useCall";
@@ -44,7 +44,7 @@ export function Home({ agent: signedIn, createSocket, createMedia, onSignOut }: 
   const [nowMs, setNowMs] = useState(() => Date.now());
   /** End pressed; waiting for the server to confirm wrap up. */
   const [ending, setEnding] = useState(false);
-  const { call, start, leave, toggleMute, toggleHold } = useCall(createMedia);
+  const { call, start, setDetails, leave, toggleMute, toggleHold } = useCall(createMedia);
 
   const ids = useRef({ agentId, sessionId: call?.sessionId ?? null });
   useEffect(() => {
@@ -136,7 +136,12 @@ export function Home({ agent: signedIn, createSocket, createMedia, onSignOut }: 
       const res = await acceptRest(agentId, offer.call.session_id);
       setEventOffer(null);
       setNotice(null);
-      start(res);
+      // AP-5: the accept summary fills the panel now; the history call fills the rest.
+      start(res, { waitSecs: Math.max(0, Date.now() / 1000 - offer.call.queued_at) });
+      getCaller(res.session_id, agentId).then(
+        (details) => setDetails(res.session_id, details),
+        () => setDetails(res.session_id, null),
+      );
     } catch (e) {
       setOfferError(errorText(e, "Could not accept the call. Try again."));
     } finally {
@@ -178,6 +183,10 @@ export function Home({ agent: signedIn, createSocket, createMedia, onSignOut }: 
       <InCall
         caller={call.caller}
         memberId={call.memberId}
+        intake={call.intake}
+        waitSecs={call.waitSecs}
+        details={call.details}
+        detailsState={call.detailsState}
         phase={call.phase}
         muted={call.muted}
         held={call.held}

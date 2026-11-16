@@ -34,7 +34,7 @@ import uuid
 from loguru import logger
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.flows import FlowManager
-from pipecat.frames.frames import Frame, TranscriptionFrame
+from pipecat.frames.frames import EndFrame, Frame, TranscriptionFrame
 from pipecat.pipeline.parallel_pipeline import ParallelPipeline
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import PipelineParams, PipelineWorker
@@ -58,7 +58,7 @@ from agent_assist_bot.calls import CallStore, MemoryCallStore, PostgresCallStore
 from agent_assist_bot.dialin import DEFAULT_DAILY_API_URL as DEFAULT_DAILY_API_URL
 from agent_assist_bot.dialin import DialinConfig as DialinConfig
 from agent_assist_bot.dialin import DialinForwarder, DialinForwardError, sip_uri_from_ready
-from agent_assist_bot.handoff import end_call, handoff_from_env
+from agent_assist_bot.handoff import agent_left, end_call, handoff_from_env
 from agent_assist_bot.hold import BotGate, HoldController, HoldState
 from agent_assist_bot.intake import GREETING as GREETING  # re-export (PRD IN-2)
 from agent_assist_bot.intake import ROLE_MESSAGE, HandoffHook, IntakeSession, NoopHandoff
@@ -188,6 +188,9 @@ def register_handlers(
     # The first participant is the caller. Others (the agent after accept) may come and
     # go; only the caller leaving ends the call.
     caller: dict[str, str | None] = {"id": None}
+    # Set once the call is over (caller left, or the agent pressed End), so the end
+    # path runs once.
+    done = {"ended": False}
 
     @transport.event_handler("on_joined")
     async def on_joined(transport, data):
@@ -218,17 +221,39 @@ def register_handlers(
             roles.agent_accepted(hold.agent_name)
             logger.info("[bot] agent accepted: listen only, live transcript to the agent")
             if assist is not None:
+                # Once per call; after a QH-9 drop the next agent's join resyncs it.
                 await assist.on_accept()
+        elif hold.state is HoldState.QUEUED and roles.listening:
+            # QH-9: the agent dropped off; intake hears the caller again.
+            roles.agent_dropped()
+            logger.info("[bot] agent dropped: back in the queue, the bot speaks again")
+        elif hold.state is HoldState.ENDED and not done["ended"]:
+            # P3-5: the agent pressed End. Goodbye is queued; end once it has played.
+            done["ended"] = True
+            logger.info("[bot] the agent ended the call; leaving after goodbye")
+            await worker.queue_frames([EndFrame()])
+            if on_ended is not None:
+                await on_ended()
         elif assist is not None:
             await assist.on_app_message(message, sender)
 
     @transport.event_handler("on_participant_left")
     async def on_participant_left(transport, participant, reason):
-        roles.left(participant.get("id"))
-        if caller["id"] is not None and participant.get("id") != caller["id"]:
+        pid = participant.get("id")
+        was_agent = pid is not None and pid == roles.agent_id
+        roles.left(pid)
+        if caller["id"] is not None and pid != caller["id"]:
             name = participant.get("info", {}).get("userName", "")
             logger.info(f"[bot] {name!r} left ({reason}); caller still on the line")
+            if was_agent and hold.state is HoldState.WITH_AGENT and session_id:
+                await agent_left(handoff, session_id)
             return
+        if done["ended"]:
+            # The agent already ended the call and the queue knows. Make sure the bot
+            # stops even if the goodbye EndFrame has not finished yet.
+            await worker.cancel()
+            return
+        done["ended"] = True
         logger.info(f"[bot] caller left ({reason}); ending")
         hold.stop()
         if session_id:

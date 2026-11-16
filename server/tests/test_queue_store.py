@@ -150,3 +150,40 @@ async def test_db_errors_do_not_break_the_queue(schema):
     svc.enqueue_call("sess-3", "https://x.daily.co/caller-3", {})
     await store.drain()
     assert [c.session_id for c in svc.waiting_calls()] == ["sess-3"]
+
+
+async def test_write_through_saves_wrap_up_on_the_call(schema):
+    """P3-5: ended_by, reason code, notes, and save time land on the calls row."""
+    store = QueueStore(schema=schema)
+    svc = QueueService(mint_token=mint)
+    svc.subscribe(store.on_event)
+    agent = svc.sign_in("Ana")
+    svc.set_status(agent.agent_id, AgentState.AVAILABLE)
+    svc.enqueue_call("sess-6", "https://x.daily.co/caller-6", {"reason": "claim denied"})
+    await svc.accept(agent.agent_id, "sess-6")
+    svc.end_call("sess-6")
+    svc.save_wrap_up(agent.agent_id, "sess-6", "denial_explained", "Explained PA-01.")
+    await store.drain()
+    got = await rows(
+        schema,
+        "SELECT status, ended_by, wrap_up_reason, wrap_up_notes, wrapped_up_at IS NOT NULL "
+        "FROM calls",
+    )
+    assert got == [("ended", "caller", "denial_explained", "Explained PA-01.", True)]
+    assert await rows(schema, "SELECT state, current_call FROM agents") == [("available", None)]
+
+
+async def test_write_through_requeued_call_clears_the_agent(schema):
+    """QH-9: an agent drop puts the row back to queued with no agent or answer time."""
+    store = QueueStore(schema=schema)
+    svc = QueueService(mint_token=mint)
+    svc.subscribe(store.on_event)
+    agent = svc.sign_in("Ana")
+    svc.set_status(agent.agent_id, AgentState.AVAILABLE)
+    svc.enqueue_call("sess-7", "https://x.daily.co/caller-7", {})
+    await svc.accept(agent.agent_id, "sess-7")
+    svc.agent_left("sess-7")
+    await store.drain()
+    got = await rows(schema, "SELECT status, agent_id, answered_at FROM calls")
+    assert got == [("queued", None, None)]
+    assert await rows(schema, "SELECT state FROM agents") == [("offline",)]

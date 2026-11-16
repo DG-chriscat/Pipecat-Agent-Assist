@@ -68,3 +68,15 @@ call_plan:
     label: Check the question is answered
     done_when:
       phrases: [does that answer, anything else, does that help]
+
+# Wrap up (P3-5, AP-9): the reason codes the agent picks from after the call.
+wrap_up:
+  reason_codes:
+    - code: question_answered
+      label: Question answered
+    - code: callback_needed
+      label: Callback needed
+    - code: transferred
+      label: Transferred
+    - code: other
+      label: Other

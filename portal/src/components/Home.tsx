@@ -1,7 +1,15 @@
-import { Headphones, LogOut, WifiOff } from "lucide-react";
+import { ClipboardCheck, Headphones, LogOut, WifiOff } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { acceptRest, declineRest, getCaller, setStatusRest, type QueueSocket } from "../api/queueClient";
-import type { Agent, AgentState, ServerMessage } from "../api/types";
+import {
+  acceptRest,
+  declineRest,
+  getCaller,
+  getWrapUp,
+  saveWrapUp,
+  setStatusRest,
+  type QueueSocket,
+} from "../api/queueClient";
+import type { Agent, AgentState, ServerMessage, WrapUpInfo } from "../api/types";
 import type { CreateMedia } from "../call/media";
 import { useCall } from "../hooks/useCall";
 import { useQueueSocket } from "../hooks/useQueueSocket";
@@ -10,6 +18,7 @@ import { InCall } from "./InCall";
 import { IncomingCall } from "./IncomingCall";
 import { StatusToggle } from "./StatusToggle";
 import { TopBar } from "./TopBar";
+import { WrapUp } from "./WrapUp";
 
 interface Props {
   agent: Agent;
@@ -25,13 +34,22 @@ const MISSED: Record<"timeout" | "declined", string> = {
   timeout: "You missed a call. You are set to not available until you turn it back on.",
   declined: "You declined the call. You are set to not available until you turn it back on.",
 };
-const CALLER_LEFT = "The caller hung up. You are in wrap up.";
+const DROPPED =
+  "We lost the connection to your call. The caller went back to the front of the queue, and you are set to not available.";
+const SAVED = "Call saved. You are available.";
 /** Clock tick while ringing or on a call. */
 const TICK_MS = 250;
 
 const errorText = (e: unknown, fallback: string) => (e instanceof Error && e.message ? e.message : fallback);
 
-/** Signed in: idle home with status toggle (AP-2), offer card (AP-3), in-call shell (AP-4). */
+interface WrapState {
+  sessionId: string;
+  info: WrapUpInfo | null;
+  error: string | null;
+}
+
+/** Signed in: idle home with status toggle (AP-2), offer card (AP-3), in-call shell (AP-4),
+ * wrap up (P3-5). */
 export function Home({ agent: signedIn, createSocket, createMedia, onSignOut }: Props) {
   const [agentId, setAgentId] = useState(signedIn.agent_id);
   const [pending, setPending] = useState<AgentState | null>(null);
@@ -44,16 +62,28 @@ export function Home({ agent: signedIn, createSocket, createMedia, onSignOut }: 
   const [nowMs, setNowMs] = useState(() => Date.now());
   /** End pressed; waiting for the server to confirm wrap up. */
   const [ending, setEnding] = useState(false);
-  const { call, start, setDetails, leave, toggleMute, toggleHold } = useCall(createMedia);
+  const [wrap, setWrap] = useState<WrapState | null>(null);
+  const [wrapAttempt, setWrapAttempt] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const { call, start, prepare, discard, setDetails, leave, toggleMute, toggleHold } = useCall(createMedia);
 
   const ids = useRef({ agentId, sessionId: call?.sessionId ?? null });
   useEffect(() => {
     ids.current = { agentId, sessionId: call?.sessionId ?? null };
   }, [agentId, call?.sessionId]);
+  /** The last call the server put us on, so a re-queue (QH-9) is recognised after a reload. */
+  const lastCallId = useRef<string | null>(null);
 
   const onMessage = useCallback(
     (msg: ServerMessage) => {
       const me = ids.current;
+      if ((msg.type === "agent_updated" || msg.type === "status_set") && msg.agent.agent_id === me.agentId) {
+        if (msg.agent.call_id) lastCallId.current = msg.agent.call_id;
+      } else if (msg.type === "snapshot") {
+        const mine = msg.agents.find((a) => a.agent_id === me.agentId);
+        if (mine?.call_id) lastCallId.current = mine.call_id;
+      }
       if (msg.type === "signed_in") setAgentId(msg.agent.agent_id);
       else if (msg.type === "status_set") setPending(null);
       else if (msg.type === "error") {
@@ -67,7 +97,16 @@ export function Home({ agent: signedIn, createSocket, createMedia, onSignOut }: 
         setEventOffer(null);
         setNotice(MISSED[msg.reason]);
       } else if (msg.type === "call_ended" && msg.call.session_id === me.sessionId) {
-        setNotice(CALLER_LEFT);
+        // Caller hung up (or our own End landed): the wrap up view takes over.
+        void leave();
+      } else if (
+        msg.type === "call_queued" &&
+        msg.requeued &&
+        (msg.call.session_id === me.sessionId || msg.call.session_id === lastCallId.current)
+      ) {
+        // QH-9: we dropped off and the caller went back to the queue.
+        lastCallId.current = null;
+        setNotice(DROPPED);
         void leave();
       }
     },
@@ -101,8 +140,48 @@ export function Home({ agent: signedIn, createSocket, createMedia, onSignOut }: 
     if (ending && agentState !== "on_call") setEnding(false);
   }, [ending, agentState]);
 
+  // QH-9: the server says we are not on the call any more (we dropped off and it put
+  // the caller back in the queue), but this tab still has the room: leave it. Ringing
+  // is excluded because accept can return before the on_call update arrives.
+  const dropped =
+    !!call && status === "open" && state.synced && (agentState === "offline" || agentState === "available");
+  useEffect(() => {
+    if (!dropped) return;
+    setNotice(DROPPED);
+    void leave();
+  }, [dropped, leave]);
+
+  // Wrap up (P3-5): the server keeps call_id on the agent until Save.
+  const wrapSession = agentState === "wrap_up" ? (agent?.call_id ?? null) : null;
+  useEffect(() => {
+    setSaving(false);
+    setSaveError(null);
+    if (!wrapSession) {
+      setWrap(null);
+      return;
+    }
+    let current = true;
+    setWrap({ sessionId: wrapSession, info: null, error: null });
+    getWrapUp(wrapSession, agentId).then(
+      (info) => current && setWrap({ sessionId: wrapSession, info, error: null }),
+      (e) => current && setWrap({ sessionId: wrapSession, info: null, error: errorText(e, "Could not load the call.") }),
+    );
+    return () => {
+      current = false;
+    };
+  }, [wrapSession, agentId, wrapAttempt]);
+
   // Tick the clock for the countdown and the call timer.
   const ticking = !!offer || !!call;
+
+  // P3-5: warm the call audio (SDK, mic) while the card rings, so accept only has
+  // to connect; release it if the offer goes away without a call.
+  const ringingFor = offer && !call ? offer.call.session_id : null;
+  useEffect(() => {
+    if (!ringingFor) return;
+    prepare();
+    return () => discard();
+  }, [ringingFor, prepare, discard]);
   useEffect(() => {
     if (!ticking) return;
     setNowMs(Date.now());
@@ -130,10 +209,12 @@ export function Home({ agent: signedIn, createSocket, createMedia, onSignOut }: 
 
   async function accept() {
     if (!offer || inFlight) return;
+    performance.mark?.("vitals:accept");
     setInFlight(offer);
     setOfferError(null);
     try {
       const res = await acceptRest(agentId, offer.call.session_id);
+      performance.mark?.("vitals:accepted");
       setEventOffer(null);
       setNotice(null);
       // AP-5: the accept summary fills the panel now; the history call fills the rest.
@@ -163,10 +244,13 @@ export function Home({ agent: signedIn, createSocket, createMedia, onSignOut }: 
     }
   }
 
-  /** End: leave the room, then wrap up (docs/queue.md: on_call -> wrap_up by hand). */
+  /**
+   * End: wrap up first, then leave the room (docs/queue.md: on_call -> wrap_up by hand).
+   * In that order the server already knows the call ended when the bot sees us leave,
+   * so it is never taken for a dropped agent (QH-9).
+   */
   async function endCall() {
     setEnding(true);
-    await leave();
     setNotice(null);
     if (!send({ type: "set_status", agent_id: agentId, state: "wrap_up" })) {
       try {
@@ -175,6 +259,22 @@ export function Home({ agent: signedIn, createSocket, createMedia, onSignOut }: 
         setEnding(false);
         setError(errorText(e, "Could not set wrap up."));
       }
+    }
+    await leave();
+  }
+
+  async function saveWrap(reasonCode: string, notes: string) {
+    if (!wrapSession || saving) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await saveWrapUp(agentId, wrapSession, reasonCode, notes);
+      setNotice(SAVED);
+      setError(null);
+    } catch (e) {
+      setSaveError(errorText(e, "Could not save. Try again."));
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -207,19 +307,37 @@ export function Home({ agent: signedIn, createSocket, createMedia, onSignOut }: 
   // On a call with no local session (reload mid call): the room token is gone, so
   // the only way on is to end it.
   const orphaned = live && agentState === "on_call" && !ending;
+  const wrapView = wrapSession && wrap?.sessionId === wrapSession ? wrap : null;
+
+  const queueIsland = (
+    <div className="island" aria-label="Queue">
+      <span className={`dot${waiting > 0 ? " dot-waiting" : ""}`} aria-hidden="true" />
+      <span className="label island-label">In queue</span>
+      <span className="island-count mono" data-testid="queue-count">
+        {state.synced ? waiting : "–"}
+      </span>
+    </div>
+  );
+  // DESIGN.md call island, wrap-up state.
+  const wrapIsland = (
+    <div className="island call-island is-wrap" role="group" aria-label="Call wrap up">
+      <span className="vdot vdot-info" aria-hidden="true" />
+      <b className="island-name">{wrapView?.info?.caller_name ?? "Last call"}</b>
+      <span className="chip chip-info">
+        <ClipboardCheck strokeWidth={1.8} aria-hidden="true" />
+        Wrap up
+      </span>
+      <span className="island-label label">In queue</span>
+      <span className="island-count mono" data-testid="queue-count">
+        {state.synced ? waiting : "–"}
+      </span>
+    </div>
+  );
 
   return (
     <div className="page">
       <TopBar
-        center={
-          <div className="island" aria-label="Queue">
-            <span className={`dot${waiting > 0 ? " dot-waiting" : ""}`} aria-hidden="true" />
-            <span className="label island-label">In queue</span>
-            <span className="island-count mono" data-testid="queue-count">
-              {state.synced ? waiting : "–"}
-            </span>
-          </div>
-        }
+        center={wrapSession ? wrapIsland : queueIsland}
         right={
           <>
             <StatusToggle
@@ -236,7 +354,17 @@ export function Home({ agent: signedIn, createSocket, createMedia, onSignOut }: 
         }
       />
       <main className="center-stage">
-        {offer ? (
+        {wrapSession ? (
+          <WrapUp
+            key={wrapSession}
+            info={wrapView?.info ?? null}
+            loadError={wrapView?.error ?? null}
+            saving={saving}
+            saveError={saveError}
+            onSave={(code, notes) => void saveWrap(code, notes)}
+            onRetry={() => setWrapAttempt((n) => n + 1)}
+          />
+        ) : offer ? (
           <IncomingCall
             offer={offer}
             windowSecs={state.offerTimeoutSecs}

@@ -50,10 +50,63 @@ const JOIN_FAILED = "Could not connect the call audio. Check your microphone, or
 export function useCall(createMedia: CreateMedia) {
   const [call, setCall] = useState<ActiveCall | null>(null);
   const media = useRef<CallMedia | null>(null);
+  /** Warmed while the offer rings (prepare), adopted by start, or discarded. */
+  const warm = useRef<CallMedia | null>(null);
   const levels = useRef(new Map<string, number>());
 
   const patch = useCallback((p: Partial<ActiveCall>) => {
     setCall((c) => (c ? { ...c, ...p } : c));
+  }, []);
+
+  /**
+   * A media session whose events only count while it is the current call's media.
+   * Created early (prepare) or at accept (start).
+   */
+  const makeMedia = useCallback((): CallMedia => {
+    const m: CallMedia = createMedia({
+      onRemoteLevel(level, id) {
+        if (media.current !== m) return;
+        levels.current.set(id, level);
+        const loudest = Math.max(0, ...levels.current.values());
+        setCall((c) => (c && c.remoteLevel !== loudest ? { ...c, remoteLevel: loudest } : c));
+      },
+      onParticipantLeft(id) {
+        if (media.current !== m) return;
+        levels.current.delete(id);
+      },
+      onServerMessage(data) {
+        if (media.current !== m) return;
+        const msg = parseTranscriptMessage(data);
+        if (!msg) return;
+        setCall((c) => {
+          if (!c) return c;
+          const transcript = applyTranscript(c.transcript, msg);
+          return transcript === c.transcript ? c : { ...c, transcript };
+        });
+      },
+      onError(message) {
+        if (media.current !== m) return;
+        patch({ error: message || JOIN_FAILED });
+      },
+    });
+    return m;
+  }, [createMedia, patch]);
+
+  /** While ringing: load the call SDK and open the mic, so accept only has to connect. */
+  const prepare = useCallback(() => {
+    if (warm.current || media.current) return;
+    const m = makeMedia();
+    warm.current = m;
+    m.prepare?.().catch(() => {
+      // join() retries everything; a failed warm up only costs time.
+    });
+  }, [makeMedia]);
+
+  /** The offer went away without an accept: release the warmed session. */
+  const discard = useCallback(() => {
+    const m = warm.current;
+    warm.current = null;
+    if (m) void m.leave().catch(() => {});
   }, []);
 
   const start = useCallback(
@@ -76,32 +129,8 @@ export function useCall(createMedia: CreateMedia) {
         transcript: [],
         highlights: [],
       });
-      const m = createMedia({
-        onRemoteLevel(level, id) {
-          if (media.current !== m) return;
-          levels.current.set(id, level);
-          const loudest = Math.max(0, ...levels.current.values());
-          setCall((c) => (c && c.remoteLevel !== loudest ? { ...c, remoteLevel: loudest } : c));
-        },
-        onParticipantLeft(id) {
-          if (media.current !== m) return;
-          levels.current.delete(id);
-        },
-        onServerMessage(data) {
-          if (media.current !== m) return;
-          const msg = parseTranscriptMessage(data);
-          if (!msg) return;
-          setCall((c) => {
-            if (!c) return c;
-            const transcript = applyTranscript(c.transcript, msg);
-            return transcript === c.transcript ? c : { ...c, transcript };
-          });
-        },
-        onError(message) {
-          if (media.current !== m) return;
-          patch({ error: message || JOIN_FAILED });
-        },
-      });
+      const m = warm.current ?? makeMedia();
+      warm.current = null;
       media.current = m;
       m.join(res.room_url, res.token).then(
         () => {
@@ -112,7 +141,7 @@ export function useCall(createMedia: CreateMedia) {
         },
       );
     },
-    [createMedia, patch],
+    [makeMedia, patch],
   );
 
   /** Caller history arrived (or failed) for a call; ignored if that call is gone. */
@@ -159,9 +188,11 @@ export function useCall(createMedia: CreateMedia) {
     () => () => {
       void media.current?.leave();
       media.current = null;
+      void warm.current?.leave();
+      warm.current = null;
     },
     [],
   );
 
-  return { call, start, setDetails, leave, toggleMute, toggleHold, highlight };
+  return { call, start, prepare, discard, setDetails, leave, toggleMute, toggleHold, highlight };
 }

@@ -48,6 +48,7 @@ intake only pack still loads.
 | `card_templates` | list | Cards the assist can show (below). |
 | `call_plan` | list | The checklist (AP-12, below). |
 | `next_best_steps` | list | DC-10 rules (below). |
+| `wrap_up` | `{reason_codes}` | Wrap up (P3-5): `reason_codes` is a list of `{code, label}` (code snake_case and unique, at least one) the agent picks from after the call. Default: one `other` code. The server reads it from the active pack (`INTAKE_PACK`) and saves the pick on `calls.wrap_up_reason`. |
 
 ### Phrases
 
@@ -240,5 +241,7 @@ card = rule.render(facts)  # headline, why, script, action_id, action_label, sou
 - Assist engine (P4-3, docs/assist.md): triggers, allowed connectors, rules, card
   templates, call plan.
 - Portal (P4-4): card templates (fields, source), call plan labels.
+- Wrap up (P3-5): `wrap_up.reason_codes`, read by the server
+  (`agent_assist_server/wrap_up_api.py`) and shown in the portal's wrap up view.
 - STT: the listen branches boost every pack's `keyterms` (deduped, max 100) through
   `DeepgramSTTService.Settings(keyterm=...)` (P4-3). Intake STT does not use them yet.

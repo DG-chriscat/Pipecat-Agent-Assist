@@ -32,6 +32,9 @@ from urllib.parse import urlparse
 logger = logging.getLogger(__name__)
 
 OFFER_TIMEOUT_SECS = 20.0
+# QH-9: how long after the bot reports the agent left before the call is re-queued.
+AGENT_DROP_GRACE_SECS = 3.0
+MAX_NOTES = 2000
 
 Event = dict[str, Any]
 Listener = Callable[[Event], None]
@@ -136,6 +139,10 @@ class Call:
     identity_result: str | None = None
     member_id: str | None = None
     flags: list[str] = field(default_factory=list)
+    # Who ended a call the agent was on: "agent" (End) or "caller" (hung up).
+    ended_by: str | None = None
+    # Saved at wrap up (P3-5): {"reason_code", "notes", "saved_at"}.
+    wrap_up: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -153,6 +160,8 @@ class Call:
             "agent_id": self.agent_id,
             "answered_at": self.answered_at,
             "ended_at": self.ended_at,
+            "ended_by": self.ended_by,
+            "wrap_up": dict(self.wrap_up) if self.wrap_up else None,
         }
 
 
@@ -194,10 +203,12 @@ class QueueService:
         mint_token: TokenMinter,
         clock: Clock | None = None,
         offer_timeout: float = OFFER_TIMEOUT_SECS,
+        drop_grace: float = AGENT_DROP_GRACE_SECS,
     ):
         self._mint_token = mint_token
         self._clock = clock or LoopClock()
         self._offer_timeout = offer_timeout
+        self._drop_grace = drop_grace
         self._agents: dict[str, Agent] = {}
         self._calls: dict[str, Call] = {}
         self._rooms: dict[str, str] = {}
@@ -300,7 +311,7 @@ class QueueService:
             self._miss_offer(agent, "declined")
             return agent
         if agent.state is AgentState.ON_CALL:
-            self._finish_call(agent.call_id, CallStatus.ENDED)
+            self._finish_call(agent.call_id, CallStatus.ENDED, ended_by="agent")
             return agent
 
         # Remaining manual moves: offline <-> available, wrap_up -> available/offline.
@@ -369,9 +380,11 @@ class QueueService:
         if call.status is CallStatus.QUEUED:
             self._finish_call(session_id, CallStatus.ABANDONED)
         elif call.status is CallStatus.WITH_AGENT:
-            self._finish_call(session_id, CallStatus.ENDED)
+            self._finish_call(session_id, CallStatus.ENDED, ended_by="caller")
 
-    def _finish_call(self, session_id: str | None, status: CallStatus) -> None:
+    def _finish_call(
+        self, session_id: str | None, status: CallStatus, *, ended_by: str | None = None
+    ) -> None:
         call = self._calls.get(session_id or "")
         if call is None:
             return
@@ -384,12 +397,89 @@ class QueueService:
         if call.agent_id and call.status is CallStatus.WITH_AGENT:
             agent = self._agents[call.agent_id]
             if agent.state is AgentState.ON_CALL and agent.call_id == session_id:
+                # call_id stays set through wrap up: it is the call the agent saves.
                 agent.state = AgentState.WRAP_UP
                 self._agent_updated(agent)
         call.status = status
         call.ended_at = self._clock.now()
+        call.ended_by = ended_by
         self._emit({"type": "call_ended", "call": call.to_dict()})
         self._dispatch()
+
+    # ---- wrap up (P3-5) and agent drop (QH-9) ------------------------------------
+
+    def save_wrap_up(self, agent_id: str, session_id: str, reason_code: str, notes: str) -> Call:
+        """Save the reason code and notes on the call, then make the agent available.
+
+        Reason codes are checked against the pack by the API layer; here only the
+        state is checked: the agent must be in wrap up for this very call.
+        """
+        agent = self.get_agent(agent_id)
+        if agent.state is not AgentState.WRAP_UP or agent.call_id != session_id:
+            raise QueueError(f"not in wrap up for call {session_id!r}")
+        notes = notes.strip()
+        if len(notes) > MAX_NOTES:
+            raise QueueError(f"notes must be at most {MAX_NOTES} characters")
+        call = self.get_call(session_id)
+        call.wrap_up = {
+            "reason_code": reason_code,
+            "notes": notes,
+            "saved_at": self._clock.now(),
+        }
+        self._emit({"type": "call_updated", "call": call.to_dict()})
+        agent.state = AgentState.AVAILABLE
+        agent.call_id = None
+        agent.idle_since = self._clock.now()
+        self._agent_updated(agent)
+        self._dispatch()
+        return call
+
+    def report_agent_left(self, session_id: str) -> None:
+        """The bot saw the agent leave the room. Wait AGENT_DROP_GRACE_SECS before
+        treating it as a drop, so an End that lands just after the leave still ends
+        the call normally. Only the agent on the call at report time is affected."""
+        call = self._calls.get(session_id)
+        if call is None or call.status is not CallStatus.WITH_AGENT:
+            return
+        agent_id = call.agent_id
+
+        def check() -> None:
+            self.agent_left(session_id, agent_id=agent_id)
+
+        self._clock.call_later(self._drop_grace, check)
+
+    def agent_left(self, session_id: str, *, agent_id: str | None = None) -> bool:
+        """QH-9: the agent dropped off a live call without ending it (tab closed,
+        network lost). The caller goes back to the front of the queue and that agent
+        is set to not available. Returns True if the call was re-queued.
+        """
+        call = self._calls.get(session_id)
+        if call is None or call.status is not CallStatus.WITH_AGENT:
+            return False
+        if agent_id is not None and call.agent_id != agent_id:
+            return False
+        agent = self._agents.get(call.agent_id or "")
+        if agent is not None and agent.call_id == session_id:
+            agent.state = AgentState.OFFLINE
+            agent.call_id = None
+            agent.idle_since = None
+            self._agent_updated(agent)
+        front = min((c.seq for c in self.waiting_calls()), default=call.seq)
+        call.seq = min(call.seq, front - 1)
+        call.status = CallStatus.QUEUED
+        call.agent_id = None
+        call.answered_at = None
+        logger.info("agent dropped off %s; back at the front of the queue", session_id)
+        self._emit(
+            {
+                "type": "call_queued",
+                "call": call.to_dict(),
+                "position": self._position(call),
+                "requeued": True,
+            }
+        )
+        self._dispatch()
+        return True
 
     # ---- offers ------------------------------------------------------------
 

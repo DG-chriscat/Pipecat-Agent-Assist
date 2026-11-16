@@ -1,5 +1,6 @@
 """Queue REST + websocket API and the bot notifier (PRD QH-3 to QH-7), Daily mocked."""
 
+import asyncio
 import json
 import time
 
@@ -331,3 +332,78 @@ def test_ws_disconnect_unsubscribes(client):
         ws.receive_json()
         assert len(svc._listeners) == before + 1
     assert wait_for(lambda: len(svc._listeners) == before)
+
+
+def test_persist_write_through_uses_database_schema(monkeypatch):
+    """QUEUE_PERSIST=1 writes to DATABASE_SCHEMA when set (live tests use throwaway ones)."""
+    from agent_assist_server import queue_store
+
+    made = []
+    monkeypatch.setattr(queue_store.QueueStore, "__init__", lambda self, **kw: made.append(kw))
+    monkeypatch.setattr(queue_store.QueueStore, "on_event", lambda self, e: None)
+    monkeypatch.setenv("QUEUE_PERSIST", "1")
+    monkeypatch.setenv("DATABASE_SCHEMA", "test_abc")
+    try:
+        queue_api.get_queue(app)
+        assert made == [{"schema": "test_abc"}]
+    finally:
+        delattr(app.state, "queue_service")
+
+
+# ---- token prefetch on offer (P3-5: accept to audio under 2 s) -----------------------
+
+
+async def test_prefetching_minter_mints_on_offer_and_hands_it_over_on_accept():
+    calls = []
+
+    async def mint(room_name, user_name):
+        calls.append((room_name, user_name))
+        return f"tok-{len(calls)}", 99
+
+    svc = QueueService(mint_token=lambda r, u: minter(r, u))
+    minter = queue_api.PrefetchingMinter(mint, svc)
+    svc.subscribe(minter.on_event)
+    svc.register_session("s1", ROOM_URL)
+    agent = svc.sign_in("Ana")
+    svc.set_status(agent.agent_id, "available")
+    svc.enqueue_call("s1", ROOM_URL, {"reason": "x"})  # offer -> prefetch starts
+    await asyncio.sleep(0)
+    assert calls == [("caller-abc", "Ana")]
+    res = await svc.accept(agent.agent_id, "s1")
+    assert res.token == "tok-1"
+    assert calls == [("caller-abc", "Ana")]  # no second mint
+
+
+async def test_prefetching_minter_falls_back_when_prefetch_failed():
+    calls = []
+
+    async def mint(room_name, user_name):
+        calls.append(room_name)
+        if len(calls) == 1:
+            raise RuntimeError("daily hiccup")
+        return "tok-2", 99
+
+    svc = QueueService(mint_token=lambda r, u: minter(r, u))
+    minter = queue_api.PrefetchingMinter(mint, svc)
+    svc.subscribe(minter.on_event)
+    agent = svc.sign_in("Ana")
+    svc.set_status(agent.agent_id, "available")
+    svc.enqueue_call("s1", ROOM_URL, {})
+    res = await svc.accept(agent.agent_id, "s1")
+    assert res.token == "tok-2"
+    assert len(calls) == 2
+
+
+async def test_prefetched_tokens_are_dropped_when_the_offer_is_missed():
+    async def mint(room_name, user_name):
+        return "tok", 99
+
+    svc = QueueService(mint_token=lambda r, u: minter(r, u))
+    minter = queue_api.PrefetchingMinter(mint, svc)
+    svc.subscribe(minter.on_event)
+    agent = svc.sign_in("Ana")
+    svc.set_status(agent.agent_id, "available")
+    svc.enqueue_call("s1", ROOM_URL, {})
+    assert len(minter.pending) == 1
+    svc.decline(agent.agent_id, "s1")
+    assert minter.pending == {}

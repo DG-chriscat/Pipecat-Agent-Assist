@@ -12,6 +12,11 @@ export interface CallMediaEvents {
 }
 
 export interface CallMedia {
+  /**
+   * Optional warm up while the offer rings (P3-5): load the SDK and open the mic so
+   * join() only has to connect. Safe to skip; join() does it all if needed.
+   */
+  prepare?(): Promise<void>;
   /** Join the room, audio only, mic on. Resolves once joined. */
   join(roomUrl: string, token: string): Promise<void>;
   setMic(on: boolean): void;

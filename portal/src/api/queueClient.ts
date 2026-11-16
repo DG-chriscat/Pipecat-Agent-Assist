@@ -4,10 +4,12 @@ import type {
   AcceptResult,
   Agent,
   AgentState,
+  Call,
   CallerDetails,
   ClientCommand,
   QueueSnapshot,
   ServerMessage,
+  WrapUpInfo,
 } from "./types";
 
 export class ApiError extends Error {
@@ -70,6 +72,21 @@ export const getCaller = (sessionId: string, agentId: string) =>
     "GET",
     `/calls/${encodeURIComponent(sessionId)}/caller?agent_id=${encodeURIComponent(agentId)}`,
   );
+
+/** Wrap up view for the call this agent just finished (P3-5). */
+export const getWrapUp = (sessionId: string, agentId: string) =>
+  request<WrapUpInfo>(
+    "GET",
+    `/calls/${encodeURIComponent(sessionId)}/wrap-up?agent_id=${encodeURIComponent(agentId)}`,
+  );
+
+/** Save the reason code and notes; the server makes the agent available (P3-5). */
+export const saveWrapUp = (agentId: string, sessionId: string, reasonCode: string, notes: string) =>
+  request<Call>("POST", `/agents/${encodeURIComponent(agentId)}/wrap-up`, {
+    session_id: sessionId,
+    reason_code: reasonCode,
+    notes,
+  });
 
 export function wsUrlFor(loc: Pick<Location, "protocol" | "host">): string {
   return `${loc.protocol === "https:" ? "wss:" : "ws:"}//${loc.host}/ws/queue`;

@@ -418,3 +418,51 @@
 }
 
 .orphaned { margin-top: 20px; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+
+/* ---- wrap up (P3-5, DESIGN.md "Wrap up") ---- */
+.vdot-info { background: var(--glass-blue); box-shadow: 0 0 10px var(--glass-blue); }
+.call-island.is-wrap { gap: 12px; }
+.call-island.is-wrap .chip svg { width: 11px; height: 11px; }
+.wrapup {
+  width: 100%;
+  max-width: 600px;
+  padding: 26px 28px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  animation: rise .18s ease-out;
+}
+.wrapup-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.wrapup-head .chip svg { width: 11px; height: 11px; }
+.wrapup-name { font-size: 24px; font-weight: 500; letter-spacing: -.02em; line-height: 1.2; }
+.wrapup-loading { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; padding: 8px 0; }
+.wrapup-draft {
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid var(--hero-line);
+  background: rgba(224, 66, 255, .05);
+}
+.wrapup-draft.is-empty { border-style: dashed; border-color: rgba(224, 66, 255, .3); background: transparent; }
+.wrapup-draft.is-empty p { color: var(--text-faint); }
+.wrapup-draft-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.wrapup-draft .chip svg { width: 11px; height: 11px; }
+.wrapup-draft p { font-size: 14px; }
+.wrapup-field { display: flex; flex-direction: column; gap: 8px; }
+.reason-codes { display: flex; flex-wrap: wrap; gap: 8px; }
+.reason {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  padding: 8px 13px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--glass-line);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.reason:hover { color: var(--text); border-color: rgba(255, 255, 255, .25); }
+.reason.is-on { color: var(--text); border-color: var(--fuchsia); background: rgba(224, 66, 255, .16); }
+.reason:focus-visible { outline: 2px solid var(--text); outline-offset: 3px; }
+.reason:disabled { cursor: default; opacity: .6; }
+.wrapup-notes { resize: vertical; min-height: 84px; font-size: 14px; line-height: 1.5; }

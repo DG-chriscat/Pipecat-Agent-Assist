@@ -87,3 +87,47 @@ def test_duplicate_question_keys_rejected(tmp_path):
     )
     with pytest.raises(PackError, match="duplicate"):
         load_pack(_write(tmp_path, text))
+
+
+# ---- wrap up reason codes (P3-5, AP-9) -------------------------------------------
+
+
+def test_claims_status_pack_has_wrap_up_reason_codes():
+    pack = load_pack("claims_status")
+    codes = [c.code for c in pack.wrap_up.reason_codes]
+    assert len(codes) >= 3
+    assert "other" in codes
+    assert all(c.label and c.label[0].isupper() for c in pack.wrap_up.reason_codes)
+
+
+def test_pack_without_wrap_up_gets_a_default_other_code(tmp_path):
+    pack = load_pack(_write(tmp_path, MINIMAL))
+    assert [(c.code, c.label) for c in pack.wrap_up.reason_codes] == [("other", "Other")]
+
+
+def test_wrap_up_codes_come_from_the_pack(tmp_path):
+    text = MINIMAL + "wrap_up:\n  reason_codes:\n    - {code: resolved, label: Resolved}\n"
+    pack = load_pack(_write(tmp_path, text))
+    assert [c.code for c in pack.wrap_up.reason_codes] == ["resolved"]
+    assert pack.wrap_up.has_code("resolved")
+    assert not pack.wrap_up.has_code("other")
+
+
+@pytest.mark.parametrize(
+    "codes, match",
+    [
+        ("[]", "at least 1"),
+        ("[{code: Bad Code, label: x}]", "snake_case"),
+        ("[{code: a, label: A}, {code: a, label: B}]", "duplicate"),
+    ],
+)
+def test_invalid_wrap_up_codes_rejected(tmp_path, codes, match):
+    text = MINIMAL + f"wrap_up:\n  reason_codes: {codes}\n"
+    with pytest.raises(PackError, match=match):
+        load_pack(_write(tmp_path, text))
+
+
+@pytest.mark.parametrize("pack_id", ["claims_status", "account_payments", "general_question"])
+def test_every_v1_pack_has_wrap_up_codes_ending_in_other(pack_id):
+    codes = [c.code for c in load_pack(pack_id).wrap_up.reason_codes]
+    assert len(codes) >= 3 and codes[-1] == "other"

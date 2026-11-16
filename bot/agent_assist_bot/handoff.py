@@ -7,7 +7,8 @@ once per call when intake ends (completed, request_person, or emergency).
 QueueHandoff posts the handoff to the server's queue API
 (server/agent_assist_server/queue_api.py). It also has `on_call_ended(session_id)`,
 an extra method the bot calls when the caller leaves so a waiting or ringing call is
-cleared. `handoff_from_env()` picks QueueHandoff when AGENT_ASSIST_SERVER_URL is set,
+cleared, and `on_agent_left(session_id)` for when the agent leaves the room (QH-9).
+`handoff_from_env()` picks QueueHandoff when AGENT_ASSIST_SERVER_URL is set,
 otherwise NoopHandoff.
 """
 
@@ -90,12 +91,27 @@ class QueueHandoff:
         except httpx.HTTPError as e:
             logger.warning("handoff: end call %s failed: %s", session_id, type(e).__name__)
 
+    async def on_agent_left(self, session_id: str) -> None:
+        """QH-9: the agent left the room. The server decides if it was a drop."""
+        try:
+            async with self._client() as c:
+                await c.post(f"/queue/calls/{session_id}/agent-left")
+        except httpx.HTTPError as e:
+            logger.warning("handoff: agent left %s failed: %s", session_id, type(e).__name__)
+
 
 async def end_call(handoff: HandoffHook, session_id: str) -> None:
     """Tell the queue the caller left, if the hook supports it (NoopHandoff does not)."""
     ended = getattr(handoff, "on_call_ended", None)
     if ended is not None:
         await ended(session_id)
+
+
+async def agent_left(handoff: HandoffHook, session_id: str) -> None:
+    """Tell the queue the agent left the room, if the hook supports it."""
+    left = getattr(handoff, "on_agent_left", None)
+    if left is not None:
+        await left(session_id)
 
 
 def handoff_from_env(env: dict[str, str] | None = None) -> HandoffHook:

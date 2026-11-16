@@ -146,6 +146,40 @@ class Question(_Strict):
         return v
 
 
+# --- wrap up -------------------------------------------------------------------------
+
+
+class ReasonCode(_Strict):
+    code: str
+    label: str = Field(min_length=1, max_length=60)
+
+    @field_validator("code")
+    @classmethod
+    def _code_shape(cls, v: str) -> str:
+        if not _KEY.match(v) or len(v) > 64:
+            raise ValueError(f"reason code {v!r} must be snake_case")
+        return v
+
+
+class WrapUp(_Strict):
+    """Wrap up (P3-5, AP-9): the reason codes an agent picks from after a call."""
+
+    reason_codes: list[ReasonCode] = Field(
+        default_factory=lambda: [ReasonCode(code="other", label="Other")], min_length=1
+    )
+
+    @field_validator("reason_codes")
+    @classmethod
+    def _unique_codes(cls, v: list[ReasonCode]) -> list[ReasonCode]:
+        codes = [c.code for c in v]
+        if len(set(codes)) != len(codes):
+            raise ValueError("duplicate reason code")
+        return v
+
+    def has_code(self, code: str) -> bool:
+        return any(c.code == code for c in self.reason_codes)
+
+
 # --- assist --------------------------------------------------------------------------
 
 
@@ -375,6 +409,7 @@ class Pack(_Strict):
     reason: StepPrompt
     questions: list[Question] = Field(default_factory=list)
     readback: StepPrompt
+    wrap_up: WrapUp = Field(default_factory=WrapUp)
 
     # Assist (P4-2). All optional so an intake-only pack still loads.
     triggers: Triggers = Field(default_factory=Triggers)

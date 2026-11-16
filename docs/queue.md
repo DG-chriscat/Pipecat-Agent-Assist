@@ -40,6 +40,54 @@ offers. Agents set by hand only:
 `ringing` and `on_call` are set by the service (offer, accept). If the caller hangs up,
 a ringing agent goes back to `available` and an on-call agent goes to `wrap_up`.
 
+## Wrap up (P3-5)
+
+End (agent) or a caller hang up moves the agent to `wrap_up`. The call records who
+ended it (`ended_by`: `agent` or `caller`), and the agent keeps `call_id` through wrap
+up so the portal knows which call to save. The portal shows the wrap up view
+(docs/DESIGN.md "Wrap up"): `GET /calls/{session_id}/wrap-up?agent_id=` returns
+`caller_name`, `reason`, `identity_result`, `duration_secs`, `ended_by`,
+`summary_draft` (null until AP-9 in Phase 4), `reason_codes` (from the active pack's
+`wrap_up.reason_codes`), and `wrap_up` (once saved). Only the agent on the call can
+read it.
+
+`POST /agents/{agent_id}/wrap-up {session_id, reason_code, notes}` saves the reason
+code (must be one of the pack's, else 422) and notes (max 2000 characters) on the
+call (`wrap_up: {reason_code, notes, saved_at}`, a `call_updated` event), then sets the
+agent `available`, which may ring them at once. Not in wrap up for that call: 409.
+With `QUEUE_PERSIST=1` the write-through stores `calls.ended_by`, `wrap_up_reason`,
+`wrap_up_notes`, and `wrapped_up_at` (migration `0004_wrap_up.sql`). The manual
+`wrap_up -> available` toggle still works as an escape hatch (nothing saved).
+
+The portal sends `wrap_up` before it leaves the room, so the bot never sees an agent
+leave a call the queue still has as live. When the agent ends the call the server
+also tells the bot (`call_ended` app message): the bot says "Thanks for calling.
+Goodbye." and exits, and the server deletes the room `ROOM_CLOSE_DELAY_SECS` (6 s)
+later, which hangs up a dial-in caller and ends a browser caller's call.
+
+## Agent drop (QH-9)
+
+If the agent leaves the room without End (tab closed, network lost), the bot sees
+the agent's participant leave and posts `POST /queue/calls/{session_id}/agent-left`
+(bot key route). The server waits `AGENT_DROP_GRACE_SECS` (3 s) so an End that lands
+just after the leave still wins; if the same agent is still on the call then:
+
+- the call goes back to `queued` at the front of the queue (`agent_id` and
+  `answered_at` cleared), emitted as `call_queued` with `position: 1` and
+  `requeued: true`;
+- that agent goes `offline` (the "not available" state, same as a missed offer);
+- the bot gets a `requeued` app message: it reopens the gate in front of the LLM,
+  stops the listen only transcript, says "Sorry, we lost the connection to your
+  agent. You're back at the front of the line, and the next person will be right with
+  you.", and resumes hold updates;
+- the next available agent is offered the call at once; their accept works like any
+  other (the bot says "Connecting you now." and goes listen only again).
+
+Daily notices a closed tab only when the peer connection times out, so the drop is
+seen about 30 s after the tab closes (34 s in the live test); a network loss is the
+same. The portal of the dropped agent, if it is still open (for example after a
+reconnect), sees the re-queue for its call, leaves the room, and says so.
+
 ## Offers (QH-2, QH-3)
 
 - One FIFO queue. Calls are offered in arrival order. A missed call keeps its place.
@@ -49,6 +97,9 @@ a ringing agent goes back to `available` and an on-call agent goes to `wrap_up`.
   available" state; they set themselves available again) and rings the next agent.
 - Accept mints a non-owner Daily meeting token for the call's room (same code as
   `POST /rooms/{room}/agent-token`) and returns it with the intake summary (QH-6, QH-7).
+  The token is minted when the offer rings (`PrefetchingMinter`), so accept does not
+  wait on Daily; it stays in server memory and only the accept call for that room and
+  agent receives it. A missed offer drops it; a failed prefetch is minted again.
   If Daily fails, the call goes back to the queue and the agent back to available.
   Tokens go only to the agent who accepted, never into broadcast events.
 
@@ -65,7 +116,10 @@ REST:
 | GET | `/queue` | | snapshot: `queue`, `active`, `agents`, `offer_timeout_secs` |
 | POST | `/queue/calls` | `{session_id, summary, outcome?, identity_result?, member_id?, flags?}` | `{session_id, status, position}` (bot handoff) |
 | POST | `/queue/calls/{session_id}/end` | | caller left |
+| POST | `/queue/calls/{session_id}/agent-left` | | the agent left the room (bot, QH-9) |
 | GET | `/calls/{session_id}/caller?agent_id=` | | caller panel data (P3-3, see below) |
+| GET | `/calls/{session_id}/wrap-up?agent_id=` | | wrap up view data (P3-5) |
+| POST | `/agents/{agent_id}/wrap-up` | `{session_id, reason_code, notes}` | the call, saved; agent available (P3-5) |
 
 Invalid commands return 409 with a message; a Daily token failure on accept returns
 502. `/queue/calls` only takes sessions this server started (`/calls/browser` or the
@@ -151,6 +205,8 @@ ignores app messages from anyone else):
 {"type": "agent_assist.queue", "event": "queued", "position": 1}
 {"type": "agent_assist.queue", "event": "position", "position": 1}
 {"type": "agent_assist.queue", "event": "agent_accepted", "agent_name": "Ana"}
+{"type": "agent_assist.queue", "event": "requeued", "position": 1}
+{"type": "agent_assist.queue", "event": "call_ended"}
 ```
 
 While queued the bot says a short update every 60 s ("Thanks for waiting. You're next
@@ -168,6 +224,7 @@ transcript to the agent's portal (P3-4, see docs/transcript.md).
 
 ## Not yet
 
-- QH-8 callback offer after 5 minutes, QH-9 agent drop re-queue (Should, later cards).
+- QH-8 callback offer after 5 minutes (Should, later card).
+- AP-9 summary draft and suggested reason code at wrap up (Phase 4).
 - Hold music.
 - Server side hold (the portal's hold only mutes the agent mic in v1).

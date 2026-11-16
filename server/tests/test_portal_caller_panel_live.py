@@ -220,7 +220,7 @@ async def test_live_caller_panel_fills_for_maria(schema, shots, monkeypatch):
             )
 
             await page.get_by_role("button", name="End call").click()
-            await expect(page.get_by_text("Wrap up", exact=True)).to_be_visible(timeout=10_000)
+            await expect(page.get_by_role("region", name="Wrap up")).to_be_visible(timeout=10_000)
             log(t0, "ended; agent in wrap up")
             await browser.close()
     finally:

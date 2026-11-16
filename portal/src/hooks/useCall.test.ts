@@ -56,3 +56,38 @@ describe("useCall transcript (P3-4)", () => {
     expect(result.current.call?.highlights).toEqual([]);
   });
 });
+
+describe("useCall warm up while ringing (P3-5: accept to audio under 2 s)", () => {
+  beforeEach(() => FakeMedia.reset());
+
+  it("prepare() warms one media session; start() joins with that same session", () => {
+    const { result } = renderHook(() => useCall(createFakeMedia));
+    act(() => result.current.prepare());
+    expect(FakeMedia.instances).toHaveLength(1);
+    expect(FakeMedia.last().prepared).toBe(1);
+    act(() => result.current.prepare()); // ringing re-renders do not warm twice
+    expect(FakeMedia.instances).toHaveLength(1);
+    act(() => result.current.start(res));
+    expect(FakeMedia.instances).toHaveLength(1);
+    expect(FakeMedia.last().joined).toEqual({ roomUrl: res.room_url, token: "t" });
+    act(() => FakeMedia.last().events.onServerMessage(tmsg("caller-1", "Hi.")));
+    expect(result.current.call?.transcript.map((l) => l.text)).toEqual(["Hi."]);
+  });
+
+  it("discard() releases a warmed session that was never used", () => {
+    const { result } = renderHook(() => useCall(createFakeMedia));
+    act(() => result.current.prepare());
+    const warm = FakeMedia.last();
+    act(() => result.current.discard());
+    expect(warm.left).toBe(1);
+    act(() => result.current.start(res));
+    expect(FakeMedia.instances).toHaveLength(2); // a fresh one
+  });
+
+  it("start() without prepare() still works", () => {
+    const { result } = renderHook(() => useCall(createFakeMedia));
+    act(() => result.current.start(res));
+    expect(FakeMedia.last().prepared).toBe(0);
+    expect(FakeMedia.last().joined).not.toBeNull();
+  });
+});

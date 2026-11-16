@@ -39,9 +39,11 @@ ON CONFLICT (agent_id) DO UPDATE SET
 # member_id is a foreign key, so an unknown id is dropped rather than failing the write.
 UPSERT_CALL = """
 INSERT INTO calls (session_id, status, intake, queued_at, answered_at, ended_at, agent_id,
+                   ended_by, wrap_up_reason, wrap_up_notes, wrapped_up_at,
                    identity_result, member_id, flags)
 VALUES (%(session_id)s, %(status)s, %(summary)s, %(queued_at)s, %(answered_at)s,
-        %(ended_at)s, %(agent_id)s, %(identity_result)s,
+        %(ended_at)s, %(agent_id)s, %(ended_by)s, %(wrap_up_reason)s, %(wrap_up_notes)s,
+        %(wrapped_up_at)s, %(identity_result)s,
         (SELECT member_id FROM members WHERE member_id = %(member_id)s), %(flags)s)
 ON CONFLICT (session_id) DO UPDATE SET
     status = EXCLUDED.status,
@@ -50,6 +52,10 @@ ON CONFLICT (session_id) DO UPDATE SET
     answered_at = EXCLUDED.answered_at,
     ended_at = EXCLUDED.ended_at,
     agent_id = EXCLUDED.agent_id,
+    ended_by = EXCLUDED.ended_by,
+    wrap_up_reason = EXCLUDED.wrap_up_reason,
+    wrap_up_notes = EXCLUDED.wrap_up_notes,
+    wrapped_up_at = EXCLUDED.wrapped_up_at,
     identity_result = COALESCE(EXCLUDED.identity_result, calls.identity_result),
     member_id = COALESCE(EXCLUDED.member_id, calls.member_id),
     flags = calls.flags || ARRAY(
@@ -72,6 +78,7 @@ class QueueStore:
             self._put(UPSERT_AGENT, {**a, "idle_since": _ts(a["idle_since"])})
         if "call" in event:
             c = event["call"]
+            wrap = c.get("wrap_up") or {}
             # Agent rows land first: the service emits agent_updated before the call
             # event that points at the agent (calls.agent_id is a foreign key).
             self._put(
@@ -84,6 +91,10 @@ class QueueStore:
                     "answered_at": _ts(c["answered_at"]),
                     "ended_at": _ts(c["ended_at"]),
                     "agent_id": c["agent_id"],
+                    "ended_by": c.get("ended_by"),
+                    "wrap_up_reason": wrap.get("reason_code"),
+                    "wrap_up_notes": wrap.get("notes"),
+                    "wrapped_up_at": _ts(wrap.get("saved_at")),
                     "identity_result": c.get("identity_result"),
                     "member_id": c.get("member_id"),
                     "flags": list(c.get("flags") or []),

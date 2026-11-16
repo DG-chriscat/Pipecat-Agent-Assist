@@ -7,6 +7,7 @@ from agent_assist_bot.calls import MemoryCallStore, PostgresCallStore
 from agent_assist_bot.intake import IntakeSession
 from agent_assist_bot.packs import load_pack, load_packs
 from agent_assist_bot.transcript import CallRoles, TranscriptRelay
+from pipecat.frames.frames import EndFrame
 from pipecat.pipeline.parallel_pipeline import ParallelPipeline
 from pipecat.pipeline.worker import PipelineWorker
 from pipecat.processors.frameworks.rtvi import RTVIObserver
@@ -686,3 +687,90 @@ async def test_intake_end_enqueues_through_queue_handoff():
     assert body["outcome"] == "asked_for_person"
     assert body["flags"] == ["asked_for_person"]
     assert body["summary"]["summary"]
+
+
+# ---- QH-9 agent drop and agent End (P3-5) -------------------------------------------
+
+
+class AgentLeftHandoff(RecordingHandoff):
+    def __init__(self):
+        super().__init__()
+        self.agent_left = []
+
+    async def on_agent_left(self, session_id):
+        self.agent_left.append(session_id)
+
+
+async def _with_agent(transport, worker, roles):
+    h = transport.handlers
+    await h["on_first_participant_joined"](transport, _p("c1", "caller"))
+    await h["on_participant_joined"](transport, _p("c1", "caller"))
+    await h["on_participant_joined"](transport, _p("a1", "Agent Ana"))
+    accepted = {"type": hold.MESSAGE_TYPE, "event": "agent_accepted", "agent_name": "Agent Ana"}
+    await h["on_app_message"](transport, accepted, "api")
+    assert roles.agent_id == "a1"
+
+
+async def test_agent_dropping_is_reported_to_the_queue():
+    transport, worker, h = FakeTransport(), FakeWorker(), AgentLeftHandoff()
+    roles = CallRoles()
+    bot.register_handlers(transport, worker, handoff=h, session_id="s1", roles=roles)
+    await _with_agent(transport, worker, roles)
+    await transport.handlers["on_participant_left"](transport, _p("a1", "Agent Ana"), "left")
+    assert h.agent_left == ["s1"]
+    assert not worker.cancelled
+
+
+async def test_other_participant_leaving_is_not_an_agent_drop():
+    transport, worker, h = FakeTransport(), FakeWorker(), AgentLeftHandoff()
+    roles = CallRoles()
+    bot.register_handlers(transport, worker, handoff=h, session_id="s1", roles=roles)
+    await _with_agent(transport, worker, roles)
+    await transport.handlers["on_participant_left"](transport, _p("x9", "Someone"), "left")
+    assert h.agent_left == []
+
+
+async def test_requeued_stops_listening_and_a_new_agent_can_take_over():
+    transport, worker, h = FakeTransport(), FakeWorker(), AgentLeftHandoff()
+    roles = CallRoles()
+    bot.register_handlers(transport, worker, handoff=h, session_id="s1", roles=roles)
+    await _with_agent(transport, worker, roles)
+    hd = transport.handlers
+    await hd["on_participant_left"](transport, _p("a1", "Agent Ana"), "left")
+    requeued = {"type": hold.MESSAGE_TYPE, "event": "requeued", "position": 1}
+    await hd["on_app_message"](transport, requeued, "api")
+    assert not roles.listening  # intake hears the caller again
+    assert worker.queued[-1].text == hold.REQUEUED_LINE
+    await hd["on_participant_joined"](transport, _p("b1", "Agent Ben"))
+    accepted = {"type": hold.MESSAGE_TYPE, "event": "agent_accepted", "agent_name": "Agent Ben"}
+    await hd["on_app_message"](transport, accepted, "api")
+    assert roles.listening and roles.agent_id == "b1"
+
+
+async def test_call_ended_by_agent_ends_the_bot():
+    transport, worker, h = FakeTransport(), FakeWorker(), AgentLeftHandoff()
+    roles = CallRoles()
+    ended = []
+
+    async def on_ended():
+        ended.append(True)
+
+    bot.register_handlers(
+        transport, worker, on_ended=on_ended, handoff=h, session_id="s1", roles=roles
+    )
+    await _with_agent(transport, worker, roles)
+    msg = {"type": hold.MESSAGE_TYPE, "event": "call_ended"}
+    await transport.handlers["on_app_message"](transport, msg, "api")
+    # Goodbye, then a graceful end so the line plays out before the bot leaves.
+    assert worker.queued[-2].text == hold.GOODBYE_LINE
+    assert isinstance(worker.queued[-1], EndFrame)
+    assert not worker.cancelled
+    assert ended == [True]
+    # The queue already knows; the bot does not report it again.
+    assert h.ended == []
+    # The room going away afterwards (caller ejected) stops the bot, but does not run
+    # the end path twice.
+    await transport.handlers["on_participant_left"](transport, _p("c1", "caller"), "ejected")
+    assert worker.cancelled
+    assert ended == [True]
+    assert h.ended == []

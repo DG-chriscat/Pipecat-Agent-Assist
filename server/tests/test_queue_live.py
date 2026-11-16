@@ -14,7 +14,8 @@ Checks: the bot gets the "queued" message and gives a hold update about 60 s lat
 (QH-5); the agent ws client gets the offer with the intake summary and a 20 s expiry
 (QH-3, QH-7); accept returns a token the agent joins with (QH-6); the bot says
 "Connecting you now." and then does not answer the caller (QH-6); caller hang-up ends
-the call in the queue and moves the agent to wrap_up.
+the call. Since P3-5 the agent leaving without End is a drop (QH-9): the call goes
+back to the front of the queue and the agent is set not available.
 """
 
 import asyncio
@@ -229,20 +230,31 @@ async def test_live_browser_call_queue_offer_accept_join(keys_present, monkeypat
                         names = sorted(p.get("userName") for p in presence.get("data", []))
                         log(t0, f"Daily presence: {names}")
 
-                    snap = (await http.get("/queue")).json()
+                    # QH-9 (P3-5): the agent left without ending the call. After the
+                    # grace period the call is back at the front of the queue and the
+                    # agent is not available; the bot stays with the caller.
+                    left_at = time.time()
+                    requeued = None
+                    while time.time() - left_at < 15:
+                        snap = (await http.get("/queue")).json()
+                        if [c["session_id"] for c in snap["queue"]] == [session_id]:
+                            requeued = snap
+                            break
+                        await asyncio.sleep(0.2)
+                    assert requeued is not None, "agent drop did not re-queue the call"
                     me = next(a for a in snap["agents"] if a["agent_id"] == agent["agent_id"])
-                    assert me["state"] == "on_call"
-                    assert [c["session_id"] for c in snap["active"]] == [session_id]
+                    assert me["state"] == "offline"
+                    assert snap["active"] == []
                     assert proc.returncode is None, "bot ended when the agent left"
-                    log(t0, "agent left; bot still running, agent still on_call")
+                    log(t0, f"agent left; call re-queued {time.time() - left_at:.2f}s later")
 
-            # Caller hung up: bot tells the queue and exits; the agent moves to wrap_up.
+            # Caller hung up while queued again: bot tells the queue and exits.
             await asyncio.wait_for(proc.wait(), 30)
             log(t0, f"bot exited after caller left, returncode={proc.returncode}")
             snap = (await http.get("/queue")).json()
             me = next(a for a in snap["agents"] if a["agent_id"] == agent["agent_id"])
-            log(t0, f"after hang-up: agent state={me['state']}, active={len(snap['active'])}")
-            assert me["state"] == "wrap_up"
+            log(t0, f"after hang-up: agent state={me['state']}, queue={len(snap['queue'])}")
+            assert me["state"] == "offline"
             assert snap["active"] == [] and snap["queue"] == []
     finally:
         for p in launcher.processes.values():

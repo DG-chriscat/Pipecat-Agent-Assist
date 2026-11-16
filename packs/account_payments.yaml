@@ -146,3 +146,17 @@ next_best_steps:
       post back to your account in 5 to 7 business days.
     action: {id: submit_premium_refund, label: Submit refund request}
     source: Billing system, KB-BL-001
+
+# Wrap up (P3-5, AP-9): the reason codes the agent picks from after the call.
+wrap_up:
+  reason_codes:
+    - code: payment_explained
+      label: Payment explained
+    - code: refund_submitted
+      label: Refund submitted
+    - code: autopay_updated
+      label: Autopay updated
+    - code: callback_needed
+      label: Callback needed
+    - code: other
+      label: Other

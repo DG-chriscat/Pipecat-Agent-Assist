@@ -82,6 +82,30 @@ LINES: tuple[Line, ...] = (
     ),
 )
 
+# P5-8 (AP-22): the same lines plus one a customer heard garbled on Flux at speed 1.0
+# and 1.1 ("Thanks, you are verified.").
+CONTROL_LINES: tuple[Line, ...] = (
+    *LINES,
+    Line("verified", "Thanks, you are verified.", (Entity("verified", "you are verified"),)),
+)
+
+
+@dataclass(frozen=True)
+class FluxSetting:
+    """One Flux voice control setting the read back test runs (P5-8)."""
+
+    label: str
+    speed: float
+    expressivity: int
+    voice: str = "flux-alexis-en"
+
+
+# Speeds at the default expressivity, then the expressivity extremes at speed 1.0.
+FLUX_CONTROL_SETTINGS: tuple[FluxSetting, ...] = (
+    *(FluxSetting(f"speed {s}", s, 0) for s in (0.8, 0.9, 1.0, 1.1, 1.2)),
+    *(FluxSetting(f"expressivity {e}", 1.0, e) for e in (-2, 2)),
+)
+
 # ---- normalising what was heard ---------------------------------------------------------
 
 _UNITS = {w: i for i, w in enumerate("zero one two three four five six seven eight nine".split())}
@@ -203,6 +227,7 @@ MATCHERS: dict[str, Callable[[str], bool]] = {
     "address": _has(r"(?<!\d)8oakst"),
     "business_days": _has(r"(?<!\d)7businessdays"),
     "place": _has(r"number2inline"),
+    "verified": _has(r"you(a)?reverified"),
 }
 
 # ---- results ------------------------------------------------------------------------------
@@ -216,6 +241,8 @@ class LineResult:
     heard: str
     ttfa_s: float
     entities: dict[str, bool] = field(default_factory=dict)
+    # Seconds of audio (P5-8: shows a speed setting took effect). 0 when not recorded.
+    audio_s: float = 0.0
 
 
 def score(line: Line, heard: str) -> dict[str, bool]:
@@ -224,9 +251,11 @@ def score(line: Line, heard: str) -> dict[str, bool]:
 
 def rescore(results: list[LineResult]) -> list[LineResult]:
     """Score saved results again (after a matcher fix) without new audio."""
-    lines = {line.key: line for line in LINES}
+    lines = {line.key: line for line in CONTROL_LINES}
     return [
-        LineResult(r.voice, r.line, r.run, r.heard, r.ttfa_s, score(lines[r.line], r.heard))
+        LineResult(
+            r.voice, r.line, r.run, r.heard, r.ttfa_s, score(lines[r.line], r.heard), r.audio_s
+        )
         for r in results
     ]
 
@@ -279,13 +308,32 @@ def model_of(voice: str) -> str:
     return "flux" if voice.startswith("flux-") else "aura-2"
 
 
-async def speak(voice: str, text: str, *, api_key: str) -> tuple[bytes, float]:
+def speak_url(voice: str, *, speed: float | None = None, expressivity: int | None = None) -> str:
+    """The speak websocket URL. Flux takes speed and expressivity as query parameters
+    (as DeepgramFluxTTSService sends them at connect)."""
+    model = model_of(voice)
+    url = f"{SPEAK_WS[model]}?model={voice}&encoding=linear16&sample_rate={SAMPLE_RATE}"
+    if speed is not None:
+        url += f"&speed={speed}"
+    if expressivity is not None:
+        url += f"&expressivity={expressivity}"
+    return url
+
+
+async def speak(
+    voice: str,
+    text: str,
+    *,
+    api_key: str,
+    speed: float | None = None,
+    expressivity: int | None = None,
+) -> tuple[bytes, float]:
     """PCM (16 kHz linear16) and seconds from sending the text to the first audio, on
     an already open websocket (as in a call, where the connection is up)."""
     from websockets.asyncio.client import connect
 
     model = model_of(voice)
-    url = f"{SPEAK_WS[model]}?model={voice}&encoding=linear16&sample_rate={SAMPLE_RATE}"
+    url = speak_url(voice, speed=speed, expressivity=expressivity)
     done = "SpeechMetadata" if model == "flux" else "Flushed"
     audio = bytearray()
     first: float | None = None
@@ -352,6 +400,41 @@ async def run(
                     with open(os.path.join(keep_audio, f"{voice}-{line.key}.wav"), "wb") as f:
                         f.write(wav_bytes(pcm))
                 results.append(LineResult(voice, line.key, i, heard, ttfa, score(line, heard)))
+    return results
+
+
+async def run_flux_controls(
+    settings: tuple[FluxSetting, ...] = FLUX_CONTROL_SETTINGS,
+    runs: int = 3,
+    api_key: str | None = None,
+    keep_audio: str | None = None,
+) -> list[LineResult]:
+    """CONTROL_LINES on each Flux setting (P5-8). `LineResult.voice` is the label."""
+    key = api_key or os.environ["DEEPGRAM_API_KEY"]
+    results: list[LineResult] = []
+    for s in settings:
+        for line in CONTROL_LINES:
+            for i in range(runs):
+                pcm, ttfa = await speak(
+                    s.voice, line.text, api_key=key, speed=s.speed, expressivity=s.expressivity
+                )
+                heard = await transcribe(pcm, api_key=key)
+                if keep_audio and i == 0:
+                    os.makedirs(keep_audio, exist_ok=True)
+                    name = s.label.replace(" ", "_")
+                    with open(os.path.join(keep_audio, f"{name}-{line.key}.wav"), "wb") as f:
+                        f.write(wav_bytes(pcm))
+                results.append(
+                    LineResult(
+                        s.label,
+                        line.key,
+                        i,
+                        heard,
+                        ttfa,
+                        score(line, heard),
+                        audio_s=len(pcm) / (2 * SAMPLE_RATE),
+                    )
+                )
     return results
 
 

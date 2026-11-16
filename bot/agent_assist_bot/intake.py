@@ -61,6 +61,7 @@ from agent_assist_bot.calls import (
     normalize_member_id,
 )
 from agent_assist_bot.packs import Pack
+from agent_assist_bot.tts_pacing import mark_readback
 
 # PRD IN-2: tell the caller they are speaking with an AI assistant and a person will join.
 # Names the product (ADR 0003).
@@ -257,9 +258,11 @@ async def uninterruptible_tts_say(action: dict, flow_manager: FlowManager) -> No
         return
     worker = flow_manager.worker
     flow_manager._action_manager._increment_ongoing_actions_count()
-    await worker.queue_frame(
-        TTSSpeakFrame(text=text, append_to_context=action.get("append_text_to_context", True))
-    )
+    speak = TTSSpeakFrame(text=text, append_to_context=action.get("append_text_to_context", True))
+    if action.get("readback"):
+        # P5-8: spoken at the read back speed when slow read backs are on (tts_pacing).
+        mark_readback(speak)
+    await worker.queue_frame(speak)
     done = ActionFinishedFrame()
     done.interruptible = False
     await worker.queue_frame(done)
@@ -517,7 +520,11 @@ class IntakeSession:
             }, None
         worker = getattr(flow_manager, "worker", None)
         if text and worker is not None:
-            await worker.queue_frames([TTSSpeakFrame(text)])
+            speak = TTSSpeakFrame(text)
+            if self.node == "readback":
+                # The final summary read back (P5-8 slow read backs, tts_pacing).
+                mark_readback(speak)
+            await worker.queue_frames([speak])
         # Spoken directly: no further LLM turn until the caller answers.
         return {"said": True}, NO_RESPONSE
 
@@ -803,7 +810,7 @@ class IntakeSession:
                     dataclasses.replace(self._say_function(), handler=self._on_identity_say),
                     *self._escape_functions(identity=True),
                 ],
-                "pre_actions": [{"type": "tts_say", "text": text}],
+                "pre_actions": [{"type": "tts_say", "text": text, "readback": True}],
                 "respond_immediately": False,
             }
         )

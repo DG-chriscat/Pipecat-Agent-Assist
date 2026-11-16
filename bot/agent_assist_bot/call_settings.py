@@ -52,6 +52,18 @@ VOICE_PREFIX = {"aura-2": "aura-2-", "flux": "flux-"}
 PLACE = "{place}"
 DEFAULT_HOLD_TEXT = f"Thanks for waiting. {PLACE} A person will be with you shortly."
 MAX_TEXT = 400
+# Flux voice controls (P5-8, AP-22). Same defaults as agent_assist_server.bot_settings.
+# The server checks the Settings range; here only what Flux takes (speed 0.5 to 1.5,
+# expressivity -2 to 2) and the read back range, so a call never fails over them.
+DEFAULT_TTS_SPEED = 1.0
+DEFAULT_TTS_EXPRESSIVITY = 0
+DEFAULT_READBACK_SPEED = 0.9
+FLUX_SPEED_RANGE = (0.5, 1.5)
+READBACK_SPEED_RANGE = (0.8, 1.0)
+
+
+def _number_in(v: Any, low: float, high: float) -> bool:
+    return isinstance(v, int | float) and not isinstance(v, bool) and low <= v <= high
 
 
 def _pack_exists(pack: str) -> bool:
@@ -69,6 +81,11 @@ class CallSettings:
     hold_update_secs: int
     stt_intake_model: str = DEFAULT_INTAKE_MODEL
     stt_assist_model: str = DEFAULT_ASSIST_MODEL
+    # Flux voice controls (P5-8, AP-22); Aura-2 ignores them.
+    tts_speed: float = DEFAULT_TTS_SPEED
+    tts_expressivity: int = DEFAULT_TTS_EXPRESSIVITY
+    slow_readback: bool = True
+    readback_speed: float = DEFAULT_READBACK_SPEED
 
     @classmethod
     def defaults(cls, env: Mapping[str, str] | None = None) -> CallSettings:
@@ -118,6 +135,15 @@ class CallSettings:
         )
         take("stt_intake_model", lambda v: v in INTAKE_MODELS)
         take("stt_assist_model", lambda v: v in ASSIST_MODELS)
+        take("tts_speed", lambda v: _number_in(v, *FLUX_SPEED_RANGE))
+        take(
+            "tts_expressivity",
+            lambda v: isinstance(v, int) and not isinstance(v, bool) and -2 <= v <= 2,
+        )
+        take("slow_readback", lambda v: isinstance(v, bool))
+        take("readback_speed", lambda v: _number_in(v, *READBACK_SPEED_RANGE))
+        for key in ("tts_speed", "readback_speed"):
+            out[key] = round(float(out[key]), 2)
         if bad:
             logger.warning(f"[settings] unusable values for {sorted(bad)}; using defaults")
         return cls(**out)
@@ -143,24 +169,37 @@ class CallSettings:
 
     def describe(self) -> str:
         """For the log: what this call runs with, no free text."""
+        flux = ""
+        if self.tts_model == "flux":
+            slow = f"{self.readback_speed:g}" if self.slow_readback else "off"
+            flux = (
+                f"speed={self.tts_speed:g} expressivity={self.tts_expressivity} "
+                f"slow_readback={slow} "
+            )
         return (
-            f"tts={self.tts_model}/{self.tts_voice} pack={self.intake_pack} "
+            f"tts={self.tts_model}/{self.tts_voice} {flux}pack={self.intake_pack} "
             f"read_back={'on' if self.identity_read_back else 'off'} "
             f"hold_every={self.hold_update_secs}s "
             f"stt_intake={self.stt_intake_model} stt_assist={self.stt_assist_model}"
         )
 
 
-def build_tts(settings: CallSettings, *, api_key: str):
-    """The call's TTS service: Aura-2 on /v1/speak or Flux on /v2/speak."""
+def build_tts(settings: CallSettings, *, api_key: str, session_id: str = ""):
+    """The call's TTS service: Aura-2 on /v1/speak or Flux on /v2/speak. Flux connects
+    with the speed and expressivity from Settings (P5-8); Aura-2 does not take them."""
     if settings.tts_model == "flux":
-        from pipecat.services.deepgram.flux.tts import DeepgramFluxTTSService
+        from agent_assist_bot.tts_pacing import FluxTTSService
 
         # Pipecat's Flux default: LLM tokens stream straight to Flux, which places the
         # synthesis boundaries itself. Fixed lines arrive whole as TTSSpeakFrames.
-        return DeepgramFluxTTSService(
+        return FluxTTSService(
             api_key=api_key,
-            settings=DeepgramFluxTTSService.Settings(voice=settings.tts_voice),
+            session_id=session_id,
+            settings=FluxTTSService.Settings(
+                voice=settings.tts_voice,
+                speed=settings.tts_speed,
+                expressivity=settings.tts_expressivity,
+            ),
         )
     from pipecat.services.deepgram.tts import DeepgramTTSService
 
@@ -169,4 +208,18 @@ def build_tts(settings: CallSettings, *, api_key: str):
     )
 
 
-__all__ = ["HOLD_INTERVAL_ENV", "CallSettings", "build_tts"]
+def build_readback_pacer(settings: CallSettings):
+    """The slow read backs processor (tts_pacing.ReadbackPacer), or None: Aura-2, slow
+    read backs off, or a read back speed no slower than the voice's speed."""
+    if (
+        settings.tts_model != "flux"
+        or not settings.slow_readback
+        or settings.readback_speed >= settings.tts_speed
+    ):
+        return None
+    from agent_assist_bot.tts_pacing import ReadbackPacer
+
+    return ReadbackPacer(tts_speed=settings.tts_speed, readback_speed=settings.readback_speed)
+
+
+__all__ = ["HOLD_INTERVAL_ENV", "CallSettings", "build_readback_pacer", "build_tts"]

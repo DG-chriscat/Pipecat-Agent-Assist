@@ -15,6 +15,19 @@ export interface SettingsValues {
   hold_update_secs: number;
   stt_intake_model: SttModel;
   stt_assist_model: SttModel;
+  /** Flux voice controls (P5-8, AP-22); ignored with Aura-2. */
+  tts_speed: number;
+  tts_expressivity: number;
+  slow_readback: boolean;
+  readback_speed: number;
+}
+
+/** What Preview needs besides model, voice, and text (P5-8). */
+export interface VoiceControls {
+  tts_speed: number;
+  tts_expressivity: number;
+  slow_readback: boolean;
+  readback_speed: number;
 }
 
 export interface PackSummary {
@@ -29,7 +42,14 @@ export interface SettingsResponse {
   is_default: boolean;
   updated_at: string | null;
   packs: PackSummary[];
-  limits: { greeting_text: number; hold_update_text: number; hold_update_secs: [number, number] };
+  limits: {
+    greeting_text: number;
+    hold_update_text: number;
+    hold_update_secs: [number, number];
+    tts_speed?: [number, number];
+    readback_speed?: [number, number];
+    speed_step?: number;
+  };
   stt_models: { intake: SttModel[]; assist: SttModel[] };
 }
 
@@ -58,8 +78,10 @@ export interface SettingsApi {
   save(values: SettingsValues, agent: string): Promise<SettingsResponse>;
   reset(agent: string): Promise<SettingsResponse>;
   voices(): Promise<VoiceCatalog>;
-  /** A short sample line (or `text`) in this voice, as audio. */
-  preview(model: TtsModel, voice: string, text?: string): Promise<Blob>;
+  /** A short sample line (or `text`) in this voice, as audio. Flux uses `controls`:
+   * the speed and expressiveness, and with slow read backs on the sample's member ID
+   * part at the read back speed (server side). */
+  preview(model: TtsModel, voice: string, text?: string, controls?: VoiceControls): Promise<Blob>;
 }
 
 const SESSION_EXPIRED = "Your session expired. Reload the page to sign in again.";
@@ -92,8 +114,8 @@ export const settingsApi: SettingsApi = {
   save: (values, agent) => json<SettingsResponse>(call("PUT", "/settings", { values, agent })),
   reset: (agent) => json<SettingsResponse>(call("POST", "/settings/reset", { agent })),
   voices: () => json<VoiceCatalog>(call("GET", "/settings/voices")),
-  preview: async (model, voice, text) =>
-    (await call("POST", "/settings/preview", { tts_model: model, tts_voice: voice, text })).blob(),
+  preview: async (model, voice, text, controls) =>
+    (await call("POST", "/settings/preview", { tts_model: model, tts_voice: voice, text, ...controls })).blob(),
 };
 
 /** Same rule as the server (agent_assist_server.bot_settings.disclosure_problems, IN-2). */

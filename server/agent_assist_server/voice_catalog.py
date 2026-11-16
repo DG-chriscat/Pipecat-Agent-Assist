@@ -159,9 +159,24 @@ class SpeakError(RuntimeError):
     pass
 
 
-def speak_request(model: str, voice: str, api_url: str = API_URL) -> tuple[str, dict[str, str]]:
+def speak_request(
+    model: str,
+    voice: str,
+    api_url: str = API_URL,
+    *,
+    speed: float | None = None,
+    expressivity: int | None = None,
+) -> tuple[str, dict[str, str]]:
+    """URL and query for a sample. Flux takes speed and expressivity (P5-8, AP-22) as
+    query parameters; Aura-2 does not get them."""
     path = "/v2/speak" if model == "flux" else "/v1/speak"
-    return f"{api_url}{path}", {"model": voice, "encoding": "mp3"}
+    params = {"model": voice, "encoding": "mp3"}
+    if model == "flux":
+        if speed is not None:
+            params["speed"] = str(speed)
+        if expressivity is not None:
+            params["expressivity"] = str(expressivity)
+    return f"{api_url}{path}", params
 
 
 async def synthesize(
@@ -171,12 +186,14 @@ async def synthesize(
     *,
     api_key: str | None = None,
     transport: httpx.AsyncBaseTransport | None = None,
+    speed: float | None = None,
+    expressivity: int | None = None,
 ) -> bytes:
     """One sample line as MP3 (Settings Preview)."""
     key = os.environ.get(KEY_ENV, "") if api_key is None else api_key
     if not key:
         raise SpeakError(f"{KEY_ENV} is not configured")
-    url, params = speak_request(model, voice)
+    url, params = speak_request(model, voice, speed=speed, expressivity=expressivity)
     async with httpx.AsyncClient(transport=transport, timeout=TIMEOUT_SECS) as client:
         try:
             r = await client.post(

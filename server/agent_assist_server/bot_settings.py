@@ -18,6 +18,11 @@ Validation (`validate`):
 - Text lengths and the hold interval are bounded; the hold message may use one
   placeholder, {place}, filled with the caller's place in line.
 - stt_intake_model is in STT_INTAKE_MODELS and stt_assist_model in STT_ASSIST_MODELS.
+- Flux voice controls (P5-8, AP-22): tts_speed from MIN_TTS_SPEED to MAX_TTS_SPEED in
+  steps of 0.05 (the range the read back test passed, docs/spikes/tts-flux-controls.md),
+  tts_expressivity a whole number from -2 to 2, slow_readback on or off, and
+  readback_speed from 0.8 to 1.0 in steps of 0.05. They are checked with Aura-2 too
+  (kept for when Flux is picked again) and the bot ignores them on Aura-2.
 """
 
 from __future__ import annotations
@@ -57,6 +62,20 @@ STT_ASSIST_MODELS = ("nova-3-general", "nova-3-medical", "flux-general-en")
 DEFAULT_STT_INTAKE_MODEL = "nova-3-general"
 DEFAULT_STT_ASSIST_MODEL = "nova-3-general"
 DEFAULT_PACK = "claims_status"
+# P5-8 (AP-22): Flux voice controls. Flux takes speed 0.5 to 1.5 in steps of 0.05 and
+# expressivity -2 to 2 (Beta). The Settings range is what the read back test passed on
+# flux-alexis-en (docs/spikes/tts-flux-controls.md). Same values as
+# agent_assist_bot.call_settings.
+SPEED_STEP = 0.05
+MIN_TTS_SPEED = 0.8
+MAX_TTS_SPEED = 1.2
+MIN_READBACK_SPEED = 0.8
+MAX_READBACK_SPEED = 1.0
+MIN_EXPRESSIVITY = -2
+MAX_EXPRESSIVITY = 2
+DEFAULT_TTS_SPEED = 1.0
+DEFAULT_TTS_EXPRESSIVITY = 0
+DEFAULT_READBACK_SPEED = 0.9
 # PRD IN-2, same text as agent_assist_bot.intake.GREETING (test_bot_settings_bot.py).
 DEFAULT_GREETING = (
     "Hi, thanks for calling. You're speaking with Deepgram Vitals, an AI assistant. "
@@ -82,6 +101,10 @@ FIELDS = (
     "hold_update_secs",
     "stt_intake_model",
     "stt_assist_model",
+    "tts_speed",
+    "tts_expressivity",
+    "slow_readback",
+    "readback_speed",
 )
 
 NEEDS_AI = "Say that the caller is talking to an AI assistant."
@@ -129,6 +152,10 @@ def defaults(env: Mapping[str, str] | None = None) -> dict[str, Any]:
         "hold_update_secs": _env_hold_secs(env),
         "stt_intake_model": DEFAULT_STT_INTAKE_MODEL,
         "stt_assist_model": DEFAULT_STT_ASSIST_MODEL,
+        "tts_speed": DEFAULT_TTS_SPEED,
+        "tts_expressivity": DEFAULT_TTS_EXPRESSIVITY,
+        "slow_readback": True,
+        "readback_speed": DEFAULT_READBACK_SPEED,
     }
 
 
@@ -177,6 +204,14 @@ class StaticVoiceCatalog:
 
 
 # ---- validation ---------------------------------------------------------------------
+
+
+def is_speed(value: Any, low: float, high: float) -> bool:
+    """A number from low to high on a 0.05 step (1 and 1.0 both count)."""
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return False
+    steps = value / SPEED_STEP
+    return low - 1e-9 <= value <= high + 1e-9 and abs(steps - round(steps)) < 1e-6
 
 
 def _text(values: Mapping[str, Any], key: str, limit: int, errors: dict[str, str]) -> str:
@@ -240,6 +275,25 @@ async def validate(
         errors["intake_pack"] = "Pick a pack from the list."
     if "identity_read_back" in values and not isinstance(values.get("identity_read_back"), bool):
         errors["identity_read_back"] = "On or off."
+    if "tts_speed" in values and not is_speed(
+        values.get("tts_speed"), MIN_TTS_SPEED, MAX_TTS_SPEED
+    ):
+        errors["tts_speed"] = f"From {MIN_TTS_SPEED}x to {MAX_TTS_SPEED}x in steps of 0.05."
+    if "readback_speed" in values and not is_speed(
+        values.get("readback_speed"), MIN_READBACK_SPEED, MAX_READBACK_SPEED
+    ):
+        errors["readback_speed"] = (
+            f"From {MIN_READBACK_SPEED}x to {MAX_READBACK_SPEED}x in steps of 0.05."
+        )
+    expressivity = values.get("tts_expressivity")
+    if "tts_expressivity" in values and (
+        not isinstance(expressivity, int)
+        or isinstance(expressivity, bool)
+        or not MIN_EXPRESSIVITY <= expressivity <= MAX_EXPRESSIVITY
+    ):
+        errors["tts_expressivity"] = f"A step from {MIN_EXPRESSIVITY} to {MAX_EXPRESSIVITY}."
+    if "slow_readback" in values and not isinstance(values.get("slow_readback"), bool):
+        errors["slow_readback"] = "On or off."
     for key, allowed in (
         ("stt_intake_model", STT_INTAKE_MODELS),
         ("stt_assist_model", STT_ASSIST_MODELS),

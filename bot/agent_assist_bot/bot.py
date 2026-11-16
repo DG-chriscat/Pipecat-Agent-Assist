@@ -63,7 +63,7 @@ from agent_assist_bot import stt as stt_models
 from agent_assist_bot.assist import LLM_DEBOUNCE_SECS
 from agent_assist_bot.assist_llm import LLMProposer
 from agent_assist_bot.assist_runtime import AssistSession
-from agent_assist_bot.call_settings import CallSettings, build_tts
+from agent_assist_bot.call_settings import CallSettings, build_readback_pacer, build_tts
 from agent_assist_bot.calls import CallStore, MemoryCallStore, PostgresCallStore
 from agent_assist_bot.dialin import DEFAULT_DAILY_API_URL as DEFAULT_DAILY_API_URL
 from agent_assist_bot.dialin import DialinConfig as DialinConfig
@@ -457,7 +457,10 @@ def build_worker(
         os.environ["DEEPGRAM_API_KEY"], settings.stt_intake_model, pack.keyterms
     )
     # Aura-2 (/v1/speak) or Flux (/v2/speak) from the settings (call_settings.build_tts).
-    tts = build_tts(settings, api_key=os.environ["DEEPGRAM_API_KEY"])
+    # Flux connects at the Settings speed and expressivity; with slow read backs on,
+    # the pacer drops the speed for read back lines and restores it after (P5-8).
+    tts = build_tts(settings, api_key=os.environ["DEEPGRAM_API_KEY"], session_id=session_id)
+    pacer = build_readback_pacer(settings)
     llm = create_llm(system_instruction=ROLE_MESSAGE)
 
     context = LLMContext()
@@ -533,6 +536,7 @@ def build_worker(
             aggregators.user(),
             gate,
             llm,
+            *([pacer] if pacer is not None else []),
             tts,
             FirstAudioTimer(session_id),
             transport.output(),

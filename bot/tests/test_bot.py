@@ -1088,9 +1088,20 @@ def test_flux_settings_put_the_flux_service_in_the_pipeline(api_keys):
     tts = _tts(worker)
     assert isinstance(tts, DeepgramFluxTTSService) and tts._settings.voice == "flux-alexis-en"
     # The greeting timer still sits right after the TTS, before the output (IN-1 log).
+    # With slow read backs on (default) the pacer sits right before the TTS (P5-8).
     inner = next(p for p in worker._pipeline.processors if type(p).__name__ == "Pipeline")
     names = [type(p).__name__ for p in inner.processors]
-    assert names[names.index("DeepgramFluxTTSService") + 1] == "FirstAudioTimer"
+    assert names[names.index("FluxTTSService") + 1] == "FirstAudioTimer"
+    assert names[names.index("FluxTTSService") - 1] == "ReadbackPacer"
+
+
+def test_aura_settings_have_no_read_back_pacer(api_keys):
+    from agent_assist_bot.call_settings import CallSettings
+
+    s = CallSettings.from_mapping({"tts_model": "aura-2", "tts_voice": "aura-2-thalia-en"}, env={})
+    worker, _ = bot.build_worker(ROOM, "tok", store=MemoryCallStore(), settings=s)
+    inner = next(p for p in worker._pipeline.processors if type(p).__name__ == "Pipeline")
+    assert "ReadbackPacer" not in [type(p).__name__ for p in inner.processors]
 
 
 async def test_settings_pick_the_pack_greeting_and_read_back(api_keys, monkeypatch):

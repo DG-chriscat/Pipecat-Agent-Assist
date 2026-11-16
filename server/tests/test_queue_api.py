@@ -331,3 +331,19 @@ def test_ws_disconnect_unsubscribes(client):
         ws.receive_json()
         assert len(svc._listeners) == before + 1
     assert wait_for(lambda: len(svc._listeners) == before)
+
+
+def test_persist_write_through_uses_database_schema(monkeypatch):
+    """QUEUE_PERSIST=1 writes to DATABASE_SCHEMA when set (live tests use throwaway ones)."""
+    from agent_assist_server import queue_store
+
+    made = []
+    monkeypatch.setattr(queue_store.QueueStore, "__init__", lambda self, **kw: made.append(kw))
+    monkeypatch.setattr(queue_store.QueueStore, "on_event", lambda self, e: None)
+    monkeypatch.setenv("QUEUE_PERSIST", "1")
+    monkeypatch.setenv("DATABASE_SCHEMA", "test_abc")
+    try:
+        queue_api.get_queue(app)
+        assert made == [{"schema": "test_abc"}]
+    finally:
+        delattr(app.state, "queue_service")

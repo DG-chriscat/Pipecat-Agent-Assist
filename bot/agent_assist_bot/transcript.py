@@ -84,6 +84,12 @@ class CallRoles:
         if participant_id == self.agent_id:
             self.agent_id = None
 
+    def agent_dropped(self) -> None:
+        """QH-9: the call went back to the queue. Intake hears the caller again; the
+        next agent_accepted names the new agent."""
+        self.agent_name = None
+        self.agent_id = None
+
     def agent_accepted(self, agent_name: str | None) -> None:
         self.agent_name = (agent_name or "").strip()
         for pid in self._names:

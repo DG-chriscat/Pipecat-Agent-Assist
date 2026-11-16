@@ -2,6 +2,7 @@
 
 import pytest
 from agent_assist_server.queue_service import (
+    AGENT_DROP_GRACE_SECS,
     OFFER_TIMEOUT_SECS,
     AgentState,
     CallStatus,
@@ -507,3 +508,160 @@ async def test_five_calls_three_agents_with_a_miss(svc, clock):
     svc.set_status(ana.agent_id, AgentState.WRAP_UP)
     svc.set_status(ana.agent_id, AgentState.AVAILABLE)
     assert svc.get_agent(ana.agent_id).offer_call_id == "s3"
+
+
+# ---- wrap up (P3-5) ----------------------------------------------------------
+
+
+async def on_call(svc, clock, n=1, name="Ana"):
+    a = available_agent(svc, clock, name)
+    enqueue(svc, n)
+    await svc.accept(a.agent_id, f"s{n}")
+    return a
+
+
+async def test_end_by_agent_records_who_ended(svc, clock):
+    a = await on_call(svc, clock)
+    svc.set_status(a.agent_id, AgentState.WRAP_UP)
+    call = svc.get_call("s1")
+    assert call.ended_by == "agent"
+    assert call.to_dict()["ended_by"] == "agent"
+    # The agent keeps the call id through wrap up, so the portal knows what to save.
+    assert svc.get_agent(a.agent_id).call_id == "s1"
+
+
+async def test_caller_hang_up_records_who_ended(svc, clock):
+    a = await on_call(svc, clock)
+    svc.end_call("s1")
+    assert svc.get_call("s1").ended_by == "caller"
+    assert svc.get_agent(a.agent_id).call_id == "s1"
+
+
+async def test_save_wrap_up_stores_it_on_the_call_then_agent_is_available(svc, clock):
+    a = await on_call(svc, clock)
+    svc.end_call("s1")
+    clock.advance(5)
+    svc.events.clear()
+    call = svc.save_wrap_up(a.agent_id, "s1", "claim_explained", "  Explained the denial.  ")
+    assert call.wrap_up == {
+        "reason_code": "claim_explained",
+        "notes": "Explained the denial.",
+        "saved_at": clock.now(),
+    }
+    assert call.to_dict()["wrap_up"] == call.wrap_up
+    agent = svc.get_agent(a.agent_id)
+    assert agent.state is AgentState.AVAILABLE
+    assert agent.call_id is None
+    assert agent.idle_since == clock.now()
+    # The call record is written before the agent moves on.
+    assert types(svc.events)[:2] == ["call_updated", "agent_updated"]
+
+
+async def test_save_wrap_up_rings_the_agent_for_the_next_call(svc, clock):
+    a = await on_call(svc, clock)
+    enqueue(svc, 2)
+    svc.end_call("s1")
+    svc.save_wrap_up(a.agent_id, "s1", "other", "")
+    assert svc.get_agent(a.agent_id).offer_call_id == "s2"
+
+
+async def test_save_wrap_up_only_in_wrap_up_for_that_call(svc, clock):
+    a = await on_call(svc, clock)
+    with pytest.raises(QueueError):
+        svc.save_wrap_up(a.agent_id, "s1", "other", "")  # still on the call
+    svc.end_call("s1")
+    with pytest.raises(QueueError):
+        svc.save_wrap_up(a.agent_id, "s2", "other", "")
+    b = svc.sign_in("Ben")
+    with pytest.raises(QueueError):
+        svc.save_wrap_up(b.agent_id, "s1", "other", "")
+
+
+async def test_save_wrap_up_rejects_long_notes(svc, clock):
+    a = await on_call(svc, clock)
+    svc.end_call("s1")
+    with pytest.raises(QueueError):
+        svc.save_wrap_up(a.agent_id, "s1", "other", "x" * 2001)
+
+
+# ---- QH-9: the agent drops off --------------------------------------------------
+
+
+async def test_agent_drop_puts_caller_back_at_the_front(svc, clock):
+    await on_call(svc, clock)
+    enqueue(svc, 2)
+    enqueue(svc, 3)
+    svc.events.clear()
+    assert svc.agent_left("s1") is True
+    call = svc.get_call("s1")
+    assert call.status is CallStatus.QUEUED
+    assert call.agent_id is None and call.answered_at is None
+    assert [c.session_id for c in svc.waiting_calls()] == ["s1", "s2", "s3"]
+    queued = [e for e in svc.events if e["type"] == "call_queued"]
+    assert queued == [
+        {"type": "call_queued", "call": call.to_dict(), "position": 1, "requeued": True}
+    ]
+
+
+async def test_agent_drop_sets_that_agent_not_available(svc, clock):
+    a = await on_call(svc, clock)
+    svc.agent_left("s1")
+    agent = svc.get_agent(a.agent_id)
+    assert agent.state is AgentState.OFFLINE
+    assert agent.call_id is None
+
+
+async def test_dropped_call_rings_the_next_available_agent(svc, clock):
+    a = await on_call(svc, clock)
+    b = available_agent(svc, clock, "Ben")
+    svc.agent_left("s1")
+    assert svc.get_agent(b.agent_id).offer_call_id == "s1"
+    assert svc.get_agent(a.agent_id).state is AgentState.OFFLINE
+
+
+async def test_agent_leaving_after_end_is_not_a_drop(svc, clock):
+    a = await on_call(svc, clock)
+    svc.set_status(a.agent_id, AgentState.WRAP_UP)
+    assert svc.agent_left("s1") is False
+    assert svc.get_call("s1").status is CallStatus.ENDED
+    assert svc.get_agent(a.agent_id).state is AgentState.WRAP_UP
+
+
+def test_agent_left_unknown_or_queued_call_is_noop(svc):
+    assert svc.agent_left("nope") is False
+    enqueue(svc, 1)
+    assert svc.agent_left("s1") is False
+    assert svc.get_call("s1").status is CallStatus.QUEUED
+
+
+async def test_reported_drop_waits_a_grace_period_for_end(svc, clock):
+    # The portal sends wrap up before leaving the room; a slow End still wins the race.
+    a = await on_call(svc, clock)
+    svc.report_agent_left("s1")
+    assert svc.get_call("s1").status is CallStatus.WITH_AGENT
+    svc.set_status(a.agent_id, AgentState.WRAP_UP)
+    clock.advance(AGENT_DROP_GRACE_SECS + 1)
+    assert svc.get_call("s1").status is CallStatus.ENDED
+    assert svc.get_agent(a.agent_id).state is AgentState.WRAP_UP
+
+
+async def test_reported_drop_requeues_after_the_grace_period(svc, clock):
+    a = await on_call(svc, clock)
+    svc.report_agent_left("s1")
+    clock.advance(AGENT_DROP_GRACE_SECS - 0.1)
+    assert svc.get_call("s1").status is CallStatus.WITH_AGENT
+    clock.advance(0.2)
+    assert svc.get_call("s1").status is CallStatus.QUEUED
+    assert svc.get_agent(a.agent_id).state is AgentState.OFFLINE
+
+
+async def test_reported_drop_ignores_a_later_agent_on_the_same_call(svc, clock):
+    a = await on_call(svc, clock)
+    svc.report_agent_left("s1")
+    svc.agent_left("s1")  # requeued at once (e.g. a second report)
+    b = available_agent(svc, clock, "Ben", after=0)
+    await svc.accept(b.agent_id, "s1")
+    clock.advance(AGENT_DROP_GRACE_SECS + 1)
+    # The first report was about Ana; Ben's call is left alone.
+    assert svc.get_call("s1").agent_id == b.agent_id
+    assert svc.get_agent(a.agent_id).state is AgentState.OFFLINE

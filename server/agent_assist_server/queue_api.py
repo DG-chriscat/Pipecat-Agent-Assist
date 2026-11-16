@@ -9,6 +9,8 @@ REST:
     POST /queue/calls                    {session_id, summary, outcome, identity_result,
                                           member_id, flags}    -> {position}  (bot handoff)
     POST /queue/calls/{session_id}/end                         (caller left)
+    POST /queue/calls/{session_id}/agent-left                  (QH-9, wrap_up_api.py)
+    GET  /calls/{session_id}/wrap-up, POST /agents/{agent_id}/wrap-up  (P3-5, wrap_up_api.py)
 
 Websocket /ws/queue: on connect, a {"type": "snapshot", ...} message, then every queue
 event (call_queued, call_updated, call_ended, call_accepted, agent_updated, offer,
@@ -18,7 +20,8 @@ The meeting token only appears in the "accepted" reply to the socket that accept
 
 Bot notifier: queue events for a call become Daily app messages in that call's room
 (REST /rooms/{room}/send-app-message, sender "api"), so the bot knows it is queued and
-when an agent accepted. Message data: {"type": BOT_MESSAGE_TYPE, "event": ...}.
+when an agent accepted. Message data: {"type": BOT_MESSAGE_TYPE, "event": ...}; events
+are queued, position, agent_accepted, and requeued (QH-9: the agent dropped off).
 """
 
 from __future__ import annotations
@@ -48,6 +51,8 @@ logger = logging.getLogger(__name__)
 
 BOT_MESSAGE_TYPE = "agent_assist.queue"
 PERSIST_ENV = "QUEUE_PERSIST"
+# After the agent's End: time for the bot's goodbye line before the room is deleted.
+ROOM_CLOSE_DELAY_SECS = 6.0
 
 router = APIRouter()
 
@@ -70,7 +75,9 @@ def get_queue(app: FastAPI) -> QueueService:
         if os.environ.get(PERSIST_ENV) == "1":
             from agent_assist_server.queue_store import QueueStore
 
-            svc.subscribe(QueueStore().on_event)
+            svc.subscribe(
+                QueueStore(schema=os.environ.get("DATABASE_SCHEMA", "").strip() or None).on_event
+            )
         app.state.queue_service = svc
     return svc
 
@@ -105,6 +112,7 @@ class BotNotifier:
         self._svc = svc
         self._daily_factory = daily_factory
         self._worker = SerialWorker("bot notifier")
+        self._closing: set[asyncio.Task] = set()
 
     def _send(self, room_name: str, data: dict[str, Any]) -> None:
         payload = {"type": BOT_MESSAGE_TYPE, **data}
@@ -117,9 +125,11 @@ class BotNotifier:
     def on_event(self, event: Event) -> None:
         kind = event["type"]
         if kind == "call_queued":
-            self._send(
-                event["call"]["room_name"], {"event": "queued", "position": event["position"]}
-            )
+            # QH-9: a re-queued call (agent dropped) tells the bot to speak again.
+            what = "requeued" if event.get("requeued") else "queued"
+            self._send(event["call"]["room_name"], {"event": what, "position": event["position"]})
+            if event.get("requeued"):
+                self._send_positions(skip=event["call"]["session_id"])
         elif kind == "call_accepted":
             agent = self._svc.get_agent(event["agent_id"])
             self._send(
@@ -127,12 +137,33 @@ class BotNotifier:
             )
             self._send_positions()
         elif kind == "call_ended":
+            call = event["call"]
+            if call.get("ended_by") == "agent":
+                # P3-5: the agent pressed End with the caller still on the line. The
+                # bot says goodbye and leaves; then the room closes, which hangs up a
+                # dial-in caller and ends a browser caller's call.
+                self._send(call["room_name"], {"event": "call_ended"})
+                self._close_room_later(call["room_name"])
             self._send_positions()
 
-    def _send_positions(self) -> None:
-        """A call left the line: tell the callers behind it their new place."""
+    def _close_room_later(self, room_name: str) -> None:
+        async def job():
+            try:
+                await asyncio.sleep(ROOM_CLOSE_DELAY_SECS)
+                await self._daily_factory().delete_room(room_name)
+                logger.info("room %s closed after the agent ended the call", room_name)
+            except Exception as e:
+                logger.error("closing room %s failed: %s", room_name, type(e).__name__)
+
+        task = asyncio.get_running_loop().create_task(job())
+        self._closing.add(task)
+        task.add_done_callback(self._closing.discard)
+
+    def _send_positions(self, skip: str | None = None) -> None:
+        """The line changed: tell each waiting caller their place."""
         for i, call in enumerate(self._svc.waiting_calls(), start=1):
-            self._send(call.room_name, {"event": "position", "position": i})
+            if call.session_id != skip:
+                self._send(call.room_name, {"event": "position", "position": i})
 
 
 # ---- REST -----------------------------------------------------------------------

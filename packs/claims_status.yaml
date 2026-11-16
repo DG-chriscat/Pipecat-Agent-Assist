@@ -36,3 +36,20 @@ readback:
     Read back a short summary in one or two sentences: their name, why they called,
     and the claim details you have. Then ask if that is right. If they correct
     something, fix it and confirm.
+
+# Wrap up (P3-5, AP-9): the reason codes the agent picks from after the call. Saved on
+# the call record with the agent's notes.
+wrap_up:
+  reason_codes:
+    - code: claim_status_given
+      label: Claim status given
+    - code: denial_explained
+      label: Denial explained
+    - code: appeal_started
+      label: Appeal or retro review started
+    - code: callback_needed
+      label: Callback needed
+    - code: transferred
+      label: Transferred
+    - code: other
+      label: Other

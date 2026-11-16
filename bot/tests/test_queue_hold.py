@@ -211,3 +211,73 @@ async def test_gate_drops_llm_triggers_only_when_closed():
     assert not gate.passes(ctx_frame, FrameDirection.DOWNSTREAM)
     assert gate.passes(speak, FrameDirection.DOWNSTREAM)
     assert gate.passes(ctx_frame, FrameDirection.UPSTREAM)
+
+
+# ---- QH-9 agent drop and agent End (P3-5) -------------------------------------------
+
+
+async def test_requeued_speaks_again_and_reopens_the_gate(ctl, spoken):
+    await ctl.on_app_message(msg("queued", position=1), "api")
+    await ctl.on_app_message(msg("agent_accepted", agent_name="Ana"), "api")
+    await ctl.on_app_message(msg("requeued", position=1), "api")
+    assert ctl.state == hold.HoldState.QUEUED
+    assert ctl.agent_name is None
+    assert ctl.gate.open
+    assert spoken.lines == [hold.CONNECTING_LINE, hold.REQUEUED_LINE]
+    await asyncio.sleep(0.07)
+    assert "next in line" in spoken.lines[-1]  # hold updates are back
+
+
+async def test_requeued_then_a_new_agent_accepts(ctl, spoken):
+    await ctl.on_app_message(msg("agent_accepted", agent_name="Ana"), "api")
+    await ctl.on_app_message(msg("requeued", position=1), "api")
+    await ctl.on_app_message(msg("agent_accepted", agent_name="Ben"), "api")
+    assert ctl.state == hold.HoldState.WITH_AGENT
+    assert ctl.agent_name == "Ben"
+    assert spoken.lines.count(hold.CONNECTING_LINE) == 2
+
+
+async def test_requeued_while_not_with_an_agent_is_ignored(ctl, spoken):
+    await ctl.on_app_message(msg("requeued", position=1), "api")
+    assert ctl.state == hold.HoldState.INTAKE
+    assert spoken.lines == []
+
+
+async def test_call_ended_by_agent_says_goodbye_once(ctl, spoken):
+    await ctl.on_app_message(msg("agent_accepted", agent_name="Ana"), "api")
+    await ctl.on_app_message(msg("call_ended"), "api")
+    await ctl.on_app_message(msg("call_ended"), "api")
+    await ctl.on_app_message(msg("requeued", position=1), "api")
+    assert ctl.state == hold.HoldState.ENDED
+    assert spoken.lines == [hold.CONNECTING_LINE, hold.GOODBYE_LINE]
+
+
+async def test_call_ended_before_an_agent_is_ignored(ctl, spoken):
+    await ctl.on_app_message(msg("queued", position=1), "api")
+    await ctl.on_app_message(msg("call_ended"), "api")
+    assert ctl.state == hold.HoldState.QUEUED
+    assert spoken.lines == []
+
+
+def test_requeued_line_text():
+    assert "front of the line" in hold.REQUEUED_LINE
+
+
+async def test_gate_reopens():
+    gate = hold.BotGate()
+    gate.close()
+    gate.reopen()
+    assert gate.open
+
+
+async def test_queue_handoff_reports_agent_left():
+    seen: list[httpx.Request] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen.append(req)
+        return httpx.Response(200, json={"status": "ok"})
+
+    h = handoff.QueueHandoff("http://srv", transport=httpx.MockTransport(handler))
+    await handoff.agent_left(h, "s1")
+    assert [(r.method, r.url.path) for r in seen] == [("POST", "/queue/calls/s1/agent-left")]
+    await handoff.agent_left(intake.NoopHandoff(), "s1")  # no method, no error

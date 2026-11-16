@@ -10,6 +10,7 @@ from agent_assist_server.browser_call import router as browser_call_router
 from agent_assist_server.caller_api import router as caller_router
 from agent_assist_server.dialin import router as dialin_router
 from agent_assist_server.queue_api import router as queue_router
+from agent_assist_server.wrap_up_api import router as wrap_up_router
 
 
 def healthz() -> dict[str, str]:
@@ -40,6 +41,7 @@ def create_app(
     app.include_router(browser_call_router)
     app.include_router(queue_router)
     app.include_router(caller_router)
+    app.include_router(wrap_up_router)
     app.include_router(portal.build_router(portal.dist_from_env(env)))
     app.add_api_route("/healthz", healthz, methods=["GET"])
     auth.install(app, config)

@@ -131,7 +131,8 @@ ignores app messages from anyone else):
 While queued the bot says a short update every 60 s ("Thanks for waiting. You're next
 in line..."). No hold music yet; the update is the hold audio. On `agent_accepted` it
 says "Connecting you now." and a gate in front of the LLM drops caller turns, so the
-bot stays quiet while the agent talks.
+bot stays quiet while the agent talks. It then goes listen only and streams the live
+transcript to the agent's portal (P3-4, see docs/transcript.md).
 
 ## Config
 

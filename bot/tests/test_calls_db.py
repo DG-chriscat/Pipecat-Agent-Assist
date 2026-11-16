@@ -106,6 +106,21 @@ async def test_mark_ready_for_queue_stores_summary(store):
     assert intake == {"reason": "claim denied", "summary": "Maria Alvarez, MRI claim denied."}
 
 
+async def test_add_transcript_line_saves_final_lines_for_wrap_up(store):
+    call_id = await store.create_call("sess-6")
+    await store.add_transcript_line(call_id, "caller", "I already called.", 1794790000.25)
+    await store.add_transcript_line(call_id, "agent", "Let me check.", 1794790002.5)
+    cur = await store._execute(
+        "SELECT speaker_role, text, extract(epoch FROM ts)::float FROM transcript_lines "
+        "WHERE call_id = %s ORDER BY ts",
+        (call_id,),
+    )
+    assert await cur.fetchall() == [
+        ("caller", "I already called.", 1794790000.25),
+        ("agent", "Let me check.", 1794790002.5),
+    ]
+
+
 async def test_reconnects_after_dropped_connection(store):
     call_id = await store.create_call("sess-5")
     await store._conn.close()

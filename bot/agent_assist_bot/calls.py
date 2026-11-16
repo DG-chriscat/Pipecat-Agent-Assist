@@ -6,6 +6,7 @@ The bot writes its own `calls` row (schema in db/migrations/0001_init.sql):
 - `set_identity` stores `identity_result` and the matched `member_id`.
 - `add_flag` appends to `calls.flags` (no duplicates).
 - `mark_ready_for_queue` sets status `ready_for_queue` and stores the intake summary.
+- `add_transcript_line` saves one final live transcript line (P3-4) for wrap up.
 
 `verify_identity` matches name + date of birth + member ID against `members`.
 Two seed members share a name, so the name alone never identifies anyone.
@@ -114,6 +115,9 @@ class CallStore(Protocol):
     ) -> None: ...
     async def add_flag(self, call_id: str, flag: str) -> None: ...
     async def mark_ready_for_queue(self, call_id: str, summary: str) -> None: ...
+    async def add_transcript_line(
+        self, call_id: str, speaker_role: str, text: str, ts: float
+    ) -> None: ...
     async def verify_identity(self, full_name: str, dob: str, member_id: str) -> IdentityCheck: ...
     async def close(self) -> None: ...
 
@@ -127,6 +131,7 @@ class CallRecord:
     intake: dict[str, Any] = field(default_factory=dict)
     identity_result: str | None = None
     flags: list[str] = field(default_factory=list)
+    transcript: list[tuple[str, str, float]] = field(default_factory=list)
 
 
 class MemoryCallStore:
@@ -167,6 +172,12 @@ class MemoryCallStore:
         rec.status = "ready_for_queue"
         rec.intake["summary"] = summary
         self.writes.append(("ready", summary))
+
+    async def add_transcript_line(
+        self, call_id: str, speaker_role: str, text: str, ts: float
+    ) -> None:
+        self.calls[call_id].transcript.append((speaker_role, text, ts))
+        self.writes.append(("transcript", speaker_role))
 
     async def verify_identity(self, full_name: str, dob: str, member_id: str) -> IdentityCheck:
         by_id = self.members.get(normalize_member_id(member_id))
@@ -265,6 +276,15 @@ class PostgresCallStore:
             "UPDATE calls SET status = 'ready_for_queue', intake = intake || %s, "
             "updated_at = now() WHERE call_id = %s",
             (Jsonb({"summary": summary}), call_id),
+        )
+
+    async def add_transcript_line(
+        self, call_id: str, speaker_role: str, text: str, ts: float
+    ) -> None:
+        await self._execute(
+            "INSERT INTO transcript_lines (call_id, speaker_role, text, ts) "
+            "VALUES (%s, %s, %s, to_timestamp(%s))",
+            (call_id, speaker_role, text, ts),
         )
 
     async def verify_identity(self, full_name: str, dob: str, member_id: str) -> IdentityCheck:

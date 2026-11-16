@@ -184,6 +184,8 @@ export function Home({ agent: signedIn, createSocket, createMedia, onSignOut }: 
         remoteLevel={call.remoteLevel}
         elapsedSecs={(nowMs - call.startedAtMs) / 1000}
         error={call.error}
+        transcript={call.transcript}
+        highlights={call.highlights}
         onMute={toggleMute}
         onHold={toggleHold}
         onEnd={() => void endCall()}

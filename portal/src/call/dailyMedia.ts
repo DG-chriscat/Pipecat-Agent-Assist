@@ -37,6 +37,7 @@ export class DailyCallMedia implements CallMedia {
       disconnectOnBotDisconnect: false,
       callbacks: {
         onConnected: () => joined(),
+        onServerMessage: (data: unknown) => ev.onServerMessage(data),
         onRemoteAudioLevel: (level, p) => ev.onRemoteLevel(level, p.id),
         onParticipantLeft: (p) => {
           if (!p.local) ev.onParticipantLeft(p.id);

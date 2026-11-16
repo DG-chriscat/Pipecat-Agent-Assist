@@ -302,6 +302,21 @@ describe("incoming call and in-call shell (AP-3, AP-4, QH-6, QH-7)", () => {
     expect(screen.getByTestId("waveform")).not.toHaveClass("speaking");
   });
 
+  it("live transcript: server messages render as labeled lines, interims update in place", async () => {
+    const sock = await signedInAvailable();
+    const media = await acceptAndJoin(sock);
+    const col = screen.getByRole("complementary", { name: /transcript/i });
+    const send = (m: object) => act(() => media.events.onServerMessage(m));
+    send({ type: "transcript", role: "caller", text: "I already", is_final: false, ts: 1, line_id: "caller-1" });
+    expect(within(col).getByText("I already")).toHaveClass("typing");
+    send({ type: "transcript", role: "caller", text: "I already called.", is_final: true, ts: 2, line_id: "caller-1" });
+    send({ type: "transcript", role: "agent", text: "Let me check", is_final: false, ts: 3, line_id: "agent-1" });
+    send({ type: "card", text: "not a transcript" });
+    const rows = within(col).getAllByRole("listitem");
+    expect(rows.map((r) => r.textContent)).toEqual(["CallerI already called.", "YouLet me check"]);
+    expect(within(col).getByText("I already called.")).not.toHaveClass("typing");
+  });
+
   it("End leaves the room, sets wrap up, and goes back home", async () => {
     const sock = await signedInAvailable();
     const media = await acceptAndJoin(sock);

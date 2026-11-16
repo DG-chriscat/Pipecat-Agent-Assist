@@ -2,6 +2,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { AcceptResult } from "../api/types";
 import type { CallMedia, CreateMedia } from "../call/media";
 import { callerInfo, type CallerInfo } from "../state/offer";
+import {
+  applyTranscript,
+  parseTranscriptMessage,
+  type HighlightRange,
+  type TranscriptLine,
+} from "../state/transcript";
 import type { CallPhase } from "../components/InCall";
 
 export interface ActiveCall {
@@ -15,6 +21,10 @@ export interface ActiveCall {
   held: boolean;
   remoteLevel: number;
   error: string | null;
+  /** Live transcript lines in arrival order (P3-4). */
+  transcript: TranscriptLine[];
+  /** Trigger word ranges underlined in the transcript (Phase 4 sets them). */
+  highlights: HighlightRange[];
 }
 
 const JOIN_FAILED = "Could not connect the call audio. Check your microphone, or end the call.";
@@ -23,6 +33,7 @@ const JOIN_FAILED = "Could not connect the call audio. Check your microphone, or
  * One accepted call: shows the accept summary at once (QH-7), joins the Daily room
  * with the agent token (QH-6), and drives mute, hold, and leave (AP-4).
  * Hold is local in v1: it mutes the agent mic and does not change the queue status.
+ * The bot's live transcript lines arrive as RTVI server messages (P3-4).
  */
 export function useCall(createMedia: CreateMedia) {
   const [call, setCall] = useState<ActiveCall | null>(null);
@@ -46,6 +57,8 @@ export function useCall(createMedia: CreateMedia) {
         held: false,
         remoteLevel: 0,
         error: null,
+        transcript: [],
+        highlights: [],
       });
       const m = createMedia({
         onRemoteLevel(level, id) {
@@ -57,6 +70,16 @@ export function useCall(createMedia: CreateMedia) {
         onParticipantLeft(id) {
           if (media.current !== m) return;
           levels.current.delete(id);
+        },
+        onServerMessage(data) {
+          if (media.current !== m) return;
+          const msg = parseTranscriptMessage(data);
+          if (!msg) return;
+          setCall((c) => {
+            if (!c) return c;
+            const transcript = applyTranscript(c.transcript, msg);
+            return transcript === c.transcript ? c : { ...c, transcript };
+          });
         },
         onError(message) {
           if (media.current !== m) return;
@@ -103,6 +126,9 @@ export function useCall(createMedia: CreateMedia) {
     patch({ held });
   }, [call, patch]);
 
+  /** Underline trigger words: replaces the current set (empty clears). */
+  const highlight = useCallback((ranges: HighlightRange[]) => patch({ highlights: ranges }), [patch]);
+
   // Leave the room if the component goes away mid call (sign out, reload).
   useEffect(
     () => () => {
@@ -112,5 +138,5 @@ export function useCall(createMedia: CreateMedia) {
     [],
   );
 
-  return { call, start, leave, toggleMute, toggleHold };
+  return { call, start, leave, toggleMute, toggleHold, highlight };
 }

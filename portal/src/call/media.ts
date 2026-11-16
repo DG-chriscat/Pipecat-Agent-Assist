@@ -5,6 +5,8 @@ export interface CallMediaEvents {
   onRemoteLevel(level: number, participantId: string): void;
   /** A remote participant left the room. */
   onParticipantLeft(participantId: string): void;
+  /** An RTVI server message from the bot (e.g. a live transcript line, P3-4). */
+  onServerMessage(data: unknown): void;
   /** Fatal media error after joining. */
   onError(message: string): void;
 }

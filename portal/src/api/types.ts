@@ -46,6 +46,8 @@ export interface Call {
 export interface SavedWrapUp {
   reason_code: string;
   notes: string;
+  /** P5-1: the summary as the agent saved it. */
+  summary?: string;
   saved_at: number;
 }
 
@@ -63,8 +65,14 @@ export interface WrapUpInfo {
   reason: string;
   identity_result: IdentityResult | null;
   duration_secs: number;
-  /** AP-9 (Phase 4): the assist's draft summary; null until then. */
+  /** AP-9 (P5-1): the assist's draft summary; null until it lands (or if none). */
   summary_draft: string | null;
+  /** AP-9 (P5-1): the reason code the assist suggests; preselected in the view. */
+  suggested_reason_code: string | null;
+  /** The bot is still writing the draft (poll the view again). */
+  draft_pending: boolean;
+  /** The pack the reason codes come from. */
+  pack_id: string;
   reason_codes: ReasonCode[];
   wrap_up: SavedWrapUp | null;
 }

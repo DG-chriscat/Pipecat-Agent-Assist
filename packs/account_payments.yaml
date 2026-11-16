@@ -154,6 +154,7 @@ wrap_up:
       label: Payment explained
     - code: refund_submitted
       label: Refund submitted
+      actions: [submit_premium_refund]
     - code: autopay_updated
       label: Autopay updated
     - code: callback_needed

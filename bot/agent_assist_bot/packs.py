@@ -152,6 +152,8 @@ class Question(_Strict):
 class ReasonCode(_Strict):
     code: str
     label: str = Field(min_length=1, max_length=60)
+    # P5-1 (AP-9): next best step action ids that suggest this code at wrap up.
+    actions: list[str] = Field(default_factory=list)
 
     @field_validator("code")
     @classmethod
@@ -481,6 +483,12 @@ class Pack(_Strict):
                 if a not in actions:
                     raise ValueError(
                         f"call plan step {s.id}: unknown action {a!r}; known: {sorted(actions)}"
+                    )
+        for c in self.wrap_up.reason_codes:
+            for a in c.actions:
+                if a not in actions:
+                    raise ValueError(
+                        f"reason code {c.code}: unknown action {a!r}; known: {sorted(actions)}"
                     )
         return self
 

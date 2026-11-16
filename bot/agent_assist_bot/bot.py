@@ -17,6 +17,8 @@ After an agent accepts (QH-6) the bot says "Connecting you now." and goes listen
 intake hears nothing more and the caller and the agent are transcribed on their own
 tracks, each line sent to the agent's portal only (P3-4, `transcript.py`). The assist
 (P4-3, `assist.py`) turns those lines into ranked cards for the agent's portal only.
+When the call ends, the bot drafts the wrap up summary and reason code (P5-1,
+`wrap_up.py`) and posts it to the server before it exits.
 
 The greeting is the flow's first node: a fixed `tts_say` pre-action with no LLM call,
 so the first utterance needs only a TTS round trip to hit the <2 s target (PRD IN-1).
@@ -62,7 +64,13 @@ from agent_assist_bot.calls import CallStore, MemoryCallStore, PostgresCallStore
 from agent_assist_bot.dialin import DEFAULT_DAILY_API_URL as DEFAULT_DAILY_API_URL
 from agent_assist_bot.dialin import DialinConfig as DialinConfig
 from agent_assist_bot.dialin import DialinForwarder, DialinForwardError, sip_uri_from_ready
-from agent_assist_bot.handoff import QueueHandoff, agent_left, end_call, handoff_from_env
+from agent_assist_bot.handoff import (
+    QueueHandoff,
+    agent_left,
+    end_call,
+    handoff_from_env,
+    post_wrap_up_draft,
+)
 from agent_assist_bot.hold import BotGate, HoldController, HoldState, hold_interval_from_env
 from agent_assist_bot.hold_music import HoldMusicMixer, hold_music_from_env
 from agent_assist_bot.intake import GREETING as GREETING  # re-export (PRD IN-2)
@@ -80,6 +88,8 @@ from agent_assist_bot.transcript import (
     TranscriptRecorder,
     TranscriptRelay,
 )
+from agent_assist_bot.wrap_up import WrapUpDrafter, WrapUpReporter
+from agent_assist_bot.wrap_up import drain_pending as drain_wrap_ups
 
 BOT_NAME = "Vitals Assistant"
 STT_MODEL = "nova-3-general"
@@ -538,14 +548,16 @@ def build_worker(
         if message.content:
             session.on_bot_turn()
 
-    async def on_ended() -> None:
-        await session.close()
-        await assist.close()
-        await recorder.close()
-        await session.store.close()
-        close = getattr(handoff, "close", None)
-        if close is not None:
-            await close()
+    on_ended = end_of_call(
+        session_id=session_id,
+        closers=[session, assist, recorder, session.store],
+        assist=assist,
+        reporter=WrapUpReporter(
+            WrapUpDrafter.from_env,
+            lambda sid, draft: post_wrap_up_draft(handoff, sid, draft),
+        ),
+        handoff=handoff,
+    )
 
     on_server_message = register_handlers(
         transport,
@@ -563,6 +575,33 @@ def build_worker(
     )
     open_server_channel(handoff, on_server_message)
     return worker, transport
+
+
+def end_of_call(
+    *, session_id: str, closers, assist, reporter, handoff
+) -> Callable[[], Awaitable[None]]:
+    """The bot's end of call, once (the caller left or the agent pressed End).
+
+    P5-1 (AP-9): when an agent took the call, the wrap up draft starts first, from
+    the assist's inputs read before anything closes; then the call's resources close;
+    then the bot waits for the draft to reach the server before it closes the handoff
+    client and exits.
+    """
+
+    async def on_ended() -> None:
+        if getattr(assist, "accepted", False):
+            try:
+                reporter.start(session_id, assist.wrap_up_inputs())
+            except Exception as e:  # noqa: BLE001 - the agent can write it by hand
+                logger.error(f"[bot] wrap up draft not started: {type(e).__name__}: {e}")
+        for c in closers:
+            await c.close()
+        await reporter.wait()
+        close = getattr(handoff, "close", None)
+        if close is not None:
+            await close()
+
+    return on_ended
 
 
 def open_server_channel(handoff: HandoffHook, on_message: ServerMessageHandler) -> None:
@@ -601,3 +640,6 @@ async def run_bot(
     runner = WorkerRunner(handle_sigint=True, handle_sigterm=True)
     await runner.add_workers(worker)
     await runner.run()
+    # P5-1: the agent's End can finish the pipeline while the wrap up draft is still
+    # being written; post it before the process exits.
+    await drain_wrap_ups()

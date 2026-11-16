@@ -40,10 +40,11 @@ ON CONFLICT (agent_id) DO UPDATE SET
 UPSERT_CALL = """
 INSERT INTO calls (session_id, status, intake, queued_at, answered_at, ended_at, agent_id,
                    ended_by, wrap_up_reason, wrap_up_notes, wrapped_up_at,
+                   wrap_up_summary, wrap_up_draft,
                    identity_result, member_id, flags, phi_reveals, identity_decision)
 VALUES (%(session_id)s, %(status)s, %(summary)s, %(queued_at)s, %(answered_at)s,
         %(ended_at)s, %(agent_id)s, %(ended_by)s, %(wrap_up_reason)s, %(wrap_up_notes)s,
-        %(wrapped_up_at)s, %(identity_result)s,
+        %(wrapped_up_at)s, %(wrap_up_summary)s, %(wrap_up_draft)s, %(identity_result)s,
         (SELECT member_id FROM members WHERE member_id = %(member_id)s), %(flags)s,
         %(phi_reveals)s, %(identity_decision)s)
 ON CONFLICT (session_id) DO UPDATE SET
@@ -57,6 +58,8 @@ ON CONFLICT (session_id) DO UPDATE SET
     wrap_up_reason = EXCLUDED.wrap_up_reason,
     wrap_up_notes = EXCLUDED.wrap_up_notes,
     wrapped_up_at = EXCLUDED.wrapped_up_at,
+    wrap_up_summary = EXCLUDED.wrap_up_summary,
+    wrap_up_draft = EXCLUDED.wrap_up_draft,
     phi_reveals = EXCLUDED.phi_reveals,
     identity_decision = COALESCE(EXCLUDED.identity_decision, calls.identity_decision),
     identity_result = COALESCE(EXCLUDED.identity_result, calls.identity_result),
@@ -98,6 +101,8 @@ class QueueStore:
                     "wrap_up_reason": wrap.get("reason_code"),
                     "wrap_up_notes": wrap.get("notes"),
                     "wrapped_up_at": _ts(wrap.get("saved_at")),
+                    "wrap_up_summary": wrap.get("summary"),
+                    "wrap_up_draft": Jsonb(draft) if (draft := c.get("wrap_up_draft")) else None,
                     "identity_result": c.get("identity_result"),
                     "member_id": c.get("member_id"),
                     "flags": list(c.get("flags") or []),

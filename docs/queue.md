@@ -47,17 +47,22 @@ ended it (`ended_by`: `agent` or `caller`), and the agent keeps `call_id` throug
 up so the portal knows which call to save. The portal shows the wrap up view
 (docs/DESIGN.md "Wrap up"): `GET /calls/{session_id}/wrap-up?agent_id=` returns
 `caller_name`, `reason`, `identity_result`, `duration_secs`, `ended_by`,
-`summary_draft` (null until AP-9 in Phase 4), `reason_codes` (from the active pack's
+`summary_draft` and `suggested_reason_code` (the bot's AP-9 draft, P5-1, null until it
+lands), `draft_pending` (true while the draft is still coming, up to 30 s after the
+call ended), `pack_id` and `reason_codes` (the draft's pack, else the active pack's
 `wrap_up.reason_codes`), and `wrap_up` (once saved). Only the agent on the call can
-read it.
+read it. The draft comes from the bot (`POST /queue/calls/{session_id}/wrap-up-draft`,
+docs/wrap_up.md).
 
-`POST /agents/{agent_id}/wrap-up {session_id, reason_code, notes}` saves the reason
-code (must be one of the pack's, else 422) and notes (max 2000 characters) on the
-call (`wrap_up: {reason_code, notes, saved_at}`, a `call_updated` event), then sets the
-agent `available`, which may ring them at once. Not in wrap up for that call: 409.
-With `QUEUE_PERSIST=1` the write-through stores `calls.ended_by`, `wrap_up_reason`,
-`wrap_up_notes`, and `wrapped_up_at` (migration `0004_wrap_up.sql`). The manual
-`wrap_up -> available` toggle still works as an escape hatch (nothing saved).
+`POST /agents/{agent_id}/wrap-up {session_id, reason_code, notes, summary}` saves the
+reason code (must be one of the pack's, else 422), notes (max 2000 characters), and
+summary (max 3000) on the call (`wrap_up: {reason_code, notes, summary, saved_at}`, a
+`call_updated` event), then sets the agent `available`, which may ring them at once.
+Not in wrap up for that call: 409. With `QUEUE_PERSIST=1` the write-through stores
+`calls.ended_by`, `wrap_up_reason`, `wrap_up_notes`, `wrapped_up_at` (migration
+`0004_wrap_up.sql`), `wrap_up_draft`, and `wrap_up_summary` (`0007_wrap_up_summary.sql`).
+The manual `wrap_up -> available` toggle still works as an escape hatch (nothing
+saved).
 
 The portal sends `wrap_up` before it leaves the room, so the bot never sees an agent
 leave a call the queue still has as live. When the agent ends the call the server
@@ -117,9 +122,10 @@ REST:
 | POST | `/queue/calls` | `{session_id, summary, outcome?, identity_result?, member_id?, flags?}` | `{session_id, status, position}` (bot handoff) |
 | POST | `/queue/calls/{session_id}/end` | | caller left |
 | POST | `/queue/calls/{session_id}/agent-left` | | the agent left the room (bot, QH-9) |
+| POST | `/queue/calls/{session_id}/wrap-up-draft` | `{summary, reason_code, pack_id, source}` | the bot's summary and reason code draft (P5-1); 422 if the code is not in the pack, 409 if no agent took the call |
 | GET | `/calls/{session_id}/caller?agent_id=` | | caller panel data (P3-3, see below) |
 | GET | `/calls/{session_id}/wrap-up?agent_id=` | | wrap up view data (P3-5) |
-| POST | `/agents/{agent_id}/wrap-up` | `{session_id, reason_code, notes}` | the call, saved; agent available (P3-5) |
+| POST | `/agents/{agent_id}/wrap-up` | `{session_id, reason_code, notes, summary}` | the call, saved; agent available (P3-5, P5-1) |
 | POST | `/calls/{session_id}/phi-reveal` | `{agent_id, field: member_id\|dob}` | logs a PHI reveal on the call (AP-17); 403 unless the agent is on the call and the caller is verified (at intake, or by the agent's decision, IN-13) |
 | POST | `/calls/{session_id}/identity-decision` | `{agent_id, decision: verified\|not_verified}` | IN-13: stores `{decision, agent_id, agent_name, at}` on the call (`calls.identity_decision`); 404 unknown call, 403 not the agent on the call, 409 already decided, 422 bad value |
 
@@ -337,5 +343,4 @@ on with updates only.
 ## Not yet
 
 - QH-8 callback offer after 5 minutes (Should, later card).
-- AP-9 summary draft and suggested reason code at wrap up (Phase 4).
 - Server side hold (the portal's hold only mutes the agent mic in v1).

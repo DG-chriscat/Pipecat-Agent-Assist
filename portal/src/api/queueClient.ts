@@ -81,12 +81,13 @@ export const getWrapUp = (sessionId: string, agentId: string) =>
     `/calls/${encodeURIComponent(sessionId)}/wrap-up?agent_id=${encodeURIComponent(agentId)}`,
   );
 
-/** Save the reason code and notes; the server makes the agent available (P3-5). */
-export const saveWrapUp = (agentId: string, sessionId: string, reasonCode: string, notes: string) =>
+/** Save the reason code, notes, and summary; the server makes the agent available (P3-5, P5-1). */
+export const saveWrapUp = (agentId: string, sessionId: string, reasonCode: string, notes: string, summary = "") =>
   request<Call>("POST", `/agents/${encodeURIComponent(agentId)}/wrap-up`, {
     session_id: sessionId,
     reason_code: reasonCode,
     notes,
+    summary,
   });
 
 /** AP-17: log a PHI reveal on the call record (field name only, never the value). */

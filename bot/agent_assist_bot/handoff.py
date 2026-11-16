@@ -7,7 +7,8 @@ once per call when intake ends (completed, request_person, or emergency).
 QueueHandoff posts the handoff to the server's queue API
 (server/agent_assist_server/queue_api.py). It also has `on_call_ended(session_id)`,
 an extra method the bot calls when the caller leaves so a waiting or ringing call is
-cleared, and `on_agent_left(session_id)` for when the agent leaves the room (QH-9).
+cleared, `on_agent_left(session_id)` for when the agent leaves the room (QH-9), and
+`on_wrap_up_draft(session_id, draft)` for the wrap up draft (P5-1, `wrap_up.py`).
 `handoff_from_env()` picks QueueHandoff when AGENT_ASSIST_SERVER_URL is set,
 otherwise NoopHandoff.
 """
@@ -115,6 +116,16 @@ class QueueHandoff:
         except httpx.HTTPError as e:
             logger.warning("handoff: end call %s failed: %s", session_id, type(e).__name__)
 
+    async def on_wrap_up_draft(self, session_id: str, draft: dict[str, Any]) -> None:
+        """P5-1 (AP-9): the summary and reason code drafted at call end."""
+        try:
+            async with self._client() as c:
+                r = await c.post(f"/queue/calls/{session_id}/wrap-up-draft", json=draft)
+            if r.status_code != 200:
+                logger.warning("handoff: wrap up draft %s returned %s", session_id, r.status_code)
+        except httpx.HTTPError as e:
+            logger.warning("handoff: wrap up draft %s failed: %s", session_id, type(e).__name__)
+
     async def on_agent_left(self, session_id: str) -> None:
         """QH-9: the agent left the room. The server decides if it was a drop."""
         try:
@@ -136,6 +147,13 @@ async def agent_left(handoff: HandoffHook, session_id: str) -> None:
     left = getattr(handoff, "on_agent_left", None)
     if left is not None:
         await left(session_id)
+
+
+async def post_wrap_up_draft(handoff: HandoffHook, session_id: str, draft: dict[str, Any]) -> None:
+    """Send the wrap up draft to the queue, if the hook supports it."""
+    post = getattr(handoff, "on_wrap_up_draft", None)
+    if post is not None:
+        await post(session_id, draft)
 
 
 def handoff_from_env(env: dict[str, str] | None = None) -> HandoffHook:

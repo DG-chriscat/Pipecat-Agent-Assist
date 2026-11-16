@@ -380,8 +380,12 @@ describe("incoming call and in-call shell (AP-3, AP-4, QH-6, QH-7)", () => {
     identity_result: "verified",
     duration_secs: 95,
     summary_draft: null,
+    suggested_reason_code: null,
+    draft_pending: false,
+    pack_id: "claims_status",
     reason_codes: [
       { code: "denial_explained", label: "Denial explained" },
+      { code: "appeal_started", label: "Appeal or retro review started" },
       { code: "other", label: "Other" },
     ],
     wrap_up: null,
@@ -445,13 +449,60 @@ describe("incoming call and in-call shell (AP-3, AP-4, QH-6, QH-7)", () => {
     fireEvent.change(within(view).getByLabelText(/notes/i), { target: { value: "Explained PA-01." } });
     fireEvent.click(within(view).getByRole("button", { name: /save/i }));
     await waitFor(() =>
-      expect(saved).toEqual({ session_id: "s1", reason_code: "denial_explained", notes: "Explained PA-01." }),
+      expect(saved).toEqual({
+        session_id: "s1",
+        reason_code: "denial_explained",
+        notes: "Explained PA-01.",
+        summary: "",
+      }),
     );
     act(() => sock.serverSend({ type: "agent_updated", agent: { ...ana, state: "available" } }));
     expect(screen.queryByRole("region", { name: /wrap up/i })).not.toBeInTheDocument();
     expect(screen.getByRole("switch", { name: /available/i })).toHaveAttribute("aria-checked", "true");
     expect(screen.getByRole("status")).toHaveTextContent(/call saved/i);
     expect(screen.getByRole("status")).toHaveClass("notice", "is-ok");
+  });
+
+  it("P5-1: the view polls until the bot's draft lands, then saves the edited summary with the suggested code", async () => {
+    const DRAFT = "Maria Alvarez called about CLM-900001. The agent explained it. A retro review was requested.";
+    let reads = 0;
+    let saved: unknown = null;
+    route = (url, init) => {
+      if (url === "/calls/s1/wrap-up?agent_id=agent-1") {
+        reads += 1;
+        return json(
+          reads < 2
+            ? { ...wrapInfo, draft_pending: true }
+            : { ...wrapInfo, summary_draft: DRAFT, suggested_reason_code: "appeal_started" },
+        );
+      }
+      if (url === "/agents/agent-1/wrap-up") {
+        saved = JSON.parse(String(init?.body));
+        return json({ ...call, status: "ended" });
+      }
+      return undefined;
+    };
+    const sock = await signedInAvailable();
+    act(() => sock.serverSend({ type: "agent_updated", agent: wrapping }));
+    const view = await screen.findByRole("region", { name: /wrap up/i });
+    await waitFor(() => expect(within(view).getByTestId("summary-draft")).toHaveTextContent(/drafting/i));
+    const box = within(view).getByLabelText(/^summary$/i) as HTMLTextAreaElement;
+    await waitFor(() => expect(box.value).toBe(DRAFT), { timeout: 4000 });
+    expect(reads).toBe(2);
+    expect(within(view).getByRole("radio", { name: /^Appeal or retro review started/ })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    fireEvent.change(box, { target: { value: DRAFT + " Edited." } });
+    fireEvent.click(within(view).getByRole("button", { name: /save/i }));
+    await waitFor(() =>
+      expect(saved).toEqual({
+        session_id: "s1",
+        reason_code: "appeal_started",
+        notes: "",
+        summary: DRAFT + " Edited.",
+      }),
+    );
   });
 
   it("wrap up: a save error keeps the form with a message", async () => {

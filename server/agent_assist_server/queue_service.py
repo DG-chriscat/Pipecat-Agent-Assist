@@ -35,6 +35,8 @@ OFFER_TIMEOUT_SECS = 20.0
 # QH-9: how long after the bot reports the agent left before the call is re-queued.
 AGENT_DROP_GRACE_SECS = 3.0
 MAX_NOTES = 2000
+# P5-1 (AP-9): the call summary at wrap up (the bot's draft and the saved text).
+MAX_SUMMARY = 3000
 # AP-17: the masked fields the portal can reveal.
 PHI_FIELDS = frozenset({"member_id", "dob"})
 # IN-13: the agent's two choices on the verification step.
@@ -149,8 +151,12 @@ class Call:
     flags: list[str] = field(default_factory=list)
     # Who ended a call the agent was on: "agent" (End) or "caller" (hung up).
     ended_by: str | None = None
-    # Saved at wrap up (P3-5): {"reason_code", "notes", "saved_at"}.
+    # Saved at wrap up (P3-5): {"reason_code", "notes", "saved_at"}, plus "summary"
+    # (P5-1): the summary as the agent saved it.
     wrap_up: dict[str, Any] | None = None
+    # P5-1 (AP-9): the bot's draft at call end: {"summary", "reason_code", "pack_id",
+    # "source", "drafted_at"}.
+    wrap_up_draft: dict[str, Any] | None = None
     # AP-17: each PHI reveal by the agent: {"field", "agent_id", "at"}. Never the value.
     phi_reveals: list[dict[str, Any]] = field(default_factory=list)
     # IN-13: the agent's human verification decision for a caller intake did not fully
@@ -182,6 +188,7 @@ class Call:
             "ended_at": self.ended_at,
             "ended_by": self.ended_by,
             "wrap_up": dict(self.wrap_up) if self.wrap_up else None,
+            "wrap_up_draft": dict(self.wrap_up_draft) if self.wrap_up_draft else None,
             "phi_reveals": [dict(r) for r in self.phi_reveals],
             "identity_decision": dict(self.identity_decision) if self.identity_decision else None,
         }
@@ -430,8 +437,30 @@ class QueueService:
 
     # ---- wrap up (P3-5) and agent drop (QH-9) ------------------------------------
 
-    def save_wrap_up(self, agent_id: str, session_id: str, reason_code: str, notes: str) -> Call:
-        """Save the reason code and notes on the call, then make the agent available.
+    def set_wrap_up_draft(self, session_id: str, draft: dict[str, Any]) -> Call:
+        """P5-1 (AP-9): keep the bot's summary and reason code draft on the call.
+
+        The pack and code are checked by the API layer; here the call must have been
+        accepted by an agent (the draft is for that agent's wrap up).
+        """
+        call = self.get_call(session_id)
+        if call.agent_id is None:
+            raise QueueError(f"call {session_id!r} has no agent to wrap up")
+        call.wrap_up_draft = {
+            "summary": str(draft["summary"]).strip(),
+            "reason_code": draft["reason_code"],
+            "pack_id": draft["pack_id"],
+            "source": draft["source"],
+            "drafted_at": self._clock.now(),
+        }
+        self._emit({"type": "call_updated", "call": call.to_dict()})
+        return call
+
+    def save_wrap_up(
+        self, agent_id: str, session_id: str, reason_code: str, notes: str, *, summary: str = ""
+    ) -> Call:
+        """Save the reason code, notes, and summary on the call, then make the agent
+        available.
 
         Reason codes are checked against the pack by the API layer; here only the
         state is checked: the agent must be in wrap up for this very call.
@@ -442,10 +471,14 @@ class QueueService:
         notes = notes.strip()
         if len(notes) > MAX_NOTES:
             raise QueueError(f"notes must be at most {MAX_NOTES} characters")
+        summary = summary.strip()
+        if len(summary) > MAX_SUMMARY:
+            raise QueueError(f"summary must be at most {MAX_SUMMARY} characters")
         call = self.get_call(session_id)
         call.wrap_up = {
             "reason_code": reason_code,
             "notes": notes,
+            "summary": summary,
             "saved_at": self._clock.now(),
         }
         self._emit({"type": "call_updated", "call": call.to_dict()})

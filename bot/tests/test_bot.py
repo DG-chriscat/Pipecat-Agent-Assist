@@ -268,6 +268,72 @@ async def test_accept_starts_assist_once_and_forwards_messages_and_joins():
     assert [f.text for f in worker.queued] == [hold.CONNECTING_LINE]
 
 
+# ---- P5-1: wrap up draft at call end (AP-9) -----------------------------------------
+
+
+class Closable:
+    def __init__(self, name, log):
+        self.name, self.log = name, log
+
+    async def close(self):
+        self.log.append(self.name)
+
+
+class EndAssist(Closable):
+    def __init__(self, log, accepted):
+        super().__init__("assist", log)
+        self.accepted = accepted
+
+    def wrap_up_inputs(self):
+        self.log.append("inputs")
+        return "INPUTS"
+
+
+class FakeReporter:
+    def __init__(self, log):
+        self.log = log
+        self.started = []
+
+    def start(self, session_id, inputs):
+        self.log.append("draft")
+        self.started.append((session_id, inputs))
+
+    async def wait(self):
+        self.log.append("wait")
+
+
+async def test_call_end_drafts_wrap_up_before_closing_and_waits_for_it():
+    log: list[str] = []
+    reporter = FakeReporter(log)
+    on_ended = bot.end_of_call(
+        session_id="s1",
+        closers=[Closable("intake", log), EndAssist(log, True), Closable("store", log)],
+        assist=EndAssist(log, True),
+        reporter=reporter,
+        handoff=Closable("handoff", log),
+    )
+    await on_ended()
+    assert reporter.started == [("s1", "INPUTS")]
+    # Inputs are read and the draft starts before anything closes; the draft is
+    # posted before the handoff client (and the process) goes away.
+    assert log == ["inputs", "draft", "intake", "assist", "store", "wait", "handoff"]
+
+
+async def test_call_end_without_an_accepted_agent_drafts_nothing():
+    log: list[str] = []
+    reporter = FakeReporter(log)
+    on_ended = bot.end_of_call(
+        session_id="s1",
+        closers=[],
+        assist=EndAssist(log, False),
+        reporter=reporter,
+        handoff=object(),
+    )
+    await on_ended()
+    assert reporter.started == []
+    assert log == ["wait"]
+
+
 def test_listen_branches_boost_pack_keyterms(api_keys):
     worker, _ = bot.build_worker(ROOM, "tok", store=MemoryCallStore())
     inner = next(p for p in worker._pipeline.processors if type(p).__name__ == "Pipeline")
@@ -504,6 +570,42 @@ async def test_run_bot_passes_dialin_and_runs(monkeypatch):
     assert calls[0][1]["handle_sigterm"] is True
     assert calls[1] == ("add", (sentinel,))
     assert calls[2] == ("run",)
+
+
+async def test_run_bot_waits_for_a_pending_wrap_up_draft(monkeypatch):
+    # P5-1: the agent's End can finish the pipeline while the draft is in flight;
+    # run_bot must not return (and exit the process) before it is posted.
+    import asyncio
+
+    from agent_assist_bot import wrap_up
+
+    posted = []
+
+    async def slow_post(session_id, body):
+        await asyncio.sleep(0.05)
+        posted.append(session_id)
+
+    class FakeRunner:
+        def __init__(self, **kwargs):
+            pass
+
+        async def add_workers(self, *workers):
+            pass
+
+        async def run(self):
+            r = wrap_up.WrapUpReporter(lambda: wrap_up.WrapUpDrafter(None), slow_post)
+            r.start("s1", _wrap_inputs())
+
+    monkeypatch.setattr(bot, "WorkerRunner", FakeRunner)
+    monkeypatch.setattr(bot, "build_worker", lambda *a, **k: (object(), None))
+    await bot.run_bot(ROOM, "tok", None, session_id="s1")
+    assert posted == ["s1"]
+
+
+def _wrap_inputs():
+    from agent_assist_bot.wrap_up import WrapUpInputs
+
+    return WrapUpInputs(pack=load_pack("claims_status"), intake={"full_name": "Maria"})
 
 
 def test_require_keys_reports_names_not_values():

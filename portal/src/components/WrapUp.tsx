@@ -9,7 +9,7 @@ interface Props {
   loadError: string | null;
   saving: boolean;
   saveError: string | null;
-  onSave: (reasonCode: string, notes: string) => void;
+  onSave: (reasonCode: string, notes: string, summary: string) => void;
   onRetry: () => void;
 }
 
@@ -17,27 +17,47 @@ const ENDED: Record<"agent" | "caller", string> = {
   agent: "You ended the call",
   caller: "The caller hung up",
 };
+/** Longest summary the server keeps (queue_service.MAX_SUMMARY). */
+export const MAX_SUMMARY = 3000;
 
 /**
- * Wrap up (P3-5): after End or a caller hang up. Call facts, the summary draft slot
- * (AP-9 fills it in Phase 4), a reason code from the pack, notes, then Save, which
- * writes the calls record and sets the agent available.
+ * Wrap up (P3-5, P5-1): after End or a caller hang up. Call facts, the assist's
+ * summary draft in an editor (AP-9), a reason code from the pack with the assist's
+ * suggestion preselected, notes, then Save, which writes the calls record and sets
+ * the agent available.
+ *
+ * The draft can land after the view opens (the bot writes it when the call ends):
+ * until the agent types or picks, the editor and the pick follow the latest draft;
+ * after that, the agent's own text and pick win.
  */
 export function WrapUp({ info, loadError, saving, saveError, onSave, onRetry }: Props) {
-  const [code, setCode] = useState<string | null>(null);
+  /** The agent's own text and pick; null until they edit or click. */
+  const [summaryEdit, setSummaryEdit] = useState<string | null>(null);
+  const [picked, setPicked] = useState<string | null>(null);
   const [notes, setNotes] = useState("");
+
+  const codes = info?.reason_codes ?? [];
+  const suggested =
+    info?.suggested_reason_code && codes.some((r) => r.code === info.suggested_reason_code)
+      ? info.suggested_reason_code
+      : null;
+  const code = picked ?? suggested;
+  const summary = summaryEdit ?? info?.summary_draft ?? "";
   const canSave = !!info && !!code && !saving;
+  const pending = !!info?.draft_pending && !info.summary_draft;
 
   function save() {
-    if (canSave && code) onSave(code, notes);
+    if (canSave && code) onSave(code, notes, summary);
   }
 
-  function onNotesKey(e: KeyboardEvent<HTMLTextAreaElement>) {
+  function onSaveKey(e: KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       save();
     }
   }
+
+  const draftState = info?.summary_draft ? "" : pending ? " is-pending" : " is-empty";
 
   return (
     <section className="panel card wrapup" role="region" aria-label="Wrap up">
@@ -85,18 +105,29 @@ export function WrapUp({ info, loadError, saving, saveError, onSave, onRetry }: 
             </div>
           )}
 
-          <div className={`wrapup-draft${info.summary_draft ? "" : " is-empty"}`} data-testid="summary-draft">
+          <div className={`wrapup-draft${draftState}`} data-testid="summary-draft">
             <div className="wrapup-draft-head">
               <span className="chip chip-ai">
                 <Sparkles strokeWidth={1.7} aria-hidden="true" />
                 Summary draft
               </span>
-              {!info.summary_draft && <span className="label">Coming soon</span>}
+              <span className="label" aria-live="polite">
+                {pending ? "Drafting from the call" : info.summary_draft ? "Edit before you save" : ""}
+              </span>
             </div>
-            <p>
-              {info.summary_draft ??
-                "The assist will draft the call summary and suggest a reason code here. For now, add your notes below."}
-            </p>
+            <textarea
+              aria-label="Summary"
+              className="wrapup-summary"
+              rows={5}
+              maxLength={MAX_SUMMARY}
+              placeholder={
+                pending ? "The assist is writing the summary from the call." : "Write a short summary of the call."
+              }
+              value={summary}
+              disabled={saving}
+              onChange={(e) => setSummaryEdit(e.target.value)}
+              onKeyDown={onSaveKey}
+            />
           </div>
 
           <div className="wrapup-field">
@@ -104,17 +135,23 @@ export function WrapUp({ info, loadError, saving, saveError, onSave, onRetry }: 
               Reason code
             </div>
             <div className="reason-codes" role="radiogroup" aria-labelledby="reason-label">
-              {info.reason_codes.map((r) => (
+              {codes.map((r) => (
                 <button
                   key={r.code}
                   type="button"
                   role="radio"
                   aria-checked={code === r.code}
-                  className={`reason${code === r.code ? " is-on" : ""}`}
+                  className={`reason${code === r.code ? " is-on" : ""}${suggested === r.code ? " is-suggested" : ""}`}
                   disabled={saving}
-                  onClick={() => setCode(r.code)}
+                  onClick={() => setPicked(r.code)}
                 >
                   {r.label}
+                  {suggested === r.code && (
+                    <span className="reason-tag">
+                      <Sparkles strokeWidth={1.7} aria-hidden="true" />
+                      Suggested
+                    </span>
+                  )}
                 </button>
               ))}
             </div>
@@ -127,13 +164,13 @@ export function WrapUp({ info, loadError, saving, saveError, onSave, onRetry }: 
             <textarea
               id="wrapup-notes"
               className="field wrapup-notes"
-              rows={3}
+              rows={2}
               maxLength={2000}
-              placeholder="What happened and what comes next"
+              placeholder="Anything else for the record"
               value={notes}
               disabled={saving}
               onChange={(e) => setNotes(e.target.value)}
-              onKeyDown={onNotesKey}
+              onKeyDown={onSaveKey}
             />
           </div>
 

@@ -10,7 +10,7 @@ SESSION_SECRET, valid for 12 hours. Sessions are per browser; nothing is global.
 
 The bot runs as a child process and posts its handoff to /queue/calls. It gets a bot
 key (HMAC of SESSION_SECRET) in its environment and sends it as a Bearer token; that
-key opens only the bot endpoints (enqueue, end, agent-left).
+key opens only the bot endpoints (enqueue, end, agent-left, wrap-up-draft).
 
 APP_PASSWORD unset: auth is off (local dev, tests) and one warning is logged.
 APP_PASSWORD without SESSION_SECRET: refuse to start. Neither value is ever logged.
@@ -64,7 +64,7 @@ PUBLIC_ROUTES = {
     ("POST", "/login"),
 }
 ASSET_PREFIX = "/login/assets/"
-BOT_ROUTES = re.compile(r"^/queue/calls(/[^/]+/(end|agent-left))?$")
+BOT_ROUTES = re.compile(r"^/queue/calls(/[^/]+/(end|agent-left|wrap-up-draft))?$")
 # QH-5b: the bot's own websocket (queue_api.bot_ws). Bot key only.
 BOT_SOCKET = re.compile(r"^/ws/bot/[^/]+$")
 _UNSAFE_NEXT = re.compile(r"[\x00-\x20\x7f\\]")

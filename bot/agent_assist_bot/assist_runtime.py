@@ -16,7 +16,9 @@
 - applies agent feedback (RTVI client messages from the agent's participant only)
   and logs it, with every card sent, to `assist_events` (`EventRecorder`);
 - answers the agent's Ask bar questions (P4-6, AP-8; agent only), each as its own
-  task so a slow lookup never blocks Daily events or transcript cards.
+  task so a slow lookup never blocks Daily events or transcript cards;
+- keeps the call's final lines after accept for the wrap up draft (P5-1,
+  `wrap_up_inputs()`: transcript, intake, accepted actions, call plan).
 
 It never queues frames into the pipeline, so it has no way to make the bot speak.
 """
@@ -34,6 +36,10 @@ from agent_assist_bot.assist import AssistEngine, identity_gate, max_cards_from_
 from agent_assist_bot.assist_contract import parse_ask_message, parse_feedback
 from agent_assist_bot.packs import Pack
 from agent_assist_bot.transcript import CallRoles, rtvi_server_message
+from agent_assist_bot.wrap_up import AcceptedAction, PlanStepState, WrapUpInputs
+
+# Final lines kept for the wrap up draft (the drafter keeps only the latest that fit).
+MAX_WRAP_UP_LINES = 400
 
 # Intake keys the assist does not need to see.
 PRIVATE_INTAKE_KEYS = frozenset({"dob"})
@@ -124,10 +130,18 @@ class AssistSession:
         self._worker: asyncio.Task | None = None
         self._asks: set[asyncio.Task] = set()
         self.sent = 0
+        self._accepted = False
+        self._call_lines: list[dict[str, Any]] = []
 
     # ---- lifecycle ----
 
+    @property
+    def accepted(self) -> bool:
+        """An agent accepted this call (so there is a wrap up to draft)."""
+        return self._accepted
+
     async def on_accept(self) -> None:
+        self._accepted = True
         if self.engine is not None:
             return
         identity = getattr(self.intake, "identity", None)
@@ -189,6 +203,9 @@ class AssistSession:
 
     def on_final(self, data: dict[str, Any]) -> None:
         """TranscriptRelay's final line callback (sync, on the pipeline task)."""
+        if self._accepted and data.get("is_final", True) and str(data.get("text") or "").strip():
+            if len(self._call_lines) < MAX_WRAP_UP_LINES:
+                self._call_lines.append({"role": data.get("role"), "text": data["text"]})
         if self.engine is not None and not self.engine.stopped:
             self._lines.put_nowait(data)
 
@@ -238,6 +255,23 @@ class AssistSession:
         if self.engine is not None and participant_id == self.roles.agent_id:
             logger.info("[assist] agent joined: sending the current assist state")
             await self.engine.resync()
+
+    # ---- wrap up (P5-1) ----
+
+    def wrap_up_inputs(self) -> WrapUpInputs:
+        """What the wrap up draft is written from. The pack is the one the assist
+        ended on (it may have switched from the intake pack)."""
+        engine = self.engine
+        pack = (engine.pack if engine is not None else None) or self.intake.pack
+        done = engine.plan_done if engine is not None else {}
+        steps = engine.accepted_steps if engine is not None else []
+        return WrapUpInputs(
+            pack=pack,
+            intake=dict(self.intake.intake),
+            transcript=list(self._call_lines),
+            accepted=[AcceptedAction(i, label, recs) for i, label, recs in steps],
+            plan=[PlanStepState(s.id, s.label, s.id in done) for s in pack.call_plan],
+        )
 
     # ---- output ----
 

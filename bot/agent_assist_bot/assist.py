@@ -278,6 +278,8 @@ class AssistEngine:
         self.supporting: dict[str, Card] = {}
         self.closed: set[str] = set()
         self.accepted_actions: list[str] = []
+        # P5-1: (action id, label, record ids) per accepted next best step, for wrap up.
+        self.accepted_steps: list[tuple[str, str, tuple[str, ...]]] = []
         self.plan_done: dict[str, str] = {}  # step id -> "transcript" | "action"
         self._pending: list[_Candidate] = []
         self._sent_at: deque[float] = deque()
@@ -452,6 +454,13 @@ class AssistEngine:
                 logger.info(f"[assist] accepted {card.id} action={data.get('action_id')}")
                 if action:
                     self.accepted_actions.append(action["id"])
+                    self.accepted_steps.append(
+                        (
+                            action["id"],
+                            action.get("label") or action["id"],
+                            tuple(rid for _, rid in card.source.records),
+                        )
+                    )
                     await self._tick_from_action(action["id"])
                 await self._close(card, "accepted")
             elif fb.action == "dismiss":

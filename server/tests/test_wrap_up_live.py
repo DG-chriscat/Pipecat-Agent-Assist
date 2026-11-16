@@ -564,7 +564,9 @@ async def test_live_ring_to_wrap_up_with_agent_drop(schema, shots, monkeypatch):
     )
     assert notes.startswith("Denied for no prior auth")
     assert lines >= 3, "transcript lines were not saved"
-    assert "goodbye" in heard["goodbye"].lower()
+    # The caller's recording is transcribed by STT; "goodbye" came back as "good guy" once
+    # (run 7, bot log shows GOODBYE_LINE). Match the start of the line instead.
+    assert "thanks for calling" in heard["goodbye"].lower()
     assert REQUEUED_LINE and GOODBYE_LINE  # the lines the bot spoke (see HEARD above)
     assert room_gone, "the room was not closed after End"
     # Target: median under 2 s; no single accept over the 3 s ceiling (shared 2 CPU host).

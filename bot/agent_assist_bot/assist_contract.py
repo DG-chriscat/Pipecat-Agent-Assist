@@ -6,7 +6,7 @@ the agent's participant id only (same delivery as the live transcript, P3-4):
     {"label": "rtvi-ai", "type": "server-message",
      "data": {"type": "assist", "v": 1, "event": <event>, "seq": n, "ts": t, ...}}
 
-Events: `hero`, `card_added`, `card_removed`, `plan_update`, `assist_status`.
+Events: `hero`, `card_added`, `card_removed`, `plan_update`, `assist_status`, `mood`.
 
 Portal -> bot: agent feedback as an RTVI client message (`client.sendClientMessage`):
 
@@ -26,14 +26,14 @@ from typing import Any, Literal
 VERSION = 1
 MESSAGE_TYPE = "assist"
 FEEDBACK_TYPE = "assist_feedback"
-EVENTS = ("hero", "card_added", "card_removed", "plan_update", "assist_status")
+EVENTS = ("hero", "card_added", "card_removed", "plan_update", "assist_status", "mood")
 HERO_REASONS = ("new", "higher_rank", "accepted", "dismissed", "updated")
-REMOVE_REASONS = ("dismissed", "accepted", "promoted")
+REMOVE_REASONS = ("dismissed", "accepted", "promoted", "replaced")
 FEEDBACK_ACTIONS = ("accept", "dismiss", "pin", "unpin", "rate")
 RATINGS = ("up", "down")
 STATUS_STATES = ("listening", "rate_limited", "error", "stopped")
 
-CardKind = Literal["next_step", "record", "article", "alert"]
+CardKind = Literal["next_step", "record", "article", "alert", "tone_tip"]
 
 
 @dataclass(frozen=True)
@@ -158,6 +158,21 @@ def status_message(state: str, *, seq: int, ts: float, **fields: Any) -> dict[st
     if state not in STATUS_STATES:
         raise ValueError(f"unknown assist state {state!r}")
     return assist_message("assist_status", seq=seq, ts=ts, state=state, **fields)
+
+
+def mood_message(
+    *,
+    seq: int,
+    ts: float,
+    label: str | None,
+    tone: str | None,
+    step: int | None,
+    readings: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """The caller's mood trend (P4-5, AP-14): every tone reading of the call so far."""
+    return assist_message(
+        "mood", seq=seq, ts=ts, label=label, tone=tone, step=step, readings=readings
+    )
 
 
 @dataclass(frozen=True)

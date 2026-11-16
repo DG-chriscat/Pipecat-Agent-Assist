@@ -68,6 +68,7 @@ from agent_assist_bot.llm import create_llm
 from agent_assist_bot.packs import DEFAULT_PACK, MAX_KEYTERMS, Pack, load_pack, load_packs
 from agent_assist_bot.stt_tuning import IdentitySTTTuning, build_intake_stt
 from agent_assist_bot.timing import FirstAudioTimer, log_timing
+from agent_assist_bot.tone import IntakeToneTap, MoodTrend, tone_reader_from_env
 from agent_assist_bot.transcript import (
     ROLES,
     AudioRoute,
@@ -329,9 +330,14 @@ class FanOut:
 
 
 def listen_branch(
-    role: str, roles: CallRoles, on_final, keyterms: list[str] | None = None
+    role: str,
+    roles: CallRoles,
+    on_final,
+    keyterms: list[str] | None = None,
+    reader: FrameProcessor | None = None,
 ) -> list[FrameProcessor]:
-    """One role's live transcript (S2): its own audio, VAD, and Deepgram stream."""
+    """One role's live transcript (S2): its own audio, VAD, and Deepgram stream.
+    `reader` (the caller's tone reader, P4-5) goes right after the STT."""
     return [
         AudioRoute(role, roles),
         VADProcessor(vad_analyzer=SileroVADAnalyzer()),
@@ -339,8 +345,20 @@ def listen_branch(
             api_key=os.environ["DEEPGRAM_API_KEY"],
             settings=DeepgramSTTService.Settings(model=STT_MODEL, keyterm=keyterms or None),
         ),
+        *([reader] if reader is not None else []),
         TranscriptRelay(role, roles, on_final=on_final),
     ]
+
+
+class PreviousLine:
+    """Gives the caller's listen reader the agent's last line as the turn before."""
+
+    def __init__(self, reader) -> None:
+        self._reader = reader
+
+    def __call__(self, data) -> None:
+        if data.get("role") == "agent":
+            self._reader.set_previous(data["text"])
 
 
 def build_worker(
@@ -390,6 +408,12 @@ def build_worker(
     roles = CallRoles()
     recorder = TranscriptRecorder(store, lambda: session.call_id)
     packs = load_packs()
+    # Caller tone (P4-5, IN-10, AP-14): one reader on the intake STT and one on the
+    # caller's listen STT (they share one loaded model); none on the agent. Off with
+    # TONE_READER=0. Intake readings go into the trend the assist starts from.
+    trend = MoodTrend()
+    intake_reader = tone_reader_from_env(name="CallerToneReader[intake]")
+    caller_reader = tone_reader_from_env(name="CallerToneReader[caller]")
     assist = AssistSession(
         packs=packs,
         roles=roles,
@@ -398,15 +422,32 @@ def build_worker(
         intake=session,
         llm_factory=LLMProposer.from_env,
         llm_debounce_secs=LLM_DEBOUNCE_SECS,
+        trend=trend,
     )
-    on_final = FanOut(recorder.add, assist.on_final)
+    targets = [recorder.add, assist.on_final]
+    if caller_reader is not None:
+        targets.append(PreviousLine(caller_reader))
+    on_final = FanOut(*targets)
     keyterms = listen_keyterms(packs)
-    listen = [listen_branch(role, roles, on_final, keyterms) for role in ROLES]
+    listen = [
+        listen_branch(role, roles, on_final, keyterms, caller_reader if role == "caller" else None)
+        for role in ROLES
+    ]
+    intake_tone = (
+        [intake_reader, IntakeToneTap(trend, on_final=recorder.add)]
+        if intake_reader is not None
+        else []
+    )
     pipeline = Pipeline(
         [
             transport.input(),
             ParallelPipeline(
-                [AudioRoute(None, roles), stt, TurnLogger("caller", TranscriptionFrame)],
+                [
+                    AudioRoute(None, roles),
+                    stt,
+                    *intake_tone,
+                    TurnLogger("caller", TranscriptionFrame),
+                ],
                 *listen,
             ),
             aggregators.user(),
@@ -424,9 +465,11 @@ def build_worker(
         idle_timeout_secs=120,
         # RTVI's own transcription messages go to everyone in the room, the caller
         # included. The listen branches are invisible to it; TranscriptRelay sends
-        # their lines to the agent only.
+        # their lines to the agent only. user-input messages are off: they would carry
+        # the intake tone reading (perception) to the caller (P4-5).
         rtvi_observer_params=RTVIObserverParams(
-            ignored_sources=[p for branch in listen for p in branch]
+            ignored_sources=[p for branch in listen for p in branch],
+            user_input_enabled=False,
         ),
     )
 

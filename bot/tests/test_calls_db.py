@@ -121,6 +121,31 @@ async def test_add_transcript_line_saves_final_lines_for_wrap_up(store):
     ]
 
 
+async def test_add_transcript_line_saves_the_caller_tone_reading(store):
+    # P4-5, IN-10: one tone reading per caller line, saved with the line.
+    call_id = await store.create_call("sess-6t")
+    reading = {
+        "emotion": "angry",
+        "confidence": 0.8968,
+        "labels": [["angry", 0.8968], ["disgusted", 0.0508]],
+        "sarcasm": 0.0066,
+        "step": 4,
+        "mood": "Frustrated",
+        "score": 1.0,
+    }
+    await store.add_transcript_line(call_id, "caller", "This is ridiculous.", 1.0, reading)
+    await store.add_transcript_line(call_id, "agent", "I hear you.", 2.0)
+    cur = await store._execute(
+        "SELECT speaker_role, tone, tone_reading FROM transcript_lines "
+        "WHERE call_id = %s ORDER BY ts",
+        (call_id,),
+    )
+    assert await cur.fetchall() == [
+        ("caller", "angry", reading),
+        ("agent", None, None),
+    ]
+
+
 async def test_add_assist_event_logs_feedback_on_the_call(store):
     # DC-9: accepting a next best step is logged on the call record, nothing else.
     call_id = await store.create_call("sess-7")

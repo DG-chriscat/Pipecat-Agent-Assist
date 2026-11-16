@@ -6,7 +6,9 @@ The bot writes its own `calls` row (schema in db/migrations/0001_init.sql):
 - `set_identity` stores `identity_result` and the matched `member_id`.
 - `add_flag` appends to `calls.flags` (no duplicates).
 - `mark_ready_for_queue` sets status `ready_for_queue` and stores the intake summary.
-- `add_transcript_line` saves one final live transcript line (P3-4) for wrap up.
+- `add_transcript_line` saves one final transcript line (P3-4) for wrap up; caller
+  lines carry their tone reading (P4-5, IN-10): `tone` is the reader's emotion label,
+  `tone_reading` the whole reading (labels, sarcasm, mood step).
 - `add_assist_event` logs what the assist showed and what the agent did (P4-3, DC-9).
 
 `verify_identity` matches name + date of birth + member ID against `members`.
@@ -130,7 +132,12 @@ class CallStore(Protocol):
     async def add_flag(self, call_id: str, flag: str) -> None: ...
     async def mark_ready_for_queue(self, call_id: str, summary: str) -> None: ...
     async def add_transcript_line(
-        self, call_id: str, speaker_role: str, text: str, ts: float
+        self,
+        call_id: str,
+        speaker_role: str,
+        text: str,
+        ts: float,
+        tone: dict[str, Any] | None = None,
     ) -> None: ...
     async def add_assist_event(
         self, call_id: str, kind: str, card_id: str | None, data: dict[str, Any]
@@ -149,6 +156,8 @@ class CallRecord:
     identity_result: str | None = None
     flags: list[str] = field(default_factory=list)
     transcript: list[tuple[str, str, float]] = field(default_factory=list)
+    # Tone reading per transcript line, same order (P4-5, IN-10); None when unread.
+    tones: list[dict[str, Any] | None] = field(default_factory=list)
     assist_events: list[tuple[str, str | None, dict[str, Any]]] = field(default_factory=list)
 
 
@@ -192,9 +201,15 @@ class MemoryCallStore:
         self.writes.append(("ready", summary))
 
     async def add_transcript_line(
-        self, call_id: str, speaker_role: str, text: str, ts: float
+        self,
+        call_id: str,
+        speaker_role: str,
+        text: str,
+        ts: float,
+        tone: dict[str, Any] | None = None,
     ) -> None:
         self.calls[call_id].transcript.append((speaker_role, text, ts))
+        self.calls[call_id].tones.append(dict(tone) if tone else None)
         self.writes.append(("transcript", speaker_role))
 
     async def add_assist_event(
@@ -303,12 +318,26 @@ class PostgresCallStore:
         )
 
     async def add_transcript_line(
-        self, call_id: str, speaker_role: str, text: str, ts: float
+        self,
+        call_id: str,
+        speaker_role: str,
+        text: str,
+        ts: float,
+        tone: dict[str, Any] | None = None,
     ) -> None:
+        from psycopg.types.json import Jsonb
+
         await self._execute(
-            "INSERT INTO transcript_lines (call_id, speaker_role, text, ts) "
-            "VALUES (%s, %s, %s, to_timestamp(%s))",
-            (call_id, speaker_role, text, ts),
+            "INSERT INTO transcript_lines (call_id, speaker_role, text, ts, tone, tone_reading) "
+            "VALUES (%s, %s, %s, to_timestamp(%s), %s, %s)",
+            (
+                call_id,
+                speaker_role,
+                text,
+                ts,
+                tone.get("emotion") if tone else None,
+                Jsonb(tone) if tone else None,
+            ),
         )
 
     async def add_assist_event(

@@ -114,14 +114,15 @@ The portal ignores messages with `v` other than 1.
 | `plan_update` | `pack_id`, `pack_name`, `steps`: `[{id, label, done, by}]` (`by`: `transcript`, `action`, or null), `done`, `total`. Always the whole plan. |
 | `hero` | `card` (a card, or null for "Listening"), `reason`: `new`, `higher_rank`, `accepted`, `dismissed`; `replaces`: previous hero id or null. |
 | `card_added` | `card`: a supporting card. Re-adding an id replaces it in place. |
-| `card_removed` | `card_id`, `reason`: `dismissed`, `accepted`, `promoted` (moved to hero). |
+| `card_removed` | `card_id`, `reason`: `dismissed`, `accepted`, `promoted` (moved to hero), `replaced` (an older tone tip). |
+| `mood` | P4-5. The caller's mood trend: `label` ("Worried, easing"), `tone` (`ok`, `warn`, `bad`), `step` (0 to 4), `readings`: every tone reading of the call, `[{line_id, ts, emotion, confidence, sarcasm, step, mood, score}]` (`score` = step / 4). Sent on start and resync when there are intake readings, and after each caller line with a reading. |
 
 Card:
 
 ```
 {
   "id": "nbs:retro_auth_review:CLM-900001",
-  "kind": "next_step" | "record" | "article" | "alert",
+  "kind": "next_step" | "record" | "article" | "alert" | "tone_tip",
   "title": "Next best step",
   "pack_id": "claims_status",
   "rank": 105,
@@ -145,8 +146,13 @@ Card:
 - `body` for `record`, `article`, `alert`: `fields` (column order), `rows` (up to 5,
   only those fields, raw connector values: ISO dates, numbers), `summary` (filled
   template line or null).
+- `body` for `tone_tip` (P4-5, docs/tone.md): `headline` (the one big answer, e.g.
+  "Acknowledge, then act"), `why`, `mood`, `emotion`, `confidence`. Source label
+  "Pipecat Tone reader, words only", no records; trigger is the caller line with
+  `phrase`, `start`, `end` null. Rank 4: above alerts, below every next step, never
+  the hero. A newer tip replaces the older one (`card_removed` reason `replaced`).
 - Card ids: `nbs:<rule>:<record>`, `card:<template>` (record cards), `kb:<article
-  ids>`, `alert:<template>:<record ids>`.
+  ids>`, `alert:<template>:<record ids>`, `tone:<caller line id>`.
 
 ### Portal to bot: feedback
 

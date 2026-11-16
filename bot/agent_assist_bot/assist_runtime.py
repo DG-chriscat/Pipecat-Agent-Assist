@@ -99,13 +99,16 @@ class AssistSession:
         max_cards_per_min: int | None = None,
         llm_debounce_secs: float | None = None,
         clock=None,
+        trend=None,
     ):
         """`intake` is the IntakeSession (pack, intake, identity, call_id); `output` is
-        the Daily output transport (anything with `send_message(frame)`)."""
+        the Daily output transport (anything with `send_message(frame)`). `trend` is the
+        call's MoodTrend (P4-5), already holding the intake readings."""
         self.packs = dict(packs)
         self.roles = roles
         self.output = output
         self.intake = intake
+        self.trend = trend
         self._connectors_factory = connectors_factory
         self._llm = llm
         self._llm_factory = llm_factory
@@ -147,6 +150,7 @@ class AssistSession:
             llm=llm,
             max_cards_per_min=self._max_cards or max_cards_from_env(),
             llm_debounce_secs=self._debounce,
+            trend=self.trend,
             **kwargs,
         )
         intake = {k: v for k, v in dict(self.intake.intake).items() if k not in PRIVATE_INTAKE_KEYS}

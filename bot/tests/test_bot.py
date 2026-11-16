@@ -265,8 +265,8 @@ def test_listen_branch_finals_reach_transcript_store_and_assist(api_keys):
     par = next(p for p in inner.processors if isinstance(p, ParallelPipeline))
     relays = [x for b in par._pipelines for x in b.processors if isinstance(x, TranscriptRelay)]
     for r in relays:
-        targets = {getattr(f, "__self__", None).__class__.__name__ for f in r._on_final.targets}
-        assert targets == {"TranscriptRecorder", "AssistSession"}
+        targets = {type(getattr(f, "__self__", f)).__name__ for f in r._on_final.targets}
+        assert targets == {"TranscriptRecorder", "AssistSession", "PreviousLine"}
 
 
 def test_pipeline_has_intake_and_two_listen_branches(api_keys):

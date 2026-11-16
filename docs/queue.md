@@ -243,10 +243,17 @@ lines. The hold controller turns it on and off; the mixer handles the levels its
 Ducking keys off the audio itself (any bot speech in the chunk), so a short LLM reply
 to a caller who talks while on hold is ducked too.
 
-Live check (`server/tests/test_hold_music_live.py`, Nov 16): during a 15 s wait the
-longest gap was 0.5 s (between the handoff line and the fade in), Deepgram transcribed
-the hold update over the music word for word, and the music stopped 160 ms after the
-`agent_accepted` app message reached the room, 200 ms before "Connecting you now.".
+Live check (`server/tests/test_hold_music_live.py`, Nov 16, two runs): during a 15 s
+wait the longest gap was 0.4 to 0.5 s (between the handoff line and the fade in),
+Deepgram transcribed the hold update over the music word for word, and the music
+stopped at the caller's ear 465 / 458 ms after the agent accepted (248 to 264 ms for
+the server's `agent_accepted` app message to reach the room, about 200 ms for the bot
+plus WebRTC), followed by "Connecting you now.".
+
+Server side: the bot notifier (`queue_api.BotNotifier`) sends every app message on one
+kept-alive Daily connection (`DailyRestClient.keep_alive()`) and warms it with a room
+presence call when an offer rings. A fresh TLS connection per message cost about
+200 ms more (400 ms vs 225 ms to delivery, measured), which put the stop over 500 ms.
 
 ### The track
 

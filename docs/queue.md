@@ -139,6 +139,10 @@ event: `call_queued` (with `position`), `call_updated`, `call_accepted`, `call_e
 errors                                                      -> {"type": "error", "message": "..."}
 ```
 
+Websocket `/ws/bot/{session_id}` (QH-5b) is for the call's bot only: the server
+pushes `agent_accepted`, `requeued` and `call_ended` for that session on it and
+ignores what the bot sends.
+
 No auth beyond the demo sign in (AP-1). Do not expose this server publicly as is.
 
 ## Caller panel data (P3-3, AP-5, AP-13, DC-8)
@@ -213,6 +217,10 @@ ignores app messages from anyone else):
 {"type": "agent_assist.queue", "event": "call_ended"}
 ```
 
+`agent_accepted`, `requeued` and `call_ended` also carry an `"id"` and are pushed on
+the bot's own websocket (`/ws/bot/{session_id}`, QH-5b, see "How agent_accepted
+reaches the bot" below); the Daily app message is the fallback copy.
+
 While queued the bot says a short update every 60 s ("Thanks for waiting. You're next
 in line..."), with hold music under it (see "Hold music" below). On `agent_accepted`
 the music stops, the bot says "Connecting you now.", and a gate in front of the LLM
@@ -243,17 +251,48 @@ lines. The hold controller turns it on and off; the mixer handles the levels its
 Ducking keys off the audio itself (any bot speech in the chunk), so a short LLM reply
 to a caller who talks while on hold is ducked too.
 
-Live check (`server/tests/test_hold_music_live.py`, Nov 16, two runs): during a 15 s
-wait the longest gap was 0.4 to 0.5 s (between the handoff line and the fade in),
-Deepgram transcribed the hold update over the music word for word, and the music
-stopped at the caller's ear 465 / 458 ms after the agent accepted (248 to 264 ms for
-the server's `agent_accepted` app message to reach the room, about 200 ms for the bot
-plus WebRTC), followed by "Connecting you now.".
+Live check (`server/tests/test_hold_music_live.py`, browser and phone). The phone leg
+is a real SIP leg into a Daily dial-in room (the room the dial-in webhook makes), dialed
+over SIP from a second room; only the carrier and the pinless forward are skipped.
 
-Server side: the bot notifier (`queue_api.BotNotifier`) sends every app message on one
-kept-alive Daily connection (`DailyRestClient.keep_alive()`) and warms it with a room
-presence call when an offer rings. A fresh TLS connection per message cost about
-200 ms more (400 ms vs 225 ms to delivery, measured), which put the stop over 500 ms.
+| Run | Path to the bot | Browser | Phone (SIP) |
+| --- | --- | --- | --- |
+| QH-5 (#36), Nov 16 | Daily app message (kept-alive REST) | 465 / 458 ms | 551 / 617 ms (#38) |
+| QH-5b, Nov 16 | bot socket, Daily as fallback | 154 ms | 411 ms |
+
+Times are from the agent's accept to the music stopping at the caller's ear (the first
+silent 50 ms window). QH-5b run: longest gap during the 15 s wait 0.5 s (browser) /
+0.6 s (phone), between the handoff line and the fade in; Deepgram transcribed the hold
+update over the music word for word on both; "Connecting you now." followed 50 ms /
+350 ms after the music stopped, and no music after it. The bot logs showed the socket
+copy of `agent_accepted` acting first and the Daily copy arriving 210 to 235 ms later
+and being dropped as a duplicate.
+
+### How agent_accepted reaches the bot (QH-5b)
+
+The server's REST hop through Daily (`send-app-message`, about 225 to 260 ms to
+delivery even on a kept-alive connection) was most of the time to stop. So the bot
+also has its own websocket to the server:
+
+1. After a successful handoff (`POST /queue/calls`), the bot opens
+   `ws(s)://<AGENT_ASSIST_SERVER_URL>/ws/bot/{session_id}` (`server_channel.py`),
+   with `Authorization: Bearer <AGENT_ASSIST_BOT_KEY>` when the server has login on.
+   With login on, only the bot key opens it (a portal cookie does not, and the bot
+   key does not open `/ws/queue`). An unknown session closes with 4404.
+2. The bot notifier (`queue_api.BotNotifier`) pushes `agent_accepted`, `requeued`
+   and `call_ended` on that socket at once, and still sends each one as a Daily app
+   message. Both copies carry the same `"id"`. `queued` and `position` go through
+   Daily only (nothing is timed on them).
+3. The bot acts on whichever copy comes first; `HoldController` drops the second by
+   id, so a duplicate never speaks twice or turns the music back on.
+4. The Daily copy is the fallback: if the socket is down, refused, or never opened,
+   the app message still stops the music. A dropped socket reconnects with a short
+   backoff (0.2 s, 0.5 s, 1 s, then every 2 s); 4401/4404 stop retrying. The socket
+   closes when the call ends.
+
+Server side, the Daily path is unchanged: every app message goes out on one
+kept-alive Daily connection (`DailyRestClient.keep_alive()`), warmed with a room
+presence call when an offer rings.
 
 ### The track
 

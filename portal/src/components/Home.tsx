@@ -66,7 +66,7 @@ export function Home({ agent: signedIn, createSocket, createMedia, onSignOut }: 
   const [wrapAttempt, setWrapAttempt] = useState(0);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const { call, start, setDetails, leave, toggleMute, toggleHold } = useCall(createMedia);
+  const { call, start, prepare, discard, setDetails, leave, toggleMute, toggleHold } = useCall(createMedia);
 
   const ids = useRef({ agentId, sessionId: call?.sessionId ?? null });
   useEffect(() => {
@@ -173,6 +173,15 @@ export function Home({ agent: signedIn, createSocket, createMedia, onSignOut }: 
 
   // Tick the clock for the countdown and the call timer.
   const ticking = !!offer || !!call;
+
+  // P3-5: warm the call audio (SDK, mic) while the card rings, so accept only has
+  // to connect; release it if the offer goes away without a call.
+  const ringingFor = offer && !call ? offer.call.session_id : null;
+  useEffect(() => {
+    if (!ringingFor) return;
+    prepare();
+    return () => discard();
+  }, [ringingFor, prepare, discard]);
   useEffect(() => {
     if (!ticking) return;
     setNowMs(Date.now());

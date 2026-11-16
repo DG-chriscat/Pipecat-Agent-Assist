@@ -208,7 +208,8 @@ describe("incoming call and in-call shell (AP-3, AP-4, QH-6, QH-7)", () => {
     ring(sock);
     fireEvent.click(screen.getByRole("button", { name: /accept/i }));
     expect(await screen.findByRole("alert")).toHaveTextContent("could not create a meeting token");
-    expect(FakeMedia.instances).toHaveLength(0);
+    // Only the warm up from ringing exists; no room was joined.
+    expect(FakeMedia.instances.filter((m) => m.joined)).toHaveLength(0);
   });
 
   it("decline posts to the server; the card closes when the server sets not available", async () => {
@@ -558,6 +559,33 @@ describe("incoming call and in-call shell (AP-3, AP-4, QH-6, QH-7)", () => {
     await waitFor(() => expect(panel).toHaveTextContent(/history is unavailable/i));
     expect(panel).toHaveTextContent("Maria Alvarez");
     expect(panel).toHaveTextContent("MRI claim from Oct 28 was denied");
+  });
+
+  it("warms the call audio while ringing and joins with it on accept; a decline releases it", async () => {
+    route = (url) => {
+      if (url === "/agents/agent-1/accept") return json(acceptResult);
+      if (url === "/agents/agent-1/decline") return json({ status: "declined" });
+      return undefined;
+    };
+    const sock = await signedInAvailable();
+    ring(sock);
+    await act(async () => {});
+    expect(FakeMedia.instances).toHaveLength(1);
+    expect(FakeMedia.last().prepared).toBe(1);
+    fireEvent.click(screen.getByRole("button", { name: /decline/i }));
+    act(() => {
+      sock.serverSend({ type: "agent_updated", agent: { ...ana, state: "offline" } });
+      sock.serverSend({ type: "offer_missed", agent_id: "agent-1", session_id: "s1", reason: "declined" });
+    });
+    await waitFor(() => expect(FakeMedia.instances[0].left).toBe(1));
+    act(() => sock.serverSend({ type: "agent_updated", agent: ana }));
+    ring(sock);
+    await act(async () => {});
+    expect(FakeMedia.instances).toHaveLength(2);
+    fireEvent.click(screen.getByRole("button", { name: /accept/i }));
+    await screen.findByRole("group", { name: /call/i });
+    expect(FakeMedia.instances).toHaveLength(2);
+    expect(FakeMedia.last().joined?.token).toBe("meeting-token");
   });
 
   it("the toggle is not shown as a way out while on a call", async () => {

@@ -1,7 +1,8 @@
 /**
  * CallMedia on the Pipecat client SDK with the Daily transport (QH-6): audio only,
- * mic on. The SDK is loaded on first join so the idle portal and the tests do not
- * pull in daily-js.
+ * mic on. The SDK is loaded on first use so the idle portal and the tests do not
+ * pull in daily-js. prepare() does that work (SDK, client, mic) while the offer
+ * rings, so join() after accept only has to connect (P3-5, accept to audio < 2 s).
  *
  * The agent joins a room the bot already runs; the Daily transport treats every
  * remote participant as "the bot", so disconnectOnBotDisconnect is off (the bot or
@@ -22,6 +23,9 @@ function mark(name: string): void {
 
 export class DailyCallMedia implements CallMedia {
   private client: PipecatClient | null = null;
+  /** The client with its devices started; shared by prepare() and join(). */
+  private ready: Promise<PipecatClient | null> | null = null;
+  private connected: () => void = () => {};
   private readonly audio = new Map<string, HTMLAudioElement>();
   private readonly events: CallMediaEvents;
   private closed = false;
@@ -30,17 +34,25 @@ export class DailyCallMedia implements CallMedia {
     this.events = events;
   }
 
-  async join(roomUrl: string, token: string): Promise<void> {
-    mark("join");
+  /** While ringing: load the SDK, create the client, and start the mic (P3-5). */
+  prepare(): Promise<void> {
+    return this.setup().then(() => undefined);
+  }
+
+  private setup(): Promise<PipecatClient | null> {
+    this.ready ??= this.build();
+    return this.ready;
+  }
+
+  private async build(): Promise<PipecatClient | null> {
+    mark("setup");
     const [{ PipecatClient }, { DailyTransport }] = await Promise.all([
       import("@pipecat-ai/client-js"),
       import("@pipecat-ai/daily-transport"),
     ]);
     mark("sdk-loaded");
-    if (this.closed) return;
+    if (this.closed) return null;
     const ev = this.events;
-    let joined: () => void = () => {};
-    const connected = new Promise<void>((resolve) => (joined = resolve));
     const client = new PipecatClient({
       transport: new DailyTransport(),
       enableMic: true,
@@ -49,7 +61,7 @@ export class DailyCallMedia implements CallMedia {
       callbacks: {
         onConnected: () => {
           mark("connected");
-          joined();
+          this.connected();
         },
         onServerMessage: (data: unknown) => ev.onServerMessage(data),
         onRemoteAudioLevel: (level, p) => ev.onRemoteLevel(level, p.id),
@@ -72,6 +84,26 @@ export class DailyCallMedia implements CallMedia {
       },
     });
     this.client = client;
+    try {
+      // Mic permission and Daily's call machine; connect() skips this once done.
+      await client.initDevices();
+      mark("devices");
+    } catch {
+      // connect() runs initDevices again and reports a real failure.
+    }
+    if (this.closed) {
+      // Released while warming up (the offer went away): free the mic.
+      await client.disconnect().catch(() => {});
+      return null;
+    }
+    return client;
+  }
+
+  async join(roomUrl: string, token: string): Promise<void> {
+    mark("join");
+    const client = await this.setup();
+    if (!client || this.closed) return;
+    const connected = new Promise<void>((resolve) => (this.connected = resolve));
     const failed = client.connect({ url: roomUrl, token }).then(
       () => new Promise<never>(() => {}),
       (e: unknown) => Promise.reject(e instanceof Error ? e : new Error(String(e))),

@@ -16,12 +16,17 @@ export class FakeMedia implements CallMedia {
   joined: { roomUrl: string; token: string } | null = null;
   mic: boolean[] = [];
   left = 0;
+  prepared = 0;
   private resolveJoin: (() => void) | null = null;
   private rejectJoin: ((e: Error) => void) | null = null;
 
   constructor(events: CallMediaEvents) {
     this.events = events;
     FakeMedia.instances.push(this);
+  }
+
+  async prepare(): Promise<void> {
+    this.prepared += 1;
   }
 
   join(roomUrl: string, token: string): Promise<void> {

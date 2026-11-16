@@ -52,7 +52,7 @@ The bot greets the caller, checks who they are, and learns why they called, all 
 
 | ID | Requirement | Priority |
 | --- | --- | --- |
-| IN-1 | A call to the Daily number fires a webhook that starts one Pipecat bot in a new Daily room. The caller hears a greeting within 2 seconds of the bot joining. | Must |
+| IN-1 | A call to the Daily number fires a webhook that starts one Pipecat bot in a new Daily room. The caller hears a greeting within 5 seconds of the bot joining (Chris raised the PoC target from 2 s on Nov 16 after a good live call). | Must |
 | IN-2 | The greeting tells the caller they are speaking with an AI assistant and that a person will join. | Must |
 | IN-3 | The intake script is a Pipecat Flow with these steps: greeting, identity, reason for the call, use case questions, read back. | Must |
 | IN-4 | Intake questions live in a use case pack config, so a builder can change them without code changes. | Must |
@@ -63,7 +63,7 @@ The bot greets the caller, checks who they are, and learns why they called, all 
 | IN-9 | The bot gives no medical advice. If the caller describes an emergency, it tells them to hang up and call 911, and flags the call. | Must |
 | IN-10 | Pipecat Tone reads the caller's tone on each turn, and the reading is saved with the transcript. | Should |
 | IN-11 | Speech to text and text to speech use Deepgram. Expressive conversation may be turned on for a warmer bot voice. | Should |
-| IN-12 | For the PoC a caller can start a call from a browser page. The server creates the room, starts the same bot as the phone path, and the caller hears the greeting within 2 seconds of the bot joining. Live phone verification of IN-1 waits until a number is bought (ADR 0002). | Must |
+| IN-12 | For the PoC a caller can start a call from a browser page. The server creates the room, starts the same bot as the phone path, and the caller hears the greeting within 5 seconds of the bot joining. Live phone verification of IN-1 waits until a number is bought (ADR 0002). | Must |
 
 ## Requirements: queue and handoff
 

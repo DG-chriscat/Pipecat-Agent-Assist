@@ -1,12 +1,11 @@
-import { FileText, HeartPulse, ListChecks, Mic, MicOff, Pause, PhoneOff, Play, Sparkles } from "lucide-react";
-import type { ReactNode } from "react";
-import tileAluminum from "../assets/tex/aluminum.jpg";
-import tileBakelite from "../assets/tex/bakelite.jpg";
-import tileStone from "../assets/tex/stone.jpg";
+import { Mic, MicOff, Pause, PhoneOff, Play } from "lucide-react";
+import { useMemo } from "react";
 import type { CallerDetails } from "../api/types";
+import { assistHighlights, emptyAssist, type AssistState, type LocalAction } from "../state/assist";
 import type { CallerInfo } from "../state/offer";
 import { formatClock } from "../state/offer";
 import type { HighlightRange, TranscriptLine } from "../state/transcript";
+import { AssistColumn } from "./AssistColumn";
 import { CallerPanel, type DetailsState } from "./CallerPanel";
 import type { PhiFieldName } from "./PhiField";
 import { Shell, type ShellAgent } from "./Shell";
@@ -36,6 +35,10 @@ export interface InCallProps {
   /** Live transcript (P3-4). */
   transcript: TranscriptLine[];
   highlights: HighlightRange[];
+  /** Assist column (P4-4, docs/assist.md); empty (Listening) when absent. */
+  assist?: AssistState;
+  /** The agent acted on a card or the call plan. */
+  onAssist?: (a: LocalAction) => void;
   /** AP-17: log a reveal of a masked field on the call record. */
   onRevealPhi: (field: PhiFieldName) => void;
   onMute: () => void;
@@ -47,6 +50,8 @@ export interface InCallProps {
 const BARS = [0.4, 0.8, 0.55, 1, 0.45, 0.7, 0.3];
 /** Below this the line is quiet and the bars rest. */
 export const SPEAKING_LEVEL = 0.02;
+const noop = () => {};
+const EMPTY = emptyAssist();
 
 function Waveform({ level }: { level: number }) {
   const speaking = level > SPEAKING_LEVEL;
@@ -114,81 +119,15 @@ function Controls({ phase, muted, held, onMute, onHold, onEnd }: InCallProps) {
   );
 }
 
-function ShelfTile({ swatch, icon, title, empty }: { swatch: string; icon: ReactNode; title: string; empty: string }) {
-  return (
-    <div className="panel tile is-empty" data-testid="shelf-tile">
-      <div className="tile-top">
-        <span className="sw" style={{ backgroundImage: `url(${swatch})` }} aria-hidden="true">
-          {icon}
-        </span>
-        <b>{title}</b>
-      </div>
-      <p>{empty}</p>
-    </div>
-  );
-}
-
-/**
- * Assist column (DESIGN.md "Assist column"), laid out as Studio with empty states:
- * hero in its listening state, three shelf tiles, Earlier this call, and the Ask bar.
- * P4-4 fills them from the assist contract (docs/assist.md).
- */
-function AssistColumn({ firstName }: { firstName: string }) {
-  return (
-    <section className="assist" aria-label="Assist">
-      <div className="hero is-listening">
-        <div className="eyebrow">
-          <span className="chip chip-ai">
-            <Sparkles strokeWidth={1.7} aria-hidden="true" />
-            Next best step
-          </span>
-        </div>
-        <div className="hero-listening">
-          <div className="orb orb-sm" aria-hidden="true" />
-          <div>
-            <h2 className="hero-title">Listening with you</h2>
-            <p className="hero-why">The next best step shows up here as the call goes, with the words to say.</p>
-          </div>
-        </div>
-      </div>
-      <div className="shelf">
-        <ShelfTile
-          swatch={tileAluminum}
-          icon={<FileText strokeWidth={1.7} />}
-          title="Records"
-          empty="Claims and payments appear when they come up."
-        />
-        <ShelfTile
-          swatch={tileStone}
-          icon={<ListChecks strokeWidth={1.7} />}
-          title="Call plan"
-          empty="Steps for this call appear here."
-        />
-        <ShelfTile
-          swatch={tileBakelite}
-          icon={<HeartPulse strokeWidth={1.7} />}
-          title="Tone tip"
-          empty="A tip appears if the caller's mood drops."
-        />
-      </div>
-      <div className="hist">
-        <div className="label">Earlier this call</div>
-        <p className="muted-note">Steps you finish show up here.</p>
-      </div>
-      <label className="panel ask">
-        <Sparkles strokeWidth={1.7} aria-hidden="true" />
-        <input type="text" aria-label="Ask" placeholder={`Ask about ${firstName}`} disabled />
-        <span className="kbd" aria-hidden="true">
-          ⌘ K
-        </span>
-      </label>
-    </section>
-  );
-}
-
 /** In-call frame (DESIGN.md "Layout"): rail, header with call island and controls, three columns. */
 export function InCall(props: InCallProps) {
   const firstName = props.caller.name.split(/\s+/)[0] || "the caller";
+  const assist = props.assist ?? EMPTY;
+  const onAssist = props.onAssist ?? noop;
+  const highlights = useMemo(
+    () => [...props.highlights, ...assistHighlights(assist)],
+    [props.highlights, assist],
+  );
   return (
     <Shell
       agent={props.shell}
@@ -212,8 +151,8 @@ export function InCall(props: InCallProps) {
           detailsState={props.detailsState ?? "loading"}
           onRevealPhi={props.onRevealPhi}
         />
-        <AssistColumn firstName={firstName} />
-        <TranscriptColumn lines={props.transcript} highlights={props.highlights} callerName={props.caller.name} />
+        <AssistColumn assist={assist} onAction={onAssist} firstName={firstName} />
+        <TranscriptColumn lines={props.transcript} highlights={highlights} callerName={props.caller.name} />
       </main>
     </Shell>
   );

@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { QueueSocket } from "./api/queueClient";
 import type { AcceptResult, Agent, Call } from "./api/types";
+import { heroCard, msg, PLAN_STEPS, planMsg } from "./test/assistFixtures";
 import { createFakeMedia, FakeMedia } from "./test/fakeMedia";
 import { MockWebSocket } from "./test/mockSocket";
 
@@ -339,6 +340,33 @@ describe("incoming call and in-call shell (AP-3, AP-4, QH-6, QH-7)", () => {
     const rows = within(col).getAllByRole("listitem");
     expect(rows.map((r) => r.textContent)).toEqual(["MAI already called.", "YouLet me check"]);
     expect(within(col).getByText("I already called.")).not.toHaveClass("typing");
+  });
+
+  it("assist: the hero shows during the call, Enter accepts it to the bot, the trigger word is marked", async () => {
+    const sock = await signedInAvailable();
+    const media = await acceptAndJoin(sock);
+    const send = (m: object) => act(() => media.events.onServerMessage(m));
+    send({ type: "transcript", role: "caller", text: "So why did my MRI claim get denied?", is_final: true, ts: 1, line_id: "caller-3" });
+    send(planMsg());
+    send(msg("hero", { card: heroCard(), reason: "new", replaces: null }));
+    const hero = screen.getByTestId("hero");
+    expect(hero).toHaveAttribute("data-state", "suggestion");
+    const col = screen.getByRole("complementary", { name: /conversation/i });
+    expect(within(col).getByText("denied", { selector: "mark" })).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: "Enter" });
+    expect(media.sent).toEqual([["assist_feedback", { v: 1, card_id: heroCard().id, action: "accept" }]]);
+    expect(screen.getByTestId("hero")).toHaveAttribute("data-state", "accepted");
+    // The bot ticks the plan for the accepted action and clears the hero.
+    const ticked = PLAN_STEPS.map((p) => (p.id === "take_next_step" ? { ...p, done: true, by: "action" as const } : p));
+    send(planMsg(ticked));
+    send(msg("hero", { card: null, reason: "accepted", replaces: heroCard().id }));
+    const hist = screen.getByRole("list", { name: "Earlier this call" });
+    expect(within(hist).getByText("Request retro auth review")).toBeInTheDocument();
+    expect(within(hist).getByText("Take the next step")).toBeInTheDocument();
+    expect(within(screen.getByTestId("tile-plan")).getByText("1 of 4")).toBeInTheDocument();
+    // Esc with no suggestion on screen does nothing (and never touches the queue).
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(media.sent).toHaveLength(1);
   });
 
   const wrapInfo = {

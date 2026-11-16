@@ -115,6 +115,15 @@ export class DailyCallMedia implements CallMedia {
     this.client?.enableMic(on);
   }
 
+  sendClientMessage(msgType: string, data: unknown): void {
+    if (!this.client?.connected) return;
+    try {
+      this.client.sendClientMessage(msgType, data);
+    } catch {
+      // Feedback is best effort: the portal already shows the agent's action.
+    }
+  }
+
   async leave(): Promise<void> {
     this.closed = true;
     for (const id of [...this.audio.keys()]) this.stop(id);

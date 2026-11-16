@@ -204,3 +204,29 @@ RLS is enabled with no policies (same lock as 0002); `seed` truncates it.
   keyterms. `test_calls_db.py`: `add_assist_event` and RLS on Postgres.
 - Live: `server/tests/test_assist_live.py` (Maria Alvarez through intake and accept;
   the agent client gets the retro authorization hero; timings printed).
+
+## Portal (P4-4)
+
+| File | What |
+| --- | --- |
+| `portal/src/state/assist.ts` | Contract v1 parser (`parseAssistMessage`; any other `v`, unknown event, or malformed card is ignored), the reducer (`applyAssist`, drops stale `seq`), the agent's own actions (`localAssist`), the call plan view with manual ticks, and trigger highlights. |
+| `portal/src/state/format.ts` | Raw connector values for display: money, ISO dates, snake case statuses. |
+| `portal/src/hooks/useCall.ts` | Assist messages from `onServerMessage`; `assistAction` updates the screen and sends `assist_feedback` (`CallMedia.sendClientMessage`). |
+| `portal/src/components/AssistColumn.tsx` | Hero, shelf, call plan, Earlier this call, Ask bar; Enter and Esc. |
+
+- **Hero states**: listening (with the rate limit backlog), suggestion, accepted
+  (phosphor check, "Logged as a simulated action", 1.6 s), dismissed (1.6 s). The box
+  stays put and only its content crossfades; the action row stays pinned in it.
+- **Keyboard**: Enter accepts and Esc dismisses the hero, only while the in-call view
+  is mounted and a suggestion shows. Keys in the rail menu, a text field, or Enter on a
+  focused button are not taken. The incoming call card is not mounted during a call.
+- **Shelf**: fixed slots (first card, call plan, then more cards to the right); pinned
+  cards first; order frozen while hovered. Each card: AI suggested, pin, dismiss,
+  thumbs up and down, source.
+- **Call plan**: the bot's ticks plus the agent's manual tick and untick (portal only;
+  manual wins over later bot updates). The next step has the fuchsia ring.
+- **Earlier this call**: accepted actions (with "Simulated" and the record ids) and plan
+  steps done, stamped with call time.
+- Trigger words of the cards on screen are marked in the conversation.
+- Live: `server/tests/test_assist_ui_live.py` (the portal in headless Chromium on the
+  Maria Alvarez call; screenshots in `docs/screenshots/p4-4/`).

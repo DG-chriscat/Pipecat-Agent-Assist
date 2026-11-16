@@ -71,7 +71,8 @@ export function Home({ agent: signedIn, theme, onTheme, createSocket, createMedi
   const [wrapAttempt, setWrapAttempt] = useState(0);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const { call, start, prepare, discard, setDetails, leave, toggleMute, toggleHold } = useCall(createMedia);
+  const { call, start, prepare, discard, setDetails, leave, toggleMute, toggleHold, assistAction } =
+    useCall(createMedia);
 
   const ids = useRef({ agentId, sessionId: call?.sessionId ?? null });
   useEffect(() => {
@@ -318,6 +319,8 @@ export function Home({ agent: signedIn, theme, onTheme, createSocket, createMedi
         error={call.error}
         transcript={call.transcript}
         highlights={call.highlights}
+        assist={call.assist}
+        onAssist={assistAction}
         onMute={toggleMute}
         onHold={toggleHold}
         onEnd={() => void endCall()}

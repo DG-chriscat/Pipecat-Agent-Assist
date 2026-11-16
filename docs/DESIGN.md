@@ -126,6 +126,14 @@ Icons: Lucide, 1.7 stroke, round caps.
 ## Other screens
 Sign in, idle home, and the incoming call card use the same themes, ground, rail, and glass. Their current builds (P3-1, P3-2) are restyled to this file by the Studio restyle card.
 
+## Architecture (P5-6, AP-21)
+Reference mockups: docs/design/architecture/ (business light, technical dark, walk light). Rail icon (Lucide Network) between History and Settings; route /agent/architecture. Content lives in one file, portal/src/architecture/content.ts; every measured number names its source doc and a test checks the doc contains it.
+- Header right: Business / Technical segmented control (selected uses the AI gradient), Walk a call, Export, Present.
+- Canvas: glass panel with the 1100 x 620 map scaled to fit. Nodes are glass tiles with a material or gradient swatch (glass blue for Deepgram, AI gradient for the assist). The bot's parts sit in a dashed group. Edges are dashed; their protocol labels show only in Technical.
+- Selected node: 2 px fuchsia outline. Walk: active nodes get a fuchsia glow and active edges turn solid fuchsia; the rest dim to 32%.
+- Side panel (390 px): node details (what, why, measured stat tiles, doc links), the walk step, or with nothing selected the sections as tabs (Data and privacy, Prospect questions, PoC vs production).
+- Present: Fullscreen API, no rail or header, the tools move next to the title. Every external link opens in a new tab through ExternalLink.
+
 ## Wrap up (P3-5, P5-1)
 Layout and content only; P3-5 shipped it in the Focus styling and the Studio restyle card (P4-0) restyles it with the screens above. After End or a caller hang up, the in-call frame closes and the center stage shows one glass card (max 600 px):
 - Head: info chip "Wrap up" and a faint label naming who ended it ("You ended the call" or "The caller hung up").

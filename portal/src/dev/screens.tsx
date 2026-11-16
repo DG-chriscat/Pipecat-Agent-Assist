@@ -18,6 +18,7 @@ import { createRoot } from "react-dom/client";
 import { QueueSocket } from "../api/queueClient";
 import type { Agent, Call, CallerDetails, ServerMessage, WrapUpInfo } from "../api/types";
 import type { CallMedia } from "../call/media";
+import { Architecture } from "../components/Architecture";
 import { Home } from "../components/Home";
 import { InCall, type InCallProps } from "../components/InCall";
 import { SignIn } from "../components/SignIn";
@@ -429,6 +430,12 @@ const SCREENS: Record<string, () => ReactNode> = {
     stubFetch("error");
     return <HomeWith frames={[snapshot([{ ...ana, state: "wrap_up", call_id: "s1" }])]} />;
   },
+  // P5-6 (AP-21): the shooter clicks through the views, walk, sections, and present.
+  architecture: () => (
+    <Architecture
+      shell={{ name: ana.name, online: true, theme, onTheme: () => {}, onSignOut: () => {}, page: "architecture", onPage: () => {} }}
+    />
+  ),
 };
 
 function Index() {

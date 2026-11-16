@@ -57,7 +57,8 @@ The bot greets the caller, checks who they are, and learns why they called, all 
 | IN-3 | The intake script is a Pipecat Flow with these steps: greeting, identity, reason for the call, use case questions, read back. | Must |
 | IN-4 | Intake questions live in a use case pack config, so a builder can change them without code changes. | Must |
 | IN-5 | Each answer is saved as a structured field on the call record as soon as it is captured. | Must |
-| IN-6 | Identity is checked against the database through a function call. Result is verified, not verified, or not found. Callers who fail still reach an agent, flagged. | Must |
+| IN-6 | Identity is checked against the database through a function call. Result is verified (all three exact), close match (member ID and date of birth exact, name close by sound or spelling; Chris, Nov 16), not verified, or not found. The bot allows one name correction, then checks and moves on. Callers who are not fully verified still reach an agent, flagged. | Must |
+| IN-13 | On handoff, any caller who is not fully verified (close match, not verified, not found, or incomplete) gets a human verification step as the agent's first next best step: what matched, what did not, a script to confirm, and Mark verified or Could not verify. Record details (claims, payments) stay hidden until the agent marks the caller verified. The agent's decision is logged on the call record. | Must |
 | IN-7 | The caller can ask for a person at any time. The bot skips ahead to the queue and passes what it has. | Must |
 | IN-8 | The bot reads back a short summary and lets the caller fix it. | Should |
 | IN-9 | The bot gives no medical advice. If the caller describes an emergency, it tells them to hang up and call 911, and flags the call. | Must |

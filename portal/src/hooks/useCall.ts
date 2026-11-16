@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { AcceptResult } from "../api/types";
+import type { AcceptResult, CallerDetails } from "../api/types";
 import type { CallMedia, CreateMedia } from "../call/media";
 import { callerInfo, type CallerInfo } from "../state/offer";
 import {
@@ -9,11 +9,19 @@ import {
   type TranscriptLine,
 } from "../state/transcript";
 import type { CallPhase } from "../components/InCall";
+import type { DetailsState } from "../components/CallerPanel";
 
 export interface ActiveCall {
   sessionId: string;
   caller: CallerInfo;
   memberId: string | null;
+  /** Intake answers from the accept reply (QH-7). */
+  intake: Record<string, unknown>;
+  /** Queue wait known at accept time; the caller endpoint has the exact figure. */
+  waitSecs: number | null;
+  /** Caller history from GET /calls/{id}/caller (AP-13); null until it arrives. */
+  details: CallerDetails | null;
+  detailsState: DetailsState;
   /** Client clock (ms) when the agent accepted; the call timer runs from here. */
   startedAtMs: number;
   phase: CallPhase;
@@ -25,6 +33,10 @@ export interface ActiveCall {
   transcript: TranscriptLine[];
   /** Trigger word ranges underlined in the transcript (Phase 4 sets them). */
   highlights: HighlightRange[];
+}
+
+export interface StartOptions {
+  waitSecs?: number | null;
 }
 
 const JOIN_FAILED = "Could not connect the call audio. Check your microphone, or end the call.";
@@ -45,12 +57,16 @@ export function useCall(createMedia: CreateMedia) {
   }, []);
 
   const start = useCallback(
-    (res: AcceptResult) => {
+    (res: AcceptResult, opts: StartOptions = {}) => {
       levels.current = new Map();
       setCall({
         sessionId: res.session_id,
         caller: callerInfo(res),
         memberId: res.member_id,
+        intake: res.summary ?? {},
+        waitSecs: opts.waitSecs ?? null,
+        details: null,
+        detailsState: "loading",
         startedAtMs: Date.now(),
         phase: "connecting",
         muted: false,
@@ -99,6 +115,15 @@ export function useCall(createMedia: CreateMedia) {
     [createMedia, patch],
   );
 
+  /** Caller history arrived (or failed) for a call; ignored if that call is gone. */
+  const setDetails = useCallback((sessionId: string, details: CallerDetails | null) => {
+    setCall((c) =>
+      c && c.sessionId === sessionId
+        ? { ...c, details, detailsState: details ? "ready" : "error" }
+        : c,
+    );
+  }, []);
+
   /** Leave the room and drop the call. Safe to call more than once. */
   const leave = useCallback(async () => {
     const m = media.current;
@@ -138,5 +163,5 @@ export function useCall(createMedia: CreateMedia) {
     [],
   );
 
-  return { call, start, leave, toggleMute, toggleHold, highlight };
+  return { call, start, setDetails, leave, toggleMute, toggleHold, highlight };
 }

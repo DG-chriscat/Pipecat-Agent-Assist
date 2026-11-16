@@ -198,7 +198,7 @@ describe("incoming call and in-call shell (AP-3, AP-4, QH-6, QH-7)", () => {
     ring(sock);
     fireEvent.keyDown(window, { key: "Enter" });
     await screen.findByRole("group", { name: /call/i });
-    expect(fetchMock.mock.calls.at(-1)![0]).toBe("/agents/agent-1/accept");
+    expect(fetchMock.mock.calls.filter(([u]) => u === "/agents/agent-1/accept")).toHaveLength(1);
   });
 
   it("an accept error keeps the card and shows the message", async () => {
@@ -360,6 +360,75 @@ describe("incoming call and in-call shell (AP-3, AP-4, QH-6, QH-7)", () => {
     fireEvent.click(screen.getByRole("button", { name: /end call/i }));
     await act(async () => {});
     expect(JSON.parse(sock.sent.at(-1)!)).toEqual({ type: "set_status", agent_id: "agent-1", state: "wrap_up" });
+  });
+
+  it("after accept, fetches the caller history for this agent and fills the panel (AP-5, AP-13)", async () => {
+    let releaseCaller: (r: Response) => void = () => {};
+    route = (url) => {
+      if (url === "/agents/agent-1/accept") return json(acceptResult);
+      if (url === "/calls/s1/caller?agent_id=agent-1") return new Promise<Response>((r) => (releaseCaller = r));
+      return undefined;
+    };
+    const sock = await signedInAvailable();
+    ring(sock);
+    fireEvent.click(screen.getByRole("button", { name: /accept/i }));
+    const panel = await screen.findByRole("complementary", { name: /caller/i });
+    // Accept summary first: name and reason are there, history is loading.
+    expect(panel).toHaveTextContent("Maria Alvarez");
+    expect(panel).toHaveTextContent(/loading history/i);
+    await act(async () =>
+      releaseCaller(
+        json({
+          session_id: "s1",
+          identity_result: "verified",
+          not_verified: false,
+          outcome: "completed",
+          flags: [],
+          intake: call.summary,
+          wait_secs: 102,
+          member: {
+            member_id: "EVM100231",
+            name: "Maria Alvarez",
+            first_name: "Maria",
+            last_name: "Alvarez",
+            dob: "1984-03-12",
+            plan_id: "PLN-HMO-SILVER",
+            plan_name: "Evergreen HMO Silver",
+            plan_type: "HMO",
+          },
+          calls_30d: 2,
+          repeat_caller: true,
+          recent_events: [
+            {
+              kind: "claim",
+              ref: "CLM-900001",
+              occurred_on: "2026-10-30",
+              status: "denied",
+              summary: "MRI, knee, left claim denied, CO-197",
+            },
+          ],
+        }),
+      ),
+    );
+    expect(panel).toHaveTextContent("EVM100231 · Evergreen HMO Silver");
+    expect(panel).toHaveTextContent("Mar 12, 1984");
+    expect(within(panel).getByText("Repeat")).toBeInTheDocument();
+    expect(panel).toHaveTextContent("MRI, knee, left claim denied, CO-197");
+  });
+
+  it("a caller history error keeps the accept summary on screen", async () => {
+    route = (url) => {
+      if (url === "/agents/agent-1/accept") return json(acceptResult);
+      if (url.startsWith("/calls/s1/caller")) return json({ detail: "caller history is unavailable" }, 503);
+      return undefined;
+    };
+    const sock = await signedInAvailable();
+    ring(sock);
+    fireEvent.click(screen.getByRole("button", { name: /accept/i }));
+    const panel = await screen.findByRole("complementary", { name: /caller/i });
+    await waitFor(() => expect(panel).toHaveTextContent(/history is unavailable/i));
+    expect(panel).toHaveTextContent("Maria Alvarez");
+    expect(panel).toHaveTextContent("MRI claim from Oct 28 was denied");
   });
 
   it("the toggle is not shown as a way out while on a call", async () => {

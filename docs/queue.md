@@ -65,6 +65,7 @@ REST:
 | GET | `/queue` | | snapshot: `queue`, `active`, `agents`, `offer_timeout_secs` |
 | POST | `/queue/calls` | `{session_id, summary, outcome?, identity_result?, member_id?, flags?}` | `{session_id, status, position}` (bot handoff) |
 | POST | `/queue/calls/{session_id}/end` | | caller left |
+| GET | `/calls/{session_id}/caller?agent_id=` | | caller panel data (P3-3, see below) |
 
 Invalid commands return 409 with a message; a Daily token failure on accept returns
 502. `/queue/calls` only takes sessions this server started (`/calls/browser` or the
@@ -84,6 +85,30 @@ errors                                                      -> {"type": "error",
 ```
 
 No auth beyond the demo sign in (AP-1). Do not expose this server publicly as is.
+
+## Caller panel data (P3-3, AP-5, AP-13, DC-8)
+
+Code: `server/agent_assist_server/caller_api.py`. `GET /calls/{session_id}/caller?agent_id=...`
+
+- Only the agent the call was accepted by can read it (the call's `agent_id` must match;
+  queued and ringing calls return 403, unknown calls 404). It stays readable in wrap up.
+  The shared login (P2-6) covers it like every other route.
+- Always returned: `session_id`, `identity_result`, `outcome`, `flags`, `intake` (the
+  intake answers from the handoff summary), `wait_secs` (queued to answered).
+- Verified callers only (`identity_result` verified and a member id the DB knows):
+  `member` (`member_id`, `name`, `first_name`, `last_name`, `dob`, `plan_id`,
+  `plan_name`, `plan_type`), `calls_30d` (interactions in the last 30 days),
+  `repeat_caller` (2 or more), `recent_events` (last 3 across interactions, claims, and
+  referrals, newest first: `kind` call/claim/referral, `ref`, `occurred_on`, `status`,
+  `summary`). `not_verified` is false.
+- Anyone else: `not_verified` true, `member`/`calls_30d`/`repeat_caller` null,
+  `recent_events` empty. The claimed member id is never looked up, so nothing about a
+  member is guessed.
+- DB reads use `DATABASE_URL` and optional `DATABASE_SCHEMA`, with a 2 s timeout
+  (DC-4). A DB error or timeout is 503 with a generic message; the portal keeps the
+  accept summary it already shows.
+
+The portal shows the accept summary at once (QH-7) and fills the rest from this call.
 
 ## Bot side (QH-5, QH-6)
 

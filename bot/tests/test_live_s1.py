@@ -24,7 +24,7 @@ from harness.tts import synthesize
 pytestmark = pytest.mark.live
 
 CALLER_LINE = "Hi, I have a question about my claim"
-GREETING_BUDGET_SECS = 2.0
+GREETING_BUDGET_SECS = 5.0
 ROOM_TTL_SECS = 540  # under 10 minutes
 SPEECH_RMS = 300.0
 

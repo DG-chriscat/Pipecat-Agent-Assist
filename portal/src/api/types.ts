@@ -51,6 +51,44 @@ export interface AcceptResult {
   flags: string[];
 }
 
+/** Caller panel data: GET /calls/{session_id}/caller (docs/queue.md, P3-3). */
+export interface CallerMember {
+  member_id: string;
+  name: string;
+  first_name: string;
+  last_name: string;
+  /** ISO date, YYYY-MM-DD. */
+  dob: string;
+  plan_id: string;
+  plan_name: string;
+  plan_type: string;
+}
+
+export type CallerEventKind = "call" | "claim" | "referral";
+
+export interface CallerEvent {
+  kind: CallerEventKind;
+  ref: string;
+  /** ISO date, YYYY-MM-DD. */
+  occurred_on: string;
+  status: string;
+  summary: string;
+}
+
+export interface CallerDetails {
+  session_id: string;
+  identity_result: IdentityResult | null;
+  not_verified: boolean;
+  outcome: Outcome | null;
+  flags: string[];
+  intake: Record<string, unknown>;
+  wait_secs: number;
+  member: CallerMember | null;
+  calls_30d: number | null;
+  repeat_caller: boolean | null;
+  recent_events: CallerEvent[];
+}
+
 /** Messages the server sends on /ws/queue. */
 export type ServerMessage =
   | ({ type: "snapshot" } & QueueSnapshot)

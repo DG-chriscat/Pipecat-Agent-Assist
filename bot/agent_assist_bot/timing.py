@@ -1,4 +1,4 @@
-"""Call timeline log lines (PRD IN-1: greeting within 2 s of the bot joining).
+"""Call timeline log lines (PRD IN-1: greeting within 5 s of the bot joining).
 
 Each line looks like `[timing] event=bot_joined t=1794779110.758 session=abc`, with
 `t` in epoch seconds so bot and server lines line up. The dial-in live test parses

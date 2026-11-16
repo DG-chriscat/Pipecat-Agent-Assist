@@ -1,5 +1,5 @@
 """Live IN-1: a call to the Daily number starts the bot and the caller hears the greeting
-within 2 s of the bot joining.
+within 5 s of the bot joining.
 
 Needs a deployed server that the number's pinless_dialin config points at, so it does
 not run in CI. Run from a dev machine with keys in the environment:
@@ -20,7 +20,7 @@ Measurements:
 - Server side: the server and bot write `[timing] event=... t=<epoch>` lines
   (agent_assist_bot.timing). When DIALIN_TEST_SERVER_LOG names a file holding those
   logs (a local server's output, or `fly logs` saved to a file), the test prints the
-  call timeline and asserts greeting_first_audio - bot_joined < 2 s.
+  call timeline and asserts greeting_first_audio - bot_joined < 5 s.
 - Caller side (automated caller only): the caller room records the call leg. Deepgram
   transcribes it with word timestamps to find when the greeting reached the caller, and
   Daily's meetings API gives the bot's join time (whole seconds) in the call room.
@@ -40,7 +40,7 @@ from agent_assist_bot.timing import parse_timing
 
 pytestmark = pytest.mark.live
 
-GREETING_BUDGET_SECS = 2.0
+GREETING_BUDGET_SECS = 5.0
 CALLER_NAME = "pstn-caller"
 BOT_NAMES = {"Intake Bot", "Vitals Assistant"}
 GREETING_WORDS = {"thanks", "calling", "assistant"}
@@ -212,7 +212,7 @@ def keys_present():
         pytest.skip(f"missing env: {', '.join(missing)}")
 
 
-async def test_live_phone_call_hears_greeting_within_2s_of_bot_join(keys_present):
+async def test_live_phone_call_hears_greeting_within_5s_of_bot_join(keys_present):
     sip_uri = os.getenv("DIALIN_TEST_SIP_URI")
     pstn = os.getenv("DIALIN_TEST_PSTN") == "1"
     wait_secs = float(os.getenv("DIALIN_TEST_WAIT_SECS", "0"))

@@ -1026,6 +1026,43 @@
 .field-error { color: var(--bad); font-size: 13px; }
 .settings-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 18px; border-top: 1px solid var(--hair); }
 .settings .notice, .settings .error { margin-top: 0; max-width: none; }
+/* Flux voice controls (P5-8, AP-22): speed slider, expressiveness steps, slow read backs. */
+.segment:disabled { cursor: default; opacity: .45; }
+.segment:disabled:hover { color: var(--text-muted); }
+.flux-controls .flux-note { margin: 0; }
+.flux-speed-head { justify-content: space-between; max-width: 420px; }
+.flux-speed-value { font-size: 13px; color: var(--text); }
+.flux-speed { display: flex; flex-direction: column; gap: 6px; max-width: 420px; }
+.range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--soft-fill);
+  accent-color: var(--fuchsia);
+  cursor: pointer;
+}
+.range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--ai-gradient);
+  border: 2px solid var(--panel-line);
+  box-shadow: 0 0 0 1px rgba(224,66,255,.5);
+}
+.range::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--ai-gradient);
+  border: 2px solid var(--panel-line);
+}
+.range:disabled { cursor: default; opacity: .45; }
+.range:focus-visible { outline: 2px solid var(--fuchsia); outline-offset: 4px; }
+.flux-speed-scale { position: relative; display: flex; justify-content: space-between; height: 14px; }
+.flux-speed-normal { position: absolute; transform: translateX(-50%); white-space: nowrap; }
 
 /* Screen reader only text (ExternalLink's "opens in a new tab"). */
 .sr-only {

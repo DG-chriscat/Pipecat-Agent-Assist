@@ -50,6 +50,28 @@ const STT_SIDES: {
   },
 ];
 
+/** Flux expressivity steps (P5-8, AP-22): -2 calm to 2 animated, 0 the default. */
+const EXPRESSIVITY: { value: number; label: string }[] = [
+  { value: -2, label: "Calm" },
+  { value: -1, label: "Steady" },
+  { value: 0, label: "Natural" },
+  { value: 1, label: "Warm" },
+  { value: 2, label: "Animated" },
+];
+/** Speed slider range when the server sends none; the server's comes from the read back
+ * test (docs/spikes/tts-flux-controls.md). */
+const SPEED_RANGE: [number, number] = [0.8, 1.2];
+const SPEED_STEP = 0.05;
+const speedLabel = (s: number) => `${s.toFixed(s * 10 === Math.round(s * 10) ? 1 : 2)}x`;
+/** Set from the read back test (docs/spikes/tts-flux-controls.md). */
+const EXPRESSIVITY_HELP = "How much the voice rises and falls. Natural is Flux's default.";
+const FLUX_DEFAULTS = { tts_speed: 1.0, tts_expressivity: 0, slow_readback: true, readback_speed: 0.9 };
+
+/** A response from a server without the Flux controls gets their defaults. */
+function withFluxDefaults(s: SettingsResponse): SettingsResponse {
+  return { ...s, values: { ...FLUX_DEFAULTS, ...s.values } };
+}
+
 async function playBlob(audio: Blob): Promise<void> {
   const url = URL.createObjectURL(audio);
   const el = new Audio(url);
@@ -81,8 +103,9 @@ export function Settings({ api, agentName, play = playBlob }: Props) {
   useEffect(() => {
     let live = true;
     Promise.all([api.get(), api.voices()])
-      .then(([s, v]) => {
+      .then(([raw, v]) => {
         if (!live) return;
+        const s = withFluxDefaults(raw);
         setLoaded(s);
         setDraft(s.values);
         setVoices(v);
@@ -104,7 +127,8 @@ export function Settings({ api, agentName, play = playBlob }: Props) {
     });
   }, []);
 
-  const applied = useCallback((s: SettingsResponse, message: string) => {
+  const applied = useCallback((raw: SettingsResponse, message: string) => {
+    const s = withFluxDefaults(raw);
     setLoaded(s);
     setDraft(s.values);
     setFieldErrors({});
@@ -160,7 +184,13 @@ export function Settings({ api, agentName, play = playBlob }: Props) {
     setError(null);
     try {
       const text = which === "greeting" ? draft.greeting_text : undefined;
-      await play(await api.preview(draft.tts_model, draft.tts_voice, text));
+      const controls = {
+        tts_speed: draft.tts_speed,
+        tts_expressivity: draft.tts_expressivity,
+        slow_readback: draft.slow_readback,
+        readback_speed: draft.readback_speed,
+      };
+      await play(await api.preview(draft.tts_model, draft.tts_voice, text, controls));
     } catch (e) {
       setError(errorText(e, "The preview could not be made."));
     } finally {
@@ -185,6 +215,9 @@ export function Settings({ api, agentName, play = playBlob }: Props) {
 
   const modelVoices = voices[draft.tts_model] ?? [];
   const pack = loaded.packs.find((p) => p.id === draft.intake_pack);
+  const isFlux = draft.tts_model === "flux";
+  const [minSpeed, maxSpeed] = limits?.tts_speed ?? SPEED_RANGE;
+  const speedStep = limits?.speed_step ?? SPEED_STEP;
   const fieldError = (k: keyof SettingsValues) =>
     fieldErrors[k] ? (
       <p className="field-error" id={`err-${k}`}>
@@ -258,6 +291,93 @@ export function Settings({ api, agentName, play = playBlob }: Props) {
             </button>
           </div>
           {fieldError("tts_voice")}
+        </div>
+        <div className="settings-subgroup flux-controls" role="group" aria-labelledby="delivery-label">
+          <div className="settings-subgroup-head">
+            <h3 id="delivery-label">Delivery</h3>
+            <span className="label">Flux voice controls</span>
+          </div>
+          {!isFlux && <p className="muted-note flux-note">Speed and expressiveness are only for Flux voices.</p>}
+          <div className="settings-row">
+            <div className="settings-inline flux-speed-head">
+              <label className="label" htmlFor="settings-speed">
+                Speed
+              </label>
+              <span className="mono flux-speed-value">{speedLabel(draft.tts_speed)}</span>
+            </div>
+            <div className="flux-speed">
+              <input
+                id="settings-speed"
+                type="range"
+                className="range"
+                min={minSpeed}
+                max={maxSpeed}
+                step={speedStep}
+                value={draft.tts_speed}
+                disabled={!isFlux}
+                list="settings-speed-ticks"
+                onChange={(e) => update({ tts_speed: Math.round(e.target.valueAsNumber * 100) / 100 })}
+              />
+              <datalist id="settings-speed-ticks">
+                <option value={1} />
+              </datalist>
+              <div className="flux-speed-scale label" aria-hidden="true">
+                <span>{speedLabel(minSpeed)}</span>
+                <span className="flux-speed-normal" style={{ left: `${((1 - minSpeed) / (maxSpeed - minSpeed)) * 100}%` }}>
+                  1.0 Normal
+                </span>
+                <span>{speedLabel(maxSpeed)}</span>
+              </div>
+            </div>
+            {fieldError("tts_speed")}
+          </div>
+          <div className="settings-row">
+            <div className="settings-inline">
+              <div className="label" id="expressivity-label">
+                Expressiveness
+              </div>
+              <span className="chip chip-info">Beta</span>
+            </div>
+            <div className="segmented" role="radiogroup" aria-labelledby="expressivity-label">
+              {EXPRESSIVITY.map((x) => (
+                <button
+                  key={x.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={draft.tts_expressivity === x.value}
+                  disabled={!isFlux}
+                  className={`segment${draft.tts_expressivity === x.value ? " is-on" : ""}`}
+                  onClick={() => update({ tts_expressivity: x.value })}
+                >
+                  {x.label}
+                </button>
+              ))}
+            </div>
+            <p className="muted-note">{EXPRESSIVITY_HELP}</p>
+            {fieldError("tts_expressivity")}
+          </div>
+          <div className="settings-row settings-switch-row">
+            <div>
+              <div className="settings-switch-title" id="slow-readback-label">
+                Slow down for read backs
+              </div>
+              <p className="muted-note">
+                Reads member IDs, dates of birth, and claim numbers back at {speedLabel(draft.readback_speed)}, then returns to
+                your speed.
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-labelledby="slow-readback-label"
+              aria-checked={draft.slow_readback}
+              disabled={!isFlux}
+              className="switch"
+              onClick={() => update({ slow_readback: !draft.slow_readback })}
+            >
+              <span className="switch-knob" />
+            </button>
+          </div>
         </div>
         <div className="settings-subgroup" role="group" aria-labelledby="listening-label">
           <div className="settings-subgroup-head">

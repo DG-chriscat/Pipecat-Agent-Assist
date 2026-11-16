@@ -63,7 +63,19 @@ def test_bot_and_server_defaults_agree():
         "hold_update_secs": bot.hold_update_secs,
         "stt_intake_model": bot.stt_intake_model,
         "stt_assist_model": bot.stt_assist_model,
+        "tts_speed": bot.tts_speed,
+        "tts_expressivity": bot.tts_expressivity,
+        "slow_readback": bot.slow_readback,
+        "readback_speed": bot.readback_speed,
     }
+
+
+def test_bot_and_server_flux_control_ranges_agree():
+    from agent_assist_server import bot_settings as server
+
+    lo, hi = cs.FLUX_SPEED_RANGE
+    assert lo <= server.MIN_TTS_SPEED and server.MAX_TTS_SPEED <= hi
+    assert cs.READBACK_SPEED_RANGE == (server.MIN_READBACK_SPEED, server.MAX_READBACK_SPEED)
 
 
 def test_bot_and_server_stt_model_lists_agree():

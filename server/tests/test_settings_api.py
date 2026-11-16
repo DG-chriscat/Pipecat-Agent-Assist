@@ -158,6 +158,109 @@ def test_preview_can_read_the_greeting_being_edited(client, monkeypatch):
     assert seen["text"] == "Hi there."
 
 
+def test_get_lists_the_flux_control_limits(client):
+    limits = client.get("/settings").json()["limits"]
+    assert limits["tts_speed"] == [bot_settings.MIN_TTS_SPEED, bot_settings.MAX_TTS_SPEED]
+    assert limits["readback_speed"] == [0.8, 1.0]
+    assert limits["speed_step"] == 0.05
+
+
+def test_put_saves_flux_controls_and_rejects_a_bad_speed(client):
+    new = {**values(client), "tts_speed": 1.1, "tts_expressivity": 1, "slow_readback": True}
+    assert client.put("/settings", json={"values": new}).status_code == 200
+    assert values(client)["tts_speed"] == 1.1 and values(client)["tts_expressivity"] == 1
+    r = client.put("/settings", json={"values": {**new, "tts_speed": 1.42}})
+    assert r.status_code == 422
+    assert set(r.json()["detail"]["errors"]) == {"tts_speed"}
+
+
+def _fake_synth(monkeypatch, calls):
+    async def fake(model, voice, text, **kw):
+        calls.append({"model": model, "voice": voice, "text": text, **kw})
+        return f"<{len(calls)}>".encode()
+
+    monkeypatch.setattr(vc, "synthesize", fake)
+
+
+def test_flux_preview_reads_the_member_id_part_at_the_read_back_speed(client, monkeypatch):
+    calls = []
+    _fake_synth(monkeypatch, calls)
+    r = client.post(
+        "/settings/preview",
+        json={
+            "tts_model": "flux",
+            "tts_voice": "flux-alexis-en",
+            "tts_speed": 1.1,
+            "tts_expressivity": 1,
+            "slow_readback": True,
+            "readback_speed": 0.9,
+        },
+    )
+    assert r.status_code == 200 and r.content == b"<1><2>"
+    greeting, readback = calls
+    assert greeting["text"] == settings_api.PREVIEW_GREETING
+    assert (greeting["speed"], greeting["expressivity"]) == (1.1, 1)
+    assert readback["text"] == settings_api.PREVIEW_READBACK
+    assert (readback["speed"], readback["expressivity"]) == (0.9, 1)
+    whole = f"{settings_api.PREVIEW_GREETING} {settings_api.PREVIEW_READBACK}"
+    assert settings_api.PREVIEW_LINE == whole
+
+
+def test_flux_preview_without_slow_read_backs_is_one_line_at_the_speed(client, monkeypatch):
+    calls = []
+    _fake_synth(monkeypatch, calls)
+    client.post(
+        "/settings/preview",
+        json={
+            "tts_model": "flux",
+            "tts_voice": "flux-alexis-en",
+            "tts_speed": 1.1,
+            "slow_readback": False,
+            "readback_speed": 0.9,
+        },
+    )
+    (only,) = calls
+    assert only["text"] == settings_api.PREVIEW_LINE and only["speed"] == 1.1
+
+
+def test_greeting_preview_is_one_line_at_the_speed(client, monkeypatch):
+    calls = []
+    _fake_synth(monkeypatch, calls)
+    client.post(
+        "/settings/preview",
+        json={"tts_model": "flux", "tts_voice": "flux-alexis-en", "text": "Hi.", "tts_speed": 0.9},
+    )
+    (only,) = calls
+    assert only["text"] == "Hi." and only["speed"] == 0.9
+
+
+def test_aura_preview_ignores_the_flux_controls(client, monkeypatch):
+    calls = []
+    _fake_synth(monkeypatch, calls)
+    client.post(
+        "/settings/preview",
+        json={
+            "tts_model": "aura-2",
+            "tts_voice": "aura-2-thalia-en",
+            "tts_speed": 1.1,
+            "tts_expressivity": 2,
+            "slow_readback": True,
+        },
+    )
+    (only,) = calls
+    assert only["text"] == settings_api.PREVIEW_LINE
+    assert only.get("speed") is None and only.get("expressivity") is None
+
+
+def test_preview_rejects_flux_controls_out_of_range(client, monkeypatch):
+    _fake_synth(monkeypatch, [])
+    r = client.post(
+        "/settings/preview",
+        json={"tts_model": "flux", "tts_voice": "flux-alexis-en", "tts_speed": 1.45},
+    )
+    assert r.status_code == 422
+
+
 def test_preview_checks_the_voice(client):
     r = client.post(
         "/settings/preview", json={"tts_model": "flux", "tts_voice": "aura-2-thalia-en"}

@@ -161,3 +161,36 @@ async def test_preview_error_does_not_echo_the_key():
             transport=httpx.MockTransport(handler),
         )
     assert "sekrit" not in str(e.value) and "400" in str(e.value)
+
+
+def test_flux_preview_request_carries_speed_and_expressivity():
+    # P5-8 (AP-22): /v2/speak takes both as query parameters.
+    _, params = vc.speak_request("flux", "flux-alexis-en", speed=1.1, expressivity=-1)
+    assert params["speed"] == "1.1" and params["expressivity"] == "-1"
+    _, plain = vc.speak_request("flux", "flux-alexis-en")
+    assert "speed" not in plain and "expressivity" not in plain
+
+
+def test_aura_preview_request_ignores_the_flux_controls():
+    _, params = vc.speak_request("aura-2", "aura-2-thalia-en", speed=1.1, expressivity=2)
+    assert "speed" not in params and "expressivity" not in params
+
+
+async def test_flux_preview_sends_the_controls():
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, content=b"ID3fake")
+
+    await vc.synthesize(
+        "flux",
+        "flux-alexis-en",
+        "Hi.",
+        api_key="test-key",
+        transport=httpx.MockTransport(handler),
+        speed=0.9,
+        expressivity=1,
+    )
+    (req,) = seen
+    assert req.url.params["speed"] == "0.9" and req.url.params["expressivity"] == "1"

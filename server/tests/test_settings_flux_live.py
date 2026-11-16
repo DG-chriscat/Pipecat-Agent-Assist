@@ -360,13 +360,14 @@ async def test_settings_page_flux_then_a_call_uses_it(schema, monkeypatch, tmp_p
                 "bot_joined -> greeting_first_audio: "
                 f"{timing['greeting_first_audio'] - timing['bot_joined']:.3f}s",
             )
-        flux_lines = [ln for ln in text.splitlines() if "DeepgramFluxTTSService" in ln][:3]
+        # The call's Flux TTS is tts_pacing.FluxTTSService (P5-8), a DeepgramFluxTTSService.
+        flux_lines = [ln for ln in text.splitlines() if "FluxTTSService" in ln][:3]
         for ln in flux_lines:
             print("   ", ln[-160:])
 
         assert f"tts=flux/{FLUX_VOICE}" in settings_line, settings_line
         assert "hold_every=8s" in settings_line
-        assert any("DeepgramFluxTTSService" in ln for ln in text.splitlines())
+        assert any("FluxTTSService" in ln for ln in text.splitlines())
         low = heard_greeting.lower()
         assert "ai assistant" in low and "person will join" in low, heard_greeting
         assert "holding" in heard_hold.lower() and "line" in heard_hold.lower(), heard_hold

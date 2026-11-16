@@ -34,10 +34,11 @@ from agent_assist_server import voice_catalog as vc
 logger = logging.getLogger(__name__)
 
 LOCAL_SESSION = "local"
-PREVIEW_LINE = (
-    "Hi, thanks for calling. I have your member ID as E V M, one zero zero, two three one. "
-    "Is that right?"
-)
+# Preview sample (P5-8): a greeting sentence plus a member ID read back. With Flux and
+# slow read backs on, the read back part is made at readback_speed, as a call says it.
+PREVIEW_GREETING = "Hi, thanks for calling."
+PREVIEW_READBACK = "I have your member ID as E V M, one zero zero, two three one. Is that right?"
+PREVIEW_LINE = f"{PREVIEW_GREETING} {PREVIEW_READBACK}"
 MAX_PREVIEW = bs.MAX_GREETING
 # Calls whose settings are kept (oldest dropped first).
 MAX_CALLS_KEPT = 500
@@ -127,6 +128,9 @@ def _body(settings: bs.Settings) -> dict[str, Any]:
             "greeting_text": bs.MAX_GREETING,
             "hold_update_text": bs.MAX_HOLD_TEXT,
             "hold_update_secs": [bs.MIN_HOLD_SECS, bs.MAX_HOLD_SECS],
+            "tts_speed": [bs.MIN_TTS_SPEED, bs.MAX_TTS_SPEED],
+            "readback_speed": [bs.MIN_READBACK_SPEED, bs.MAX_READBACK_SPEED],
+            "speed_step": bs.SPEED_STEP,
         },
         "stt_models": {
             "intake": list(bs.STT_INTAKE_MODELS),
@@ -148,6 +152,11 @@ class PreviewRequest(BaseModel):
     tts_model: str = Field(max_length=16)
     tts_voice: str = Field(max_length=64)
     text: str | None = Field(default=None, max_length=MAX_PREVIEW)
+    # Flux voice controls (P5-8); ignored for Aura-2. Unset means the defaults.
+    tts_speed: float = Field(default=bs.DEFAULT_TTS_SPEED)
+    tts_expressivity: int = Field(default=bs.DEFAULT_TTS_EXPRESSIVITY)
+    slow_readback: bool = False
+    readback_speed: float = Field(default=bs.DEFAULT_READBACK_SPEED)
 
 
 @router.get("/settings")
@@ -189,12 +198,36 @@ async def list_voices(request: Request) -> dict[str, list[dict[str, str]]]:
 
 @router.post("/settings/preview")
 async def preview(body: PreviewRequest, request: Request) -> Response:
+    """A sample in the chosen voice. Flux: at tts_speed and tts_expressivity, and with
+    slow read backs on, the member ID part of the default sample at readback_speed (two
+    syntheses, the MP3s joined). Aura-2 ignores the Flux controls."""
     voices = await get_voice_catalog(request.app).voices(body.tts_model)
     if body.tts_voice not in {v.id for v in voices}:
         raise HTTPException(status_code=422, detail="Pick a voice from the list.")
-    text = (body.text or "").strip() or PREVIEW_LINE
+    flux = body.tts_model == "flux"
+    if flux and (
+        not bs.is_speed(body.tts_speed, bs.MIN_TTS_SPEED, bs.MAX_TTS_SPEED)
+        or not bs.is_speed(body.readback_speed, bs.MIN_READBACK_SPEED, bs.MAX_READBACK_SPEED)
+        or not bs.MIN_EXPRESSIVITY <= body.tts_expressivity <= bs.MAX_EXPRESSIVITY
+    ):
+        raise HTTPException(status_code=422, detail="Speed or expressiveness is out of range.")
+    custom = (body.text or "").strip()
+    text = custom or PREVIEW_LINE
+    if not flux:
+        parts = [(text, None, None)]
+    elif not custom and body.slow_readback:
+        parts = [
+            (PREVIEW_GREETING, body.tts_speed, body.tts_expressivity),
+            (PREVIEW_READBACK, body.readback_speed, body.tts_expressivity),
+        ]
+    else:
+        parts = [(text, body.tts_speed, body.tts_expressivity)]
+    audio = b""
     try:
-        audio = await vc.synthesize(body.tts_model, body.tts_voice, text)
+        for part, speed, expressivity in parts:
+            audio += await vc.synthesize(
+                body.tts_model, body.tts_voice, part, speed=speed, expressivity=expressivity
+            )
     except vc.SpeakError as e:
         logger.error("settings preview failed: %s", e)
         raise HTTPException(status_code=502, detail="The preview could not be made.") from None

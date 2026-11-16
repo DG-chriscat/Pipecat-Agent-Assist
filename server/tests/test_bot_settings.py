@@ -234,3 +234,59 @@ async def test_a_saved_row_missing_a_newer_field_gets_its_default():
     del partial["hold_update_text"]
     store._row = partial  # an old row from before a field existed
     assert (await store.get()).values == good()
+
+
+# ---- Flux voice controls (P5-8, AP-22) ------------------------------------------------
+
+
+def test_flux_control_defaults():
+    d = bs.defaults({})
+    assert d["tts_speed"] == 1.0
+    assert d["tts_expressivity"] == 0
+    assert d["slow_readback"] is True
+    assert d["readback_speed"] == 0.9
+
+
+@pytest.mark.parametrize("speed", [bs.MIN_TTS_SPEED, 0.95, 1.0, 1.05, bs.MAX_TTS_SPEED, 1])
+async def test_speed_on_a_step_in_range_is_valid(speed):
+    assert await check(good(tts_speed=speed)) == {}
+
+
+@pytest.mark.parametrize("speed", [0.5, 1.5, 1.03, "1.0", None, True])
+async def test_speed_off_the_range_or_step_is_rejected(speed):
+    assert set(await check(good(tts_speed=speed))) == {"tts_speed"}
+
+
+def test_speed_range_is_inside_what_flux_takes():
+    assert 0.5 <= bs.MIN_TTS_SPEED < 1.0 < bs.MAX_TTS_SPEED <= 1.5
+
+
+@pytest.mark.parametrize("value", [-2, -1, 0, 1, 2])
+async def test_expressivity_steps_are_valid(value):
+    assert await check(good(tts_expressivity=value)) == {}
+
+
+@pytest.mark.parametrize("value", [-3, 3, 0.5, "0", None, False])
+async def test_expressivity_outside_minus_2_to_2_is_rejected(value):
+    assert set(await check(good(tts_expressivity=value))) == {"tts_expressivity"}
+
+
+@pytest.mark.parametrize("speed", [0.8, 0.85, 0.9, 0.95, 1.0])
+async def test_readback_speed_from_0_8_to_1_0_is_valid(speed):
+    assert await check(good(readback_speed=speed)) == {}
+
+
+@pytest.mark.parametrize("speed", [0.75, 1.05, 0.93, None, "0.9"])
+async def test_readback_speed_outside_0_8_to_1_0_is_rejected(speed):
+    assert set(await check(good(readback_speed=speed))) == {"readback_speed"}
+
+
+async def test_slow_readback_must_be_a_bool():
+    assert set(await check(good(slow_readback="yes"))) == {"slow_readback"}
+
+
+async def test_flux_controls_are_still_checked_but_ignored_with_aura_2():
+    # Saved with Aura-2 they are kept for when Flux is picked again; the bot ignores them.
+    aura = good(tts_model="aura-2", tts_voice="aura-2-thalia-en", tts_speed=1.1)
+    assert await check(aura) == {}
+    assert set(await check({**aura, "tts_speed": 2.0})) == {"tts_speed"}

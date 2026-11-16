@@ -118,3 +118,26 @@ async def test_the_row_rejects_a_bad_stt_model(schema, field, value):
     async with await connect(schema=schema) as conn:
         with pytest.raises(psycopg.errors.CheckViolation):
             await conn.execute(bs.UPSERT_SQL, {**good(**{field: value}), "session_id": "x"})
+
+
+async def test_flux_controls_persist(schema):
+    s = store(schema)
+    values = good(tts_speed=1.1, tts_expressivity=-1, slow_readback=False, readback_speed=0.85)
+    await s.save(values, session_id="sess", agent="Ana")
+    fresh = (await store(schema).get()).values
+    assert fresh["tts_speed"] == pytest.approx(1.1)
+    assert fresh["tts_expressivity"] == -1
+    assert fresh["slow_readback"] is False
+    assert fresh["readback_speed"] == pytest.approx(0.85)
+
+
+@pytest.mark.parametrize(
+    "field, value",
+    [("tts_speed", 1.6), ("tts_expressivity", 3), ("readback_speed", 1.1)],
+)
+async def test_the_row_rejects_bad_flux_controls(schema, field, value):
+    import psycopg
+
+    async with await connect(schema=schema) as conn:
+        with pytest.raises(psycopg.errors.CheckViolation):
+            await conn.execute(bs.UPSERT_SQL, {**good(**{field: value}), "session_id": "x"})

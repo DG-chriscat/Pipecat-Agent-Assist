@@ -22,6 +22,13 @@ Bot notifier: queue events for a call become Daily app messages in that call's r
 (REST /rooms/{room}/send-app-message, sender "api"), so the bot knows it is queued and
 when an agent accepted. Message data: {"type": BOT_MESSAGE_TYPE, "event": ...}; events
 are queued, position, agent_accepted, and requeued (QH-9: the agent dropped off).
+
+Bot socket (QH-5b): websocket /ws/bot/{session_id}, opened by the call's bot after
+handoff (bot key only when login is on). agent_accepted, requeued and call_ended are
+pushed on it at once, and still sent as Daily app messages as the fallback. Both
+copies carry the same "id"; the bot acts on the first and drops the second. The
+socket saves the REST hop through Daily (about 240 ms) before the bot stops the hold
+music. The server ignores anything the bot sends on it.
 """
 
 from __future__ import annotations
@@ -50,6 +57,9 @@ from agent_assist_server.queue_service import (
 logger = logging.getLogger(__name__)
 
 BOT_MESSAGE_TYPE = "agent_assist.queue"
+# Pushed on the bot socket too (QH-5b); queued/position only go through Daily.
+BOT_SOCKET_EVENTS = frozenset({"agent_accepted", "requeued", "call_ended"})
+WS_UNKNOWN_SESSION = 4404
 PERSIST_ENV = "QUEUE_PERSIST"
 # After the agent's End: time for the bot's goodbye line before the room is deleted.
 ROOM_CLOSE_DELAY_SECS = 6.0
@@ -79,7 +89,8 @@ def get_queue(app: FastAPI) -> QueueService:
         svc = QueueService(mint_token=mint_prefetched)
         minter = PrefetchingMinter(mint, svc)
         svc.subscribe(minter.on_event)
-        svc.subscribe(BotNotifier(svc, lambda: _daily_factory(app)()).on_event)
+        notifier = BotNotifier(svc, lambda: _daily_factory(app)(), get_bot_channels(app))
+        svc.subscribe(notifier.on_event)
         if os.environ.get(PERSIST_ENV) == "1":
             from agent_assist_server.queue_store import QueueStore
 
@@ -88,6 +99,45 @@ def get_queue(app: FastAPI) -> QueueService:
             )
         app.state.queue_service = svc
     return svc
+
+
+def get_bot_channels(app: FastAPI) -> BotChannels:
+    """The process wide registry of open bot sockets (QH-5b)."""
+    channels = getattr(app.state, "bot_channels", None)
+    if channels is None:
+        channels = BotChannels()
+        app.state.bot_channels = channels
+    return channels
+
+
+class BotChannels:
+    """Open bot sockets by session id. push() never blocks: each socket has an
+    outbox its own task drains."""
+
+    def __init__(self) -> None:
+        self._outboxes: dict[str, list[asyncio.Queue]] = {}
+
+    def register(self, session_id: str) -> asyncio.Queue:
+        outbox: asyncio.Queue = asyncio.Queue()
+        self._outboxes.setdefault(session_id, []).append(outbox)
+        return outbox
+
+    def unregister(self, session_id: str, outbox: asyncio.Queue) -> None:
+        boxes = self._outboxes.get(session_id, [])
+        if outbox in boxes:
+            boxes.remove(outbox)
+        if not boxes:
+            self._outboxes.pop(session_id, None)
+
+    def count(self, session_id: str) -> int:
+        return len(self._outboxes.get(session_id, []))
+
+    def push(self, session_id: str, payload: dict[str, Any]) -> bool:
+        """Queue payload on every socket of the session. False if none is open."""
+        boxes = self._outboxes.get(session_id, [])
+        for outbox in boxes:
+            outbox.put_nowait(payload)
+        return bool(boxes)
 
 
 class SerialWorker:
@@ -178,12 +228,14 @@ class BotNotifier:
     accepts within the 20 s offer window.
     """
 
-    def __init__(self, svc: QueueService, daily_factory):
+    def __init__(self, svc: QueueService, daily_factory, channels: BotChannels | None = None):
         self._svc = svc
         self._daily_factory = daily_factory
+        self._channels = channels or BotChannels()
         self._daily = None
         self._worker = SerialWorker("bot notifier")
         self._closing: set[asyncio.Task] = set()
+        self._next_id = 0
 
     def _client(self):
         if self._daily is None:
@@ -192,8 +244,16 @@ class BotNotifier:
             self._daily = keep() if callable(keep) else client
         return self._daily
 
-    def _send(self, room_name: str, data: dict[str, Any]) -> None:
+    def _send(self, call: dict[str, Any] | Any, data: dict[str, Any]) -> None:
+        """`call` is a call dict (from an event) or a Call."""
+        room_name = call["room_name"] if isinstance(call, dict) else call.room_name
         payload = {"type": BOT_MESSAGE_TYPE, **data}
+        if data["event"] in BOT_SOCKET_EVENTS:
+            # QH-5b: straight to the bot's socket now; Daily is the fallback copy.
+            self._next_id += 1
+            payload["id"] = self._next_id
+            session_id = call["session_id"] if isinstance(call, dict) else call.session_id
+            self._channels.push(session_id, payload)
 
         async def job():
             await self._client().send_app_message(room_name, payload)
@@ -211,16 +271,14 @@ class BotNotifier:
         if kind == "call_queued":
             # QH-9: a re-queued call (agent dropped) tells the bot to speak again.
             what = "requeued" if event.get("requeued") else "queued"
-            self._send(event["call"]["room_name"], {"event": what, "position": event["position"]})
+            self._send(event["call"], {"event": what, "position": event["position"]})
             if event.get("requeued"):
                 self._send_positions(skip=event["call"]["session_id"])
         elif kind == "offer":
             self._warm(event["call"]["room_name"])
         elif kind == "call_accepted":
             agent = self._svc.get_agent(event["agent_id"])
-            self._send(
-                event["call"]["room_name"], {"event": "agent_accepted", "agent_name": agent.name}
-            )
+            self._send(event["call"], {"event": "agent_accepted", "agent_name": agent.name})
             self._send_positions()
         elif kind == "call_ended":
             call = event["call"]
@@ -228,7 +286,7 @@ class BotNotifier:
                 # P3-5: the agent pressed End with the caller still on the line. The
                 # bot says goodbye and leaves; then the room closes, which hangs up a
                 # dial-in caller and ends a browser caller's call.
-                self._send(call["room_name"], {"event": "call_ended"})
+                self._send(call, {"event": "call_ended"})
                 self._close_room_later(call["room_name"])
             self._send_positions()
 
@@ -249,7 +307,7 @@ class BotNotifier:
         """The line changed: tell each waiting caller their place."""
         for i, call in enumerate(self._svc.waiting_calls(), start=1):
             if call.session_id != skip:
-                self._send(call.room_name, {"event": "position", "position": i})
+                self._send(call, {"event": "position", "position": i})
 
 
 # ---- REST -----------------------------------------------------------------------
@@ -417,3 +475,31 @@ async def queue_ws(ws: WebSocket) -> None:
     finally:
         svc.unsubscribe(listener)
         sender.cancel()
+
+
+@router.websocket("/ws/bot/{session_id}")
+async def bot_ws(ws: WebSocket, session_id: str) -> None:
+    """QH-5b: the call's bot listens here for agent_accepted, requeued and call_ended."""
+    svc = get_queue(ws.app)
+    await ws.accept()
+    if svc.room_for(session_id) is None:
+        await ws.close(code=WS_UNKNOWN_SESSION)
+        return
+    channels = get_bot_channels(ws.app)
+    outbox = channels.register(session_id)
+    logger.info("bot socket open for %s", session_id)
+
+    async def pump() -> None:
+        while True:
+            await ws.send_json(await outbox.get())
+
+    sender = asyncio.create_task(pump())
+    try:
+        while True:
+            await ws.receive_text()  # nothing to act on; this notices the close
+    except WebSocketDisconnect:
+        pass
+    finally:
+        channels.unregister(session_id, outbox)
+        sender.cancel()
+        logger.info("bot socket closed for %s", session_id)

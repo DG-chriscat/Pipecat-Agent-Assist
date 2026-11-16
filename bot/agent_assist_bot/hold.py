@@ -9,6 +9,11 @@ send-app-message, so the sender is "api"):
     {"type": MESSAGE_TYPE, "event": "requeued", "position": n}
     {"type": MESSAGE_TYPE, "event": "call_ended"}
 
+QH-5b: agent_accepted, requeued and call_ended also carry an "id" and arrive first on
+the bot's own socket to the server (`server_channel.py`, `on_server_message`); the
+Daily app message is the fallback copy. The first copy of an id wins, the second is
+dropped, so a duplicate never speaks or toggles the music twice.
+
 HoldController turns those into speech: a short update about every 60 s while
 queued, then "Connecting you now." on accept, after which BotGate stops the LLM from
 answering, so the bot goes quiet and the agent talks. If the agent drops off
@@ -145,12 +150,26 @@ class HoldController:
         self.position: int | None = None
         self.agent_name: str | None = None
         self._task: asyncio.Task | None = None
+        # QH-5b: ids of server messages already handled. The server sends
+        # agent_accepted, requeued and call_ended twice (bot socket and Daily app
+        # message) with the same id; the first copy wins, the second is dropped.
+        self._seen_ids: set[Any] = set()
+
+    async def on_server_message(self, message: Any) -> None:
+        """A message from the server's bot socket (QH-5b): trusted like sender "api"."""
+        await self.on_app_message(message, SERVER_SENDER)
 
     async def on_app_message(self, message: Any, sender: str) -> None:
         if sender != SERVER_SENDER or not isinstance(message, dict):
             return
         if message.get("type") != MESSAGE_TYPE:
             return
+        msg_id = message.get("id")
+        if msg_id is not None:
+            if msg_id in self._seen_ids:
+                logger.debug(f"[hold] duplicate {message.get('event')!r} (id {msg_id}) dropped")
+                return
+            self._seen_ids.add(msg_id)
         event = message.get("event")
         if self.state is HoldState.ENDED:
             return

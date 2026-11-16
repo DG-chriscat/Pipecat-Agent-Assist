@@ -26,8 +26,8 @@ nobody available, recording the bot's audio. Checks:
 - during the wait the caller always hears something: no gap over 1 s (RMS);
 - the hold update is intelligible over the music (Deepgram transcribes it);
 - a websocket agent accepts: the music stops within 500 ms of the accept at the
-  caller's ear (the server's agent_accepted app message goes out on a connection the
-  offer already warmed), and "Connecting you now." is heard after it.
+  caller's ear (QH-5b: the server pushes agent_accepted on the bot's own socket; the
+  Daily app message is only the fallback), and "Connecting you now." is heard after it.
 """
 
 from __future__ import annotations
@@ -57,7 +57,7 @@ from agent_assist_bot.hold import HOLD_INTERVAL_ENV
 from agent_assist_server.app import app
 from agent_assist_server.bot_launcher import BotLauncher, BotLaunchRequest
 from agent_assist_server.daily import DailyRestClient
-from agent_assist_server.queue_api import get_queue
+from agent_assist_server.queue_api import get_bot_channels, get_queue
 from harness.audio import write_wav
 from harness.intake_script import MARIA_ALVAREZ as SCRIPT
 from harness.intake_script import next_line
@@ -375,6 +375,9 @@ async def test_live_hold_music_while_queued(kind, schema, monkeypatch, tmp_path)
                         )
                     )
                     await recv_type(ws, "offer", 5)
+                    # QH-5b: the bot opened its socket after handoff.
+                    assert get_bot_channels(app).count(leg.session_id) == 1, "no bot socket"
+                    log(t0, "bot socket to the server is open")
                     # A person reads the card before pressing Accept (the wrap up live
                     # test waits 1 s too). Accepting 0 ms after the offer puts the
                     # accept message behind the offer's connection warm up (~550 ms).
@@ -419,8 +422,8 @@ async def test_live_hold_music_while_queued(kind, schema, monkeypatch, tmp_path)
                 accept_stop = stop - accept_at
                 msg_at = leg.accepted_message_at()
                 hop = (
-                    f" (agent_accepted reached the bot's room {(msg_at - accept_at) * 1000:.0f}"
-                    f" ms after accept, the music stopped {(stop - msg_at) * 1000:.0f} ms later)"
+                    f" (the Daily fallback copy of agent_accepted reached the room"
+                    f" {(msg_at - accept_at) * 1000:.0f} ms after accept)"
                     if msg_at
                     else ""
                 )
@@ -470,6 +473,6 @@ async def test_live_hold_music_while_queued(kind, schema, monkeypatch, tmp_path)
         for name in rooms:
             await daily.delete_room(name)
             log(t0, f"room {name} deleted")
-        for attr in ("bot_launcher", "queue_service"):
+        for attr in ("bot_launcher", "queue_service", "bot_channels"):
             if hasattr(app.state, attr):
                 delattr(app.state, attr)

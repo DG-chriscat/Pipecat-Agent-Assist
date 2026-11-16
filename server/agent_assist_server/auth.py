@@ -65,6 +65,8 @@ PUBLIC_ROUTES = {
 }
 ASSET_PREFIX = "/login/assets/"
 BOT_ROUTES = re.compile(r"^/queue/calls(/[^/]+/(end|agent-left))?$")
+# QH-5b: the bot's own websocket (queue_api.bot_ws). Bot key only.
+BOT_SOCKET = re.compile(r"^/ws/bot/[^/]+$")
 _UNSAFE_NEXT = re.compile(r"[\x00-\x20\x7f\\]")
 
 
@@ -192,6 +194,13 @@ class AuthMiddleware:
         path = scope["path"]
         method = scope.get("method", "GET")
         conn = HTTPConnection(scope)
+        if scope["type"] == "websocket" and BOT_SOCKET.match(path):
+            # QH-5b: bot only. The bot key opens it; a portal cookie does not.
+            if self.config.valid_bot_key(conn.headers.get("authorization")):
+                await self.app(scope, receive, send)
+            else:
+                await self._ws_unauthorized(receive, send)
+            return
         if scope["type"] == "http" and (
             (method, path) in PUBLIC_ROUTES
             or (method in ("GET", "HEAD") and path.startswith(ASSET_PREFIX))
@@ -211,11 +220,7 @@ class AuthMiddleware:
             return
 
         if scope["type"] == "websocket":
-            # Accept, then close with 4401: a close before accept reaches the browser
-            # as a bare 1006 with no reason.
-            await receive()
-            await send({"type": "websocket.accept"})
-            await send({"type": "websocket.close", "code": WS_UNAUTHORIZED})
+            await self._ws_unauthorized(receive, send)
             return
         if _wants_html(conn, method):
             target = path + (f"?{conn.url.query}" if conn.url.query else "")
@@ -223,6 +228,14 @@ class AuthMiddleware:
         else:
             response = JSONResponse({"detail": "Not authenticated"}, status_code=401)
         await response(scope, receive, send)
+
+    @staticmethod
+    async def _ws_unauthorized(receive: Receive, send: Send) -> None:
+        # Accept, then close with 4401: a close before accept reaches the browser
+        # as a bare 1006 with no reason.
+        await receive()
+        await send({"type": "websocket.accept"})
+        await send({"type": "websocket.close", "code": WS_UNAUTHORIZED})
 
 
 # ---- login routes -------------------------------------------------------------------

@@ -185,7 +185,14 @@ def test_agent_left_requeues_after_grace_and_tells_the_bot(client, daily, monkey
     assert snap["agents"][0] == {**snap["agents"][0], "agent_id": agent_id, "state": "offline"}
     assert wait_for(lambda: any(e["event"] == "requeued" for e in daily.bot_events()))
     requeued = [e for e in daily.bot_events() if e["event"] == "requeued"]
-    assert requeued == [{"type": queue_api.BOT_MESSAGE_TYPE, "event": "requeued", "position": 1}]
+    assert requeued == [
+        {
+            "type": queue_api.BOT_MESSAGE_TYPE,
+            "event": "requeued",
+            "position": 1,
+            "id": requeued[0]["id"],
+        }
+    ]
 
 
 def test_agent_left_after_end_does_nothing(client, monkeypatch):

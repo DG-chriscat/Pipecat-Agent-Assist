@@ -37,6 +37,9 @@ def test_claims_status_pack_loads_with_questions():
     pack = load_pack("claims_status")
     assert pack.id == "claims_status"
     assert pack.identity.prompt and pack.reason.prompt and pack.readback.prompt
+    # Identity card: the final read back stays short (2 minute target) and does not
+    # repeat the claim number; the member ID was confirmed at the identity read back.
+    assert "claim number" in pack.readback.prompt and "Do not" in pack.readback.prompt
     keys = [q.key for q in pack.questions]
     assert keys, "claims_status needs at least one use case question"
     assert len(keys) == len(set(keys))

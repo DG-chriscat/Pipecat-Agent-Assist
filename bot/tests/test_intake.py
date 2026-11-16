@@ -134,14 +134,20 @@ def test_greeting_node_is_tts_only(session):
 # ---- identity (IN-6) --------------------------------------------------------
 
 
+async def identify(session, **fields):
+    """Caller gives their details, then confirms the read back: the happy path."""
+    args = {
+        "full_name": "Maria Alvarez",
+        "date_of_birth": "1984-03-12",
+        "member_id": "EVM 100231",
+        **fields,
+    }
+    _, confirm = await call(session.identity_node(), "save_identity", **args)
+    return await call(confirm, "verify_identity")
+
+
 async def test_identity_verified_saves_fields_and_moves_to_reason(session, store):
-    result, nxt = await call(
-        session.identity_node(),
-        "verify_identity",
-        full_name="Maria Alvarez",
-        date_of_birth="1984-03-12",
-        member_id="EVM 100231",
-    )
+    result, nxt = await identify(session)
     rec = record(session, store)
     assert rec.intake == {
         "full_name": "Maria Alvarez",
@@ -155,13 +161,7 @@ async def test_identity_verified_saves_fields_and_moves_to_reason(session, store
 
 
 async def test_identity_fields_saved_before_the_check(session, store):
-    await call(
-        session.identity_node(),
-        "verify_identity",
-        full_name="Maria Alvarez",
-        date_of_birth="1984-03-12",
-        member_id="EVM100231",
-    )
+    await identify(session)
     kinds = [k for k, _ in store.writes]
     assert kinds.index("intake") < kinds.index("identity")
 
@@ -177,13 +177,7 @@ async def test_identity_fields_saved_before_the_check(session, store):
 async def test_failed_identity_is_flagged_and_still_continues(
     session, store, dob, member_id, want, flag
 ):
-    result, nxt = await call(
-        session.identity_node(),
-        "verify_identity",
-        full_name="Maria Alvarez",
-        date_of_birth=dob,
-        member_id=member_id,
-    )
+    result, nxt = await identify(session, date_of_birth=dob, member_id=member_id)
     rec = record(session, store)
     assert rec.identity_result == want
     assert flag in rec.flags
@@ -191,6 +185,271 @@ async def test_failed_identity_is_flagged_and_still_continues(
     assert nxt["name"] == "reason"
     # The caller is not told which detail was wrong.
     assert "1984" not in str(result) and "Alvarez" not in str(result)
+
+
+# ---- member ID read back before the check (identity card) -------------------------
+
+
+@pytest.mark.parametrize(
+    "raw, spoken",
+    [
+        ("EVM100231", "E V M, one zero zero, two three one"),
+        ("EVM00231", "E V M, zero zero two, three one"),
+        ("evm 100 235", "E V M, one zero zero, two three five"),
+        ("", ""),
+    ],
+)
+def test_member_id_is_spoken_in_groups(raw, spoken):
+    assert intake.speak_member_id(raw) == spoken
+
+
+async def test_save_identity_saves_but_does_not_check_yet(session, store):
+    result, nxt = await call(
+        session.identity_node(),
+        "save_identity",
+        full_name="Maria Alvarez",
+        date_of_birth="1984-03-12",
+        member_id="evm 100 231",
+    )
+    rec = record(session, store)
+    assert rec.intake["member_id"] == "EVM100231"
+    assert rec.identity_result is None
+    assert "identity" not in [k for k, _ in store.writes]
+    assert nxt["name"] == "identity_confirm"
+
+
+async def test_save_identity_with_missing_fields_asks_again_and_stays(session, store):
+    # Live run: the LLM once called save_identity with {} and the read back said
+    # "member ID not caught". Missing fields are not saved and the node stays.
+    result, nxt = await call(session.identity_node(), "save_identity", full_name="Maria Alvarez")
+    assert nxt is None
+    assert "error" in result and "member_id" in result["error"]
+    assert "member_id" not in record(session, store).intake
+
+
+async def test_read_back_is_fixed_tts_with_name_and_grouped_member_id(session):
+    _, confirm = await call(
+        session.identity_node(),
+        "save_identity",
+        full_name="Maria Alvarez",
+        date_of_birth="1984-03-12",
+        member_id="EVM100231",
+    )
+    say = confirm["pre_actions"][0]
+    assert say["type"] == "tts_say"
+    assert say["text"] == (
+        "Thanks. I have Maria Alvarez, member ID E V M, one zero zero, two three one. "
+        "Is that right?"
+    )
+    assert confirm["respond_immediately"] is False
+    # Never read the date of birth back (role message).
+    assert "1984" not in say["text"] and "March" not in say["text"]
+
+
+async def test_identity_confirm_node_offers_verify_correct_person_emergency(session):
+    _, confirm = await call(
+        session.identity_node(),
+        "save_identity",
+        full_name="Maria Alvarez",
+        date_of_birth="1984-03-12",
+        member_id="EVM100231",
+    )
+    names = {f.name for f in confirm["functions"]}
+    assert names == {"verify_identity", "correct_identity", "request_person", "report_emergency"}
+    assert {f.name for f in session.identity_node()["functions"]} == {
+        "save_identity",
+        "request_person",
+        "report_emergency",
+    }
+
+
+async def test_correction_saves_and_reads_back_again(session, store):
+    _, confirm = await call(
+        session.identity_node(),
+        "save_identity",
+        full_name="Marie Alvarez",
+        date_of_birth="1984-03-12",
+        member_id="EVM00231",
+    )
+    result, again = await call(
+        confirm, "correct_identity", full_name="Maria Alvarez", member_id="E V M 100231"
+    )
+    rec = record(session, store)
+    assert rec.intake["full_name"] == "Maria Alvarez"
+    assert rec.intake["member_id"] == "EVM100231"
+    assert rec.identity_result is None
+    assert again["name"] == "identity_confirm"
+    assert "Maria Alvarez" in again["pre_actions"][0]["text"]
+    assert "one zero zero, two three one" in again["pre_actions"][0]["text"]
+    _, nxt = await call(again, "verify_identity")
+    assert record(session, store).identity_result == "verified"
+    assert nxt["name"] == "reason"
+
+
+async def test_correction_of_one_field_keeps_the_others(session, store):
+    _, confirm = await call(
+        session.identity_node(),
+        "save_identity",
+        full_name="Maria Alvarez",
+        date_of_birth="1984-03-12",
+        member_id="EVM00231",
+    )
+    await call(confirm, "correct_identity", member_id="EVM100231")
+    rec = record(session, store)
+    assert rec.intake == {
+        "full_name": "Maria Alvarez",
+        "dob": "1984-03-12",
+        "member_id": "EVM100231",
+    }
+
+
+async def test_second_correction_checks_without_another_read_back(session, store):
+    # Keeps intake under the 2 minute target: at most one repeat read back.
+    _, confirm = await call(
+        session.identity_node(),
+        "save_identity",
+        full_name="Marie Alvarez",
+        date_of_birth="1984-03-12",
+        member_id="EVM00231",
+    )
+    _, again = await call(confirm, "correct_identity", full_name="Maria Alvarez")
+    assert again["name"] == "identity_confirm"
+    result, nxt = await call(again, "correct_identity", member_id="EVM100231")
+    assert result["identity"] == "verified"
+    assert nxt["name"] == "reason"
+
+
+async def test_identity_prompt_says_dates_are_us_order(session):
+    # smart_format turns "March twelfth, nineteen eighty four" into 03/12/1984.
+    content = session.identity_node()["task_messages"][0]["content"]
+    assert "MM/DD/YYYY" in content
+
+
+async def test_readback_prompt_does_not_spell_ids(session):
+    # The identity read back already confirmed the member ID; the final read back must
+    # not spend time spelling IDs or the claim number (2 minute target).
+    content = session.readback_node()["task_messages"][0]["content"]
+    assert "Do not spell out" in content
+
+
+# ---- identity STT tuning (numerals, endpointing) only while identity is active ------
+
+
+class TuningRecorder:
+    def __init__(self):
+        self.calls = []
+
+    async def __call__(self, active: bool):
+        self.calls.append(active)
+
+
+@pytest.fixture
+async def tuned(pack, store, hook):
+    tuning = TuningRecorder()
+    s = intake.IntakeSession(
+        pack=pack, store=store, session_id="sess-t", handoff=hook, identity_tuning=tuning
+    )
+    await s.start()
+    return s, tuning
+
+
+async def run_pre_actions(node):
+    for action in node.get("pre_actions", []):
+        if "handler" in action:
+            await action["handler"](action, FakeFlowManager())
+
+
+async def test_identity_node_turns_identity_stt_on(tuned):
+    session, tuning = tuned
+    await run_pre_actions(session.identity_node())
+    assert tuning.calls == [True]
+
+
+async def test_identity_stt_stays_on_through_the_read_back(tuned):
+    session, tuning = tuned
+    await run_pre_actions(session.identity_node())
+    _, confirm = await call(
+        session.identity_node(),
+        "save_identity",
+        full_name="Maria Alvarez",
+        date_of_birth="1984-03-12",
+        member_id="EVM100231",
+    )
+    await call(confirm, "correct_identity", member_id="EVM100231")
+    assert tuning.calls == [True]
+
+
+async def test_identity_stt_turns_off_when_the_check_runs(tuned):
+    session, tuning = tuned
+    await run_pre_actions(session.identity_node())
+    await identify(session)
+    assert tuning.calls == [True, False]
+
+
+async def test_identity_stt_turns_off_when_intake_ends_early(tuned):
+    session, tuning = tuned
+    await run_pre_actions(session.identity_node())
+    await call(session.identity_node(), "request_person")
+    assert tuning.calls == [True, False]
+
+
+async def test_identity_stt_off_is_sent_once(tuned):
+    session, tuning = tuned
+    await run_pre_actions(session.identity_node())
+    await identify(session)
+    await call(session.reason_node(), "request_person")
+    assert tuning.calls == [True, False]
+
+
+async def test_tuning_errors_do_not_break_the_flow(pack, store, hook):
+    async def boom(active):
+        raise RuntimeError("stt reconnect failed")
+
+    s = intake.IntakeSession(
+        pack=pack, store=store, session_id="sess-b", handoff=hook, identity_tuning=boom
+    )
+    await s.start()
+    await run_pre_actions(s.identity_node())
+    _, nxt = await identify(s)
+    assert nxt["name"] == "reason"
+
+
+async def test_no_tuning_by_default(session):
+    await run_pre_actions(session.identity_node())
+    _, nxt = await identify(session)
+    assert nxt["name"] == "reason"
+
+
+async def test_asking_for_a_person_during_read_back_still_checks_identity(session, store, hook):
+    # The agent should see verified / not_verified, not a blank, when details were given.
+    _, confirm = await call(
+        session.identity_node(),
+        "save_identity",
+        full_name="Maria Alvarez",
+        date_of_birth="1984-03-12",
+        member_id="EVM100231",
+    )
+    _, nxt = await call(confirm, "request_person")
+    assert record(session, store).identity_result == "verified"
+    assert hook.handoffs[0].identity_result == "verified"
+    assert nxt["name"] == "handoff"
+
+
+async def test_asking_for_a_person_before_details_does_not_check(session, store, hook):
+    await call(session.identity_node(), "request_person")
+    assert record(session, store).identity_result is None
+
+
+async def test_identity_prompts_say_to_call_functions_without_narrating(session):
+    assert "without saying anything" in session.identity_node()["task_messages"][0]["content"]
+    _, confirm = await call(
+        session.identity_node(),
+        "save_identity",
+        full_name="Maria Alvarez",
+        date_of_birth="1984-03-12",
+        member_id="EVM100231",
+    )
+    assert "without saying anything" in confirm["task_messages"][0]["content"]
 
 
 # ---- reason, questions, read back (IN-5, IN-8) ------------------------------
@@ -264,13 +523,7 @@ async def test_confirm_marks_ready_for_queue_and_hands_off(session, store, hook)
 
 
 async def test_request_person_mid_intake_skips_to_handoff_with_what_we_have(session, store, hook):
-    await call(
-        session.identity_node(),
-        "verify_identity",
-        full_name="Maria Alvarez",
-        date_of_birth="1984-03-12",
-        member_id="EVM100231",
-    )
+    await identify(session, member_id="EVM100231")
     _, nxt = await call(session.reason_node(), "request_person")
     rec = record(session, store)
     assert rec.status == "ready_for_queue"

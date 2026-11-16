@@ -52,10 +52,11 @@ def fn(node, name):
 async def run_intake(session: IntakeSession) -> None:
     """Drive the Flow the way the LLM would for Maria Alvarez."""
     await session.start()
-    _, node = await fn(session.identity_node(), "verify_identity").handler(
+    _, node = await fn(session.identity_node(), "save_identity").handler(
         {"full_name": "Maria Alvarez", "date_of_birth": "1984-03-12", "member_id": "EVM 100231"},
         None,
     )
+    _, node = await fn(node, "verify_identity").handler({}, None)
     _, node = await fn(node, "save_reason").handler({"reason": "denied MRI claim"}, None)
     for answer in ("CLM-900001", "last month, Riverside Imaging", "denied, no prior auth"):
         _, node = await fn(node, "save_answer").handler({"answer": answer}, None)

@@ -5,15 +5,21 @@ Run locally with keys and a Postgres in the environment:
 
 Needs DAILY_API_KEY, DEEPGRAM_API_KEY, ANTHROPIC_API_KEY, DATABASE_URL.
 
-The test migrates and seeds a throwaway schema, starts the real bot process
-(`python -m agent_assist_bot`, browser caller path) pointed at that schema with
-DATABASE_SCHEMA, and joins as demo persona Maria Alvarez (docs/db.md) with the S1
-harness. Each caller line is Deepgram TTS audio, played after the bot goes quiet.
-Which line to say next is picked from the calls row (the next field not yet saved),
-so the script follows the flow instead of guessing the LLM's wording.
+One run per demo persona (docs/db.md). INTAKE_RUNS=2 runs each persona twice (the
+identity card's scored table, docs/spikes/identity.md); INTAKE_PERSONAS=maria_alvarez,...
+picks personas. INTAKE_RESULTS=<path> appends one JSON line per run.
 
-Passes when the calls row is ready_for_queue with identity verified, member
-EVM100231, a reason, and the intake took under 2 minutes (PRD target).
+Each run migrates and seeds a throwaway schema, starts the real bot process
+(`python -m agent_assist_bot`, browser caller path) pointed at that schema with
+DATABASE_SCHEMA, and joins as the persona with the S1 harness. Each caller line is
+Deepgram TTS audio, played after the bot goes quiet. Which line to say next is picked
+from the calls row (the next field not yet saved, or a yes / correction while the bot
+reads the identity details back), so the script follows the flow instead of guessing
+the LLM's wording.
+
+Passes when the calls row is ready_for_queue with the persona's expected identity
+result (verified; not_verified for Daniel Okafor, who gives a wrong DOB on purpose),
+the right member ID, a reason, and the intake took under 2 minutes (PRD target).
 """
 
 from __future__ import annotations
@@ -29,8 +35,7 @@ import uuid
 import pytest
 from agent_assist_bot.bot import BOT_NAME
 from agent_assist_bot.calls import PostgresCallStore
-from harness.intake_script import MARIA_ALVAREZ as SCRIPT
-from harness.intake_script import next_line
+from harness.intake_script import PERSONAS, Persona, next_line
 from harness.participant import SAMPLE_RATE, HarnessParticipant
 from harness.tts import synthesize
 from harness.turns import audio_slice as _slice
@@ -41,10 +46,12 @@ pytestmark = pytest.mark.live
 
 REQUIRED = ("DAILY_API_KEY", "DEEPGRAM_API_KEY", "ANTHROPIC_API_KEY", "DATABASE_URL")
 INTAKE_BUDGET_SECS = 120.0
-MAX_TURNS = 14
+MAX_TURNS = 16
 
-# Maria Alvarez, demo persona 1: MRI claim CLM-900001 denied CO-197.
-SESSION_ID = f"live-intake-{uuid.uuid4().hex[:8]}"
+_picked = [k for k in os.getenv("INTAKE_PERSONAS", "").split(",") if k]
+_personas = [p for p in PERSONAS if not _picked or p.key in _picked]
+_runs = range(1, int(os.getenv("INTAKE_RUNS", "1")) + 1)
+CASES = [pytest.param(p, n, id=f"{p.key}-{n}") for p in _personas for n in _runs]
 
 
 @pytest.fixture
@@ -71,11 +78,11 @@ async def schema(keys_present):
             await admin.execute(f'DROP SCHEMA "{name}" CASCADE')
 
 
-async def _call_row(store: PostgresCallStore) -> dict | None:
+async def _call_row(store: PostgresCallStore, session_id: str) -> dict | None:
     cur = await store._execute(
         "SELECT status, member_id, intake, identity_result, flags, created_at, updated_at "
         "FROM calls WHERE session_id = %s",
-        (SESSION_ID,),
+        (session_id,),
     )
     row = await cur.fetchone()
     if row is None:
@@ -84,7 +91,7 @@ async def _call_row(store: PostgresCallStore) -> dict | None:
     return dict(zip(keys, row, strict=True))
 
 
-async def _start_bot(room_url: str, token: str, schema: str):
+async def _start_bot(room_url: str, token: str, schema: str, session_id: str):
     env = dict(os.environ, DAILY_ROOM_TOKEN=token, DATABASE_SCHEMA=schema)
     proc = await asyncio.create_subprocess_exec(
         sys.executable,
@@ -93,7 +100,7 @@ async def _start_bot(room_url: str, token: str, schema: str):
         "--room-url",
         room_url,
         "--session-id",
-        SESSION_ID,
+        session_id,
         env=env,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
@@ -119,19 +126,24 @@ async def _stop(proc) -> None:
             await proc.wait()
 
 
-async def test_live_intake_maria_alvarez(schema):
+@pytest.mark.parametrize("who, run", CASES)
+async def test_live_intake(schema, who: Persona, run: int):
     from agent_assist_server.daily import DailyRestClient
 
-    audio = {k: await synthesize(v, sample_rate=SAMPLE_RATE) for k, v in SCRIPT.items()}
+    session_id = f"live-intake-{who.key}-{uuid.uuid4().hex[:6]}"
+    script = who.lines
+    audio = {k: await synthesize(v, sample_rate=SAMPLE_RATE) for k, v in script.items()}
     daily = DailyRestClient.from_env()
     room = await daily.create_browser_room()
     bot_token = await daily.create_meeting_token(room.name)
     caller_token = await daily.create_agent_token(room.name, "caller", int(time.time()) + 600)
     store = PostgresCallStore(os.environ["DATABASE_URL"], schema=schema)
-    print(f"\nroom {room.name}, schema {schema}, session {SESSION_ID}")
-    proc, bot_log = await _start_bot(room.url, bot_token, schema)
+    print(f"\n{who.key} run {run}: room {room.name}, schema {schema}, session {session_id}")
+    proc, bot_log = await _start_bot(room.url, bot_token, schema, session_id)
     transcript: list[tuple[str, tuple]] = []
+    lines_said: list[str] = []
     row = None
+    t_start = t_done = time.time()
     try:
         async with HarnessParticipant("caller") as caller:
             await caller.join(room.url, caller_token)
@@ -146,23 +158,25 @@ async def test_live_intake_maria_alvarez(schema):
                     break
                 # Transcribed after the call, so the harness adds no delay per turn.
                 transcript.append(("bot", turn))
-                row = await _call_row(store)
+                row = await _call_row(store, session_id)
                 if row and row["status"] == "ready_for_queue":
                     break
-                key = next_line((row or {}).get("intake"))
+                row = row or {}
+                key = next_line(row.get("intake"), row.get("identity_result"), who)
+                lines_said.append(key)
                 # write_frames never completes if the call dropped; don't hang on it.
                 s, e = await asyncio.wait_for(caller.play(audio[key]), 60)
-                transcript.append(("caller", (s, SCRIPT[key])))
+                transcript.append(("caller", (s, script[key])))
                 after = e
             # Give the last function call a moment to land.
             for _ in range(20):
-                row = await _call_row(store)
+                row = await _call_row(store, session_id)
                 if row and row["status"] == "ready_for_queue":
                     break
                 await asyncio.sleep(0.5)
             t_done = time.time()
-            for who, item in transcript:
-                if who == "bot":
+            for who_said, item in transcript:
+                if who_said == "bot":
                     said = await _transcribe(_slice(rec, *item))
                     print(f"[{item[0] - t_start:6.1f}s] bot:    {said}")
                 else:
@@ -172,29 +186,41 @@ async def test_live_intake_maria_alvarez(schema):
         await store.close()
         await daily.delete_room(room.name)
         if log_path := os.getenv("INTAKE_BOT_LOG"):
-            with open(log_path, "w") as f:
-                f.write("\n".join(bot_log))
+            with open(log_path, "a") as f:
+                f.write(f"===== {session_id}\n" + "\n".join(bot_log) + "\n")
 
-    intake_secs = (row["updated_at"].timestamp() - t_start) if row else t_done - t_start
+    done = row and row["status"] == "ready_for_queue"
+    intake_secs = (row["updated_at"].timestamp() - t_start) if done else t_done - t_start
     print("--- bot log (intake lines) ---")
     for line in bot_log:
         if "[intake]" in line or "[caller]" in line or "ERROR" in line:
             print("  " + line.split(" - ", 1)[-1])
+    intake = (row or {}).get("intake") or {}
     result = {
-        "session_id": SESSION_ID,
+        "persona": who.key,
+        "run": run,
+        "session_id": session_id,
         "status": row and row["status"],
         "identity_result": row and row["identity_result"],
+        "expected_identity": who.expected_identity,
+        "identity_correct": bool(row) and row["identity_result"] == who.expected_identity,
         "member_id": row and row["member_id"],
+        "heard_name": intake.get("full_name"),
+        "heard_member_id": intake.get("member_id"),
+        "heard_dob": intake.get("dob"),
+        "caller_lines": lines_said,
         "flags": row and row["flags"],
-        "intake": row and row["intake"],
         "intake_seconds": round(intake_secs, 1),
     }
     print("INTAKE RESULT " + json.dumps(result, indent=2, default=str))
+    if out := os.getenv("INTAKE_RESULTS"):
+        with open(out, "a") as f:
+            f.write(json.dumps(result, default=str) + "\n")
 
     assert row is not None, "bot never created the calls row"
     assert row["status"] == "ready_for_queue"
-    assert row["identity_result"] == "verified"
-    assert row["member_id"] == "EVM100231"
+    assert row["identity_result"] == who.expected_identity
+    assert row["member_id"] == who.member_id
     assert row["intake"].get("reason")
     assert row["intake"].get("summary")
     assert intake_secs < INTAKE_BUDGET_SECS

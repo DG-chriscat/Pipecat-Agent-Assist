@@ -159,7 +159,7 @@ def parse_ask(text: str) -> AskQuery | None:
 
 
 def ask_trigger(ask_id: str, text: str, at: float) -> Trigger:
-    """The \"trigger\" of an Ask card: the agent's own question (no phrase to underline)."""
+    """The trigger of an Ask card: the agent's own question (no phrase to underline)."""
     return Trigger(
         phrase=None,
         text=text,

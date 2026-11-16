@@ -43,6 +43,7 @@ describe("AssistColumn hero (DESIGN.md Assist column, docs/assist.md)", () => {
     const { hero } = setup(state(heroMsg()));
     const h = hero();
     expect(h).toHaveAttribute("data-state", "suggestion");
+    expect(h).toHaveAttribute("data-card-id", heroCard().id);
     expect(within(h).getByText("Next best step")).toBeInTheDocument();
     expect(within(h).getByText("AI suggested")).toBeInTheDocument();
     expect(within(h).getByText('Heard "denied"')).toBeInTheDocument();

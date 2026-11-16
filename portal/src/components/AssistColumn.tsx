@@ -262,6 +262,7 @@ function Hero({ assist, onAction }: { assist: AssistState; onAction: (a: LocalAc
       className={`hero is-${state}`}
       data-testid="hero"
       data-state={state}
+      data-card-id={state === "suggestion" && hero ? hero.id : undefined}
       style={hold}
       aria-live="polite"
     >

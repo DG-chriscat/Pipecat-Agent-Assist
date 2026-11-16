@@ -169,19 +169,40 @@ class PrefetchingMinter:
 
 
 class BotNotifier:
-    """Turns queue events into Daily app messages for the call's bot."""
+    """Turns queue events into Daily app messages for the call's bot.
+
+    One Daily client with a kept-alive connection serves every message (QH-5): the
+    bot stops hold music when agent_accepted arrives, so that message must not pay
+    for a new TLS connection. When an offer rings, the notifier makes a cheap call
+    (room presence) to open or refresh that connection, so it is warm when the agent
+    accepts within the 20 s offer window.
+    """
 
     def __init__(self, svc: QueueService, daily_factory):
         self._svc = svc
         self._daily_factory = daily_factory
+        self._daily = None
         self._worker = SerialWorker("bot notifier")
         self._closing: set[asyncio.Task] = set()
+
+    def _client(self):
+        if self._daily is None:
+            client = self._daily_factory()
+            keep = getattr(client, "keep_alive", None)
+            self._daily = keep() if callable(keep) else client
+        return self._daily
 
     def _send(self, room_name: str, data: dict[str, Any]) -> None:
         payload = {"type": BOT_MESSAGE_TYPE, **data}
 
         async def job():
-            await self._daily_factory().send_app_message(room_name, payload)
+            await self._client().send_app_message(room_name, payload)
+
+        self._worker.submit(job)
+
+    def _warm(self, room_name: str) -> None:
+        async def job():
+            await self._client().get_presence(room_name)
 
         self._worker.submit(job)
 
@@ -193,6 +214,8 @@ class BotNotifier:
             self._send(event["call"]["room_name"], {"event": what, "position": event["position"]})
             if event.get("requeued"):
                 self._send_positions(skip=event["call"]["session_id"])
+        elif kind == "offer":
+            self._warm(event["call"]["room_name"])
         elif kind == "call_accepted":
             agent = self._svc.get_agent(event["agent_id"])
             self._send(
@@ -213,7 +236,7 @@ class BotNotifier:
         async def job():
             try:
                 await asyncio.sleep(ROOM_CLOSE_DELAY_SECS)
-                await self._daily_factory().delete_room(room_name)
+                await self._client().delete_room(room_name)
                 logger.info("room %s closed after the agent ended the call", room_name)
             except Exception as e:
                 logger.error("closing room %s failed: %s", room_name, type(e).__name__)

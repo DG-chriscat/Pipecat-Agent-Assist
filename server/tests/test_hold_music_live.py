@@ -14,10 +14,9 @@ about 15 s in the queue with nobody available, recording the bot's audio. Checks
 
 - during the wait the caller always hears something: no gap over 1 s (RMS);
 - the hold update is intelligible over the music (Deepgram transcribes it);
-- a websocket agent accepts: once the agent_accepted app message reaches the room
-  (the bot and the caller get it together), the music stops within 500 ms at the
-  caller's ear, and "Connecting you now." is heard after it. The server's REST hop
-  from accept to that message is logged too; it is not the bot's to shorten.
+- a websocket agent accepts: the music stops within 500 ms of the accept at the
+  caller's ear (the server's agent_accepted app message goes out on a connection the
+  offer already warmed), and "Connecting you now." is heard after it.
 """
 
 from __future__ import annotations
@@ -244,6 +243,10 @@ async def test_live_hold_music_while_queued(schema, monkeypatch, tmp_path):
                         )
                     )
                     await recv_type(ws, "offer", 5)
+                    # A person reads the card before pressing Accept (the wrap up live
+                    # test waits 1 s too). Accepting 0 ms after the offer puts the
+                    # accept message behind the offer's connection warm up (~550 ms).
+                    await asyncio.sleep(1.0)
                     accept_at = time.time()
                     await ws.send(
                         json.dumps(
@@ -321,6 +324,10 @@ async def test_live_hold_music_while_queued(schema, monkeypatch, tmp_path):
                 low = heard_update.lower()
                 assert "waiting" in low and "line" in low, heard_update
                 assert stop_secs <= MUSIC_STOP_SECS, f"music stopped {stop_secs:.2f}s after accept"
+                accept_stop = stop - accept_at
+                assert accept_stop <= MUSIC_STOP_SECS, (
+                    f"music stopped {accept_stop:.2f}s after the agent accepted"
+                )
                 assert "connecting you" in heard_connect.lower(), heard_connect
                 assert tail_rms < SILENT_RMS * 3, "music came back after accept"
 

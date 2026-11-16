@@ -62,7 +62,7 @@ The bot greets the caller, checks who they are, and learns why they called, all 
 | IN-8 | The bot reads back a short summary and lets the caller fix it. | Should |
 | IN-9 | The bot gives no medical advice. If the caller describes an emergency, it tells them to hang up and call 911, and flags the call. | Must |
 | IN-10 | Pipecat Tone reads the caller's tone on each turn, and the reading is saved with the transcript. | Should |
-| IN-11 | Speech to text and text to speech use Deepgram. Expressive conversation may be turned on for a warmer bot voice. | Should |
+| IN-11 | Speech to text and text to speech use Deepgram. Flux TTS is the default voice when it reads member IDs, dates, amounts, and claim numbers at least as well as Aura-2 (docs/spikes/tts-flux-vs-aura.md); Aura-2 stays selectable. Expressive conversation may be turned on for a warmer bot voice. | Should |
 | IN-12 | For the PoC a caller can start a call from a browser page. The server creates the room, starts the same bot as the phone path, and the caller hears the greeting within 5 seconds of the bot joining. Live phone verification of IN-1 waits until a number is bought (ADR 0002). | Must |
 
 ## Requirements: queue and handoff
@@ -114,6 +114,7 @@ A call island in the top bar shows the caller, verified status, a live waveform,
 | AP-16 | Light and dark themes with the same layout (Studio, ADR 0005). Light is the default; the agent's choice is saved. | Must |
 | AP-17 | PHI is masked by default: member ID and date of birth show partly hidden with a Reveal control, a "PHI masked" chip shows in the header, and each reveal is logged on the call record and re-masks after 30 seconds. | Must |
 | AP-18 | Identity status is always visible in the caller panel: not checked, n of 3, or 3 of 3 (name, date of birth, member ID), from the intake identity result. | Must |
+| AP-20 | A Settings page in the portal lets a signed in user change the bot's voice (Aura-2 or Flux TTS, voice, preview), greeting (must keep the AI disclosure), intake pack and identity read back, and hold message and interval. Settings are stored in the database, logged, and apply to the next call. | Must |
 | AP-19 | "Earlier this call" lists accepted actions and completed plan steps with call time stamps. | Should |
 
 ## Requirements: real time assist and data

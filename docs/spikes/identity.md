@@ -256,7 +256,7 @@ keyterms no longer carry the EVM / CLM prefixes.
 
 Harness: `INTAKE_PERSONAS=maria_lopez,james_carter,sarah_miller,mark_hill,linda_nguyen
 INTAKE_RUNS=2 uv run pytest -m live bot/tests/test_live_intake.py`, Settings defaults
-(intake STT Flux, intake LLM phoneLLM mini), Nov 16. Result lines now carry
+(intake STT nova-3-general, intake LLM phoneLLM mini, per the bot log), Nov 16. Result lines now carry
 `member_id_heard_right` (saved member ID equals the real one) and `claim_heard_right`
 (the saved claim number answer holds the real 5 digits; James has no claim).
 

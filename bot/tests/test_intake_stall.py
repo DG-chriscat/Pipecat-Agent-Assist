@@ -109,20 +109,18 @@ async def settle():
 
 
 async def at_identity_confirm(session, fm):
-    """The Nov 16 call: wrong name first, corrected to James Chen, read back again."""
+    """The Nov 16 call's read back (James Chen), waiting for the caller's yes."""
     await fm.set_node_from_config(session.identity_node())
     _, confirm = await call(
         session.identity_node(),
         "save_identity",
         fm,
-        full_name="James Chang",
+        full_name="James Chen",
         date_of_birth="1979-07-04",
         member_id="EVM100232",
     )
     await fm.set_node_from_config(confirm)
-    _, again = await call(confirm, "correct_identity", fm, full_name="James Chen")
-    await fm.set_node_from_config(again)
-    return again
+    return confirm
 
 
 async def at_readback(session, fm):
@@ -445,7 +443,8 @@ async def test_close_cancels_the_timer(store, hook, fm):
 
 
 async def test_flow_lines_for_node_changes_and_function_calls(session, fm, logs):
-    await at_identity_confirm(session, fm)
+    confirm = await at_identity_confirm(session, fm)
+    await call(confirm, "correct_identity", fm, full_name="James Chen")
     flow = [line for line in logs if line.startswith("[flow]")]
     assert "[flow] node -> identity (tool_choice=auto)" in flow
     assert "[flow] node -> identity_confirm (tool_choice=required)" in flow

@@ -49,7 +49,9 @@ from pipecat.frames.frames import LLMSetToolChoiceFrame, TTSSpeakFrame
 
 from agent_assist_bot.calls import (
     FLAG_ASKED_FOR_PERSON,
+    FLAG_CLOSE_MATCH,
     FLAG_EMERGENCY,
+    FLAG_INCOMPLETE,
     FLAG_INTAKE_STALLED,
     FLAG_NOT_FOUND,
     FLAG_NOT_VERIFIED,
@@ -74,8 +76,10 @@ HANDOFF_LINE = "Thanks. I'm passing you to a person now. Please stay on the line
 # Identity read back before the check (identity card). Fixed text so the member ID is
 # always said in groups and the date of birth is never read back.
 READBACK_LINE = "Thanks. I have {name}, member ID {member_id}. Is that right?"
-# The first read back plus at most one more after a correction (2 minute target).
-MAX_IDENTITY_READBACKS = 2
+# IN-6 v2: one fix per identity step, then check and move on. A fix is a correction
+# (correct_identity) or a free form re-ask (say_to_caller) in identity_confirm, or a
+# save_identity with a field missing; the second one checks with what was saved.
+MAX_IDENTITY_FIXES = 1
 
 # Stall guards (module doc). Confirm nodes force a tool call on every LLM turn.
 CONFIRM_NODES = frozenset({"identity_confirm", "readback"})
@@ -295,7 +299,8 @@ class IntakeSession:
         self.identity: IdentityCheck | None = None
         self.flags: list[str] = []
         self.handed_off: Outcome | None = None
-        self._readbacks = 0
+        self._confirm_fixes = 0  # re-asks in identity_confirm (IN-6 cap)
+        self._identity_asks = 0  # save_identity calls refused for a missing field
         self._tuned = False
         # Stall guards (module doc). `node` is the node the Flow is in (entry action).
         self.flow_manager: FlowManager | None = None
@@ -657,9 +662,15 @@ class IntakeSession:
     async def _on_save_identity(self, args: FlowArgs, flow_manager: FlowManager):
         fields = _identity_fields(args)
         if missing := [k for k, v in fields.items() if not v]:
-            return {"error": f"missing {', '.join(missing)}; ask the caller for it"}, None
+            self._identity_asks += 1
+            if self._identity_asks <= MAX_IDENTITY_FIXES:
+                return {"error": f"missing {', '.join(missing)}; ask the caller for it"}, None
+            # Asked once already: check with what we have and move on (incomplete).
+            if present := {k: v for k, v in fields.items() if v}:
+                await self._save(present)
+            return await self._on_verify_identity({}, flow_manager)
         await self._save(fields)
-        self._readbacks = 0
+        self._confirm_fixes = 0
         return {"saved": "identity"}, self.identity_confirm_node()
 
     def identity_confirm_node(self) -> NodeConfig:
@@ -667,10 +678,10 @@ class IntakeSession:
 
         STT mishears spelled IDs and names (docs/spikes/phase2.md). A fixed TTS line
         (no LLM wording, so the ID is always in groups and the DOB is never said) lets
-        the caller correct them. At most one repeat read back, then the check runs, so
-        intake stays under the 2 minute target.
+        the caller correct them. One fix (IN-6 v2): a correction checks right away, and
+        a second free form re-ask checks with what was saved, so a misheard name never
+        loops (docs/spikes/identity.md) and intake stays under the 2 minute target.
         """
-        self._readbacks += 1
         text = READBACK_LINE.format(
             name=self.intake.get("full_name") or "your name",
             member_id=speak_member_id(self.intake.get("member_id", "")) or "not caught",
@@ -703,7 +714,7 @@ class IntakeSession:
                         required=[],
                         handler=self._on_correct_identity,
                     ),
-                    self._say_function(),
+                    dataclasses.replace(self._say_function(), handler=self._on_identity_say),
                     *self._escape_functions(),
                 ],
                 "pre_actions": [{"type": "tts_say", "text": text}],
@@ -712,12 +723,23 @@ class IntakeSession:
         )
 
     async def _on_correct_identity(self, args: FlowArgs, flow_manager: FlowManager):
+        """One correction (IN-6 v2): save it, then check and move on. No second read
+        back: a name STT keeps mishearing is left for the agent to confirm (IN-13)."""
         fields = {k: v for k, v in _identity_fields(args).items() if v}
         if fields:
             await self._save(fields)
-        if self._readbacks < MAX_IDENTITY_READBACKS:
-            return {"saved": sorted(fields)}, self.identity_confirm_node()
         return await self._on_verify_identity({}, flow_manager)
+
+    async def _on_identity_say(self, args: FlowArgs, flow_manager: FlowManager):
+        """say_to_caller in identity_confirm. A re-ask in the LLM's own words counts
+        toward the one fix: the second one checks with what was saved instead."""
+        if self._confirm_fixes >= MAX_IDENTITY_FIXES:
+            logger.info("[flow] identity_confirm: re-ask cap reached; checking")
+            return await self._on_verify_identity({}, flow_manager)
+        result = await self._on_say(args, flow_manager)
+        if isinstance(result, tuple) and isinstance(result[0], dict) and result[0].get("said"):
+            self._confirm_fixes += 1
+        return result
 
     async def _on_verify_identity(self, args: FlowArgs, flow_manager: FlowManager):
         check = await self._check_identity()
@@ -732,7 +754,10 @@ class IntakeSession:
         return {"identity": check.result, "note": note}, self.reason_node()
 
     async def _check_identity(self) -> IdentityCheck:
-        """Check the saved details against members (IN-6), record and flag the result."""
+        """Check the saved details against members (IN-6), record and flag the result.
+
+        A detail still missing (after the one ask) makes the result `incomplete`; what
+        did match is kept for the agent's verification step (IN-13)."""
         name = self.intake.get("full_name", "")
         dob = self.intake.get("dob", "")
         member_id = self.intake.get("member_id", "")
@@ -741,14 +766,20 @@ class IntakeSession:
         except Exception as e:  # noqa: BLE001
             logger.error(f"[intake] identity check failed: {type(e).__name__}: {e}")
             check = IdentityCheck("not_found", None)
+        if not (name and dob and member_id):
+            check = dataclasses.replace(check, result="incomplete")
         self.identity = check
         await self._safe(
             "set_identity", self.store.set_identity(self.call_id, check.result, check.member_id)
         )
-        if check.result == "not_verified":
-            await self._flag(FLAG_NOT_VERIFIED)
-        elif check.result == "not_found":
-            await self._flag(FLAG_NOT_FOUND)
+        flag = {
+            "not_verified": FLAG_NOT_VERIFIED,
+            "not_found": FLAG_NOT_FOUND,
+            "close_match": FLAG_CLOSE_MATCH,
+            "incomplete": FLAG_INCOMPLETE,
+        }.get(check.result)
+        if flag:
+            await self._flag(flag)
         return check
 
     def reason_node(self) -> NodeConfig:

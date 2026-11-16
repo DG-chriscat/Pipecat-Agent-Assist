@@ -36,10 +36,14 @@ DATABASE_URL_ENV = "DATABASE_URL"
 # throwaway schema so they never write to public).
 DATABASE_SCHEMA_ENV = "DATABASE_SCHEMA"
 
-IdentityResult = Literal["verified", "not_verified", "not_found"]
+# close_match (IN-6, Chris Nov 16): member ID and DOB exact, name close.
+# incomplete: a detail was still missing after the one correction (IN-6 cap).
+IdentityResult = Literal["verified", "close_match", "not_verified", "not_found", "incomplete"]
 
 FLAG_NOT_VERIFIED = "identity_not_verified"
 FLAG_NOT_FOUND = "identity_not_found"
+FLAG_CLOSE_MATCH = "identity_close_match"
+FLAG_INCOMPLETE = "identity_incomplete"
 FLAG_ASKED_FOR_PERSON = "asked_for_person"
 FLAG_EMERGENCY = "emergency"
 # Intake made no progress (watchdog in intake.py); handed off with what was captured.
@@ -63,6 +67,51 @@ class IdentityCheck:
     member_id: str | None = None
     # Which of the three details matched that member (AP-18 "Identity n of 3").
     checks: tuple[IdentityDetail, ...] = ()
+    # The member's name on file, when a member was matched by ID (the agent's
+    # verification step shows heard vs on file, IN-13). Never the DOB.
+    on_file_name: str | None = None
+
+
+# Close name (IN-6 v2). One part (first or last name) must match exactly and the other
+# must be close: normalized Levenshtein similarity >= 0.5 and at most 3 edits. Examples
+# from the identity spike (docs/spikes/identity.md): Nguyen/Yuen 0.50 (close),
+# Nguyen/Hengguyen 0.67, Aisha/Ayesha 0.67, Okafor/Lokafor 0.86 (close);
+# Okafor/Ford 0.33, Nguyen/Wayne 0.17, Nguyen/Win 0.17 (too far). Only used when the
+# member ID and DOB already match exactly, and the agent still confirms (IN-13).
+CLOSE_NAME_MIN_SIMILARITY = 0.5
+CLOSE_NAME_MAX_EDITS = 3
+
+
+def _edits(a: str, b: str) -> int:
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i]
+        for j, cb in enumerate(b, 1):
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb)))
+        prev = cur
+    return prev[-1]
+
+
+def name_part_close(on_file: str, heard: str) -> bool:
+    """True when `heard` is close to `on_file` (one name part, lower case letters)."""
+    a, b = on_file.lower(), heard.lower()
+    if not a or not b:
+        return False
+    d = _edits(a, b)
+    return d <= CLOSE_NAME_MAX_EDITS and 1 - d / max(len(a), len(b)) >= CLOSE_NAME_MIN_SIMILARITY
+
+
+def _name_close(member: Member, full_name: str) -> bool:
+    tokens = _name_tokens(full_name)
+    if len(tokens) < 2:
+        return False
+    first, last = member.first_name.lower(), member.last_name.lower()
+    hf, hl = tokens[0], tokens[-1]
+    if hf == first:
+        return name_part_close(last, hl)
+    if hl == last:
+        return name_part_close(first, hf)
+    return False
 
 
 def normalize_member_id(raw: str) -> str:
@@ -96,9 +145,10 @@ def match_identity(
     dob: str,
     member_id: str,
 ) -> IdentityCheck:
-    """Decide verified / not_verified / not_found.
+    """Decide verified / close_match / not_verified / not_found.
 
     - Member ID found and name + DOB match it: verified.
+    - Member ID found, DOB exact, name close (`_name_close`): close_match.
     - Member ID found but name or DOB differ: not_verified (that member, flagged).
     - Member ID unknown, but name + DOB match exactly one member: not_verified.
     - Otherwise: not_found.
@@ -115,8 +165,14 @@ def match_identity(
         if dob_ok:
             checks.append("dob")
         checks.append("member_id")
-        result = "verified" if name_ok and dob_ok else "not_verified"
-        return IdentityCheck(result, by_id.member_id, tuple(checks))
+        if name_ok and dob_ok:
+            result = "verified"
+        elif dob_ok and _name_close(by_id, full_name):
+            result = "close_match"
+        else:
+            result = "not_verified"
+        on_file = f"{by_id.first_name} {by_id.last_name}"
+        return IdentityCheck(result, by_id.member_id, tuple(checks), on_file)
     hits = [m for m in candidates if birth == m.dob and _name_matches(m, full_name)]
     if len(hits) == 1:
         return IdentityCheck("not_verified", hits[0].member_id, ("full_name", "dob"))

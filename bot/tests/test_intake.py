@@ -160,6 +160,12 @@ async def test_identity_verified_saves_fields_and_moves_to_reason(session, store
     assert nxt["name"] == "reason"
 
 
+async def test_handoff_carries_which_identity_details_matched(session, hook):
+    await identify(session, date_of_birth="1984-03-21")
+    await session._finish("completed")
+    assert hook.handoffs[0].identity_checks == ("full_name", "member_id")
+
+
 async def test_identity_fields_saved_before_the_check(session, store):
     await identify(session)
     kinds = [k for k, _ in store.writes]

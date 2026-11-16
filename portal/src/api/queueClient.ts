@@ -88,6 +88,14 @@ export const saveWrapUp = (agentId: string, sessionId: string, reasonCode: strin
     notes,
   });
 
+/** AP-17: log a PHI reveal on the call record (field name only, never the value). */
+export const logPhiReveal = (sessionId: string, agentId: string, field: "member_id" | "dob") =>
+  request<{ field: string; agent_id: string; at: number }>(
+    "POST",
+    `/calls/${encodeURIComponent(sessionId)}/phi-reveal`,
+    { agent_id: agentId, field },
+  );
+
 export function wsUrlFor(loc: Pick<Location, "protocol" | "host">): string {
   return `${loc.protocol === "https:" ? "wss:" : "ws:"}//${loc.host}/ws/queue`;
 }

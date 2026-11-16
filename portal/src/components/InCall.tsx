@@ -1,16 +1,23 @@
-import { Mic, MicOff, Pause, PhoneOff, Play, Sparkles } from "lucide-react";
+import { FileText, HeartPulse, ListChecks, Mic, MicOff, Pause, PhoneOff, Play, Sparkles } from "lucide-react";
+import type { ReactNode } from "react";
+import tileAluminum from "../assets/tex/aluminum.jpg";
+import tileBakelite from "../assets/tex/bakelite.jpg";
+import tileStone from "../assets/tex/stone.jpg";
 import type { CallerDetails } from "../api/types";
 import type { CallerInfo } from "../state/offer";
 import { formatClock } from "../state/offer";
 import type { HighlightRange, TranscriptLine } from "../state/transcript";
 import { CallerPanel, type DetailsState } from "./CallerPanel";
-import { TopBar } from "./TopBar";
+import type { PhiFieldName } from "./PhiField";
+import { Shell, type ShellAgent } from "./Shell";
 import { TranscriptColumn } from "./TranscriptColumn";
 import { VerifiedChip } from "./VerifiedChip";
 
 export type CallPhase = "connecting" | "live";
 
 export interface InCallProps {
+  /** Rail avatar menu: agent name, theme, sign out. */
+  shell: ShellAgent;
   caller: CallerInfo;
   memberId: string | null;
   /** Intake answers from the accept reply. */
@@ -29,6 +36,8 @@ export interface InCallProps {
   /** Live transcript (P3-4). */
   transcript: TranscriptLine[];
   highlights: HighlightRange[];
+  /** AP-17: log a reveal of a masked field on the call record. */
+  onRevealPhi: (field: PhiFieldName) => void;
   onMute: () => void;
   onHold: () => void;
   onEnd: () => void;
@@ -46,7 +55,7 @@ function Waveform({ level }: { level: number }) {
   return (
     <div className={`wave${speaking ? " speaking" : ""}`} data-testid="waveform" aria-hidden="true">
       {BARS.map((b, i) => (
-        <i key={i} style={{ height: `${Math.round(4 + 16 * b * gain)}px`, animationDelay: `${i * 0.08}s` }} />
+        <i key={i} style={{ height: `${Math.round(4 + 14 * b * gain)}px`, animationDelay: `${i * 0.08}s` }} />
       ))}
     </div>
   );
@@ -61,7 +70,7 @@ function CallIsland({ caller, phase, held, remoteLevel, elapsedSecs }: InCallPro
       <VerifiedChip result={caller.verified} />
       <Waveform level={held || phase !== "live" ? 0 : remoteLevel} />
       {status && <span className="chip chip-neutral">{status}</span>}
-      <span className="chip chip-neutral" data-testid="mood-chip" title="Mood reading arrives in a later phase">
+      <span className="chip chip-neutral" data-testid="mood-chip" title="Tone reader, words only. Arrives with P4-5.">
         Mood –
       </span>
       <span className="time" role="timer" aria-label="Call time">
@@ -84,7 +93,7 @@ function Controls({ phase, muted, held, onMute, onHold, onEnd }: InCallProps) {
         disabled={!live || held}
         onClick={onMute}
       >
-        {muted ? <MicOff strokeWidth={1.8} aria-hidden="true" /> : <Mic strokeWidth={1.8} aria-hidden="true" />}
+        {muted ? <MicOff strokeWidth={1.7} aria-hidden="true" /> : <Mic strokeWidth={1.7} aria-hidden="true" />}
       </button>
       <button
         type="button"
@@ -95,40 +104,80 @@ function Controls({ phase, muted, held, onMute, onHold, onEnd }: InCallProps) {
         disabled={!live}
         onClick={onHold}
       >
-        {held ? <Play strokeWidth={1.8} aria-hidden="true" /> : <Pause strokeWidth={1.8} aria-hidden="true" />}
+        {held ? <Play strokeWidth={1.7} aria-hidden="true" /> : <Pause strokeWidth={1.7} aria-hidden="true" />}
       </button>
       <button type="button" className="end-btn" aria-label="End call" onClick={onEnd}>
-        <PhoneOff strokeWidth={1.8} aria-hidden="true" />
+        <PhoneOff strokeWidth={1.7} aria-hidden="true" />
         End
       </button>
     </div>
   );
 }
 
-function AssistColumn() {
+function ShelfTile({ swatch, icon, title, empty }: { swatch: string; icon: ReactNode; title: string; empty: string }) {
+  return (
+    <div className="panel tile is-empty" data-testid="shelf-tile">
+      <div className="tile-top">
+        <span className="sw" style={{ backgroundImage: `url(${swatch})` }} aria-hidden="true">
+          {icon}
+        </span>
+        <b>{title}</b>
+      </div>
+      <p>{empty}</p>
+    </div>
+  );
+}
+
+/**
+ * Assist column (DESIGN.md "Assist column"), laid out as Studio with empty states:
+ * hero in its listening state, three shelf tiles, Earlier this call, and the Ask bar.
+ * P4-4 fills them from the assist contract (docs/assist.md).
+ */
+function AssistColumn({ firstName }: { firstName: string }) {
   return (
     <section className="assist" aria-label="Assist">
-      <div className="glass hero hero-empty">
-        <span className="chip chip-ai">
-          <Sparkles strokeWidth={1.8} aria-hidden="true" />
-          Next best step
-        </span>
+      <div className="hero is-listening">
+        <div className="eyebrow">
+          <span className="chip chip-ai">
+            <Sparkles strokeWidth={1.7} aria-hidden="true" />
+            Next best step
+          </span>
+        </div>
         <div className="hero-listening">
           <div className="orb orb-sm" aria-hidden="true" />
           <div>
-            <h2 className="hero-title">Listening</h2>
-            <p className="hero-why">The next best step shows up here as the call goes.</p>
+            <h2 className="hero-title">Listening with you</h2>
+            <p className="hero-why">The next best step shows up here as the call goes, with the words to say.</p>
           </div>
         </div>
       </div>
-      <label className="glass ask">
-        <Sparkles strokeWidth={1.8} aria-hidden="true" />
-        <input
-          type="text"
-          aria-label="Ask"
-          placeholder="Ask anything about this caller"
-          disabled
+      <div className="shelf">
+        <ShelfTile
+          swatch={tileAluminum}
+          icon={<FileText strokeWidth={1.7} />}
+          title="Records"
+          empty="Claims and payments appear when they come up."
         />
+        <ShelfTile
+          swatch={tileStone}
+          icon={<ListChecks strokeWidth={1.7} />}
+          title="Call plan"
+          empty="Steps for this call appear here."
+        />
+        <ShelfTile
+          swatch={tileBakelite}
+          icon={<HeartPulse strokeWidth={1.7} />}
+          title="Tone tip"
+          empty="A tip appears if the caller's mood drops."
+        />
+      </div>
+      <div className="hist">
+        <div className="label">Earlier this call</div>
+        <p className="muted-note">Steps you finish show up here.</p>
+      </div>
+      <label className="panel ask">
+        <Sparkles strokeWidth={1.7} aria-hidden="true" />
+        <input type="text" aria-label="Ask" placeholder={`Ask about ${firstName}`} disabled />
         <span className="kbd" aria-hidden="true">
           ⌘ K
         </span>
@@ -137,11 +186,17 @@ function AssistColumn() {
   );
 }
 
-/** In-call frame (DESIGN.md "Layout"): top bar with call island and controls, three columns. */
+/** In-call frame (DESIGN.md "Layout"): rail, header with call island and controls, three columns. */
 export function InCall(props: InCallProps) {
+  const firstName = props.caller.name.split(/\s+/)[0] || "the caller";
   return (
-    <div className="page in-call">
-      <TopBar center={<CallIsland {...props} />} right={<Controls {...props} />} />
+    <Shell
+      agent={props.shell}
+      island={<CallIsland {...props} />}
+      right={<Controls {...props} />}
+      orb="hero"
+      className="in-call"
+    >
       {props.error && (
         <p className="error call-error" role="alert">
           {props.error}
@@ -155,10 +210,11 @@ export function InCall(props: InCallProps) {
           waitSecs={props.waitSecs ?? null}
           details={props.details ?? null}
           detailsState={props.detailsState ?? "loading"}
+          onRevealPhi={props.onRevealPhi}
         />
-        <AssistColumn />
-        <TranscriptColumn lines={props.transcript} highlights={props.highlights} />
+        <AssistColumn firstName={firstName} />
+        <TranscriptColumn lines={props.transcript} highlights={props.highlights} callerName={props.caller.name} />
       </main>
-    </div>
+    </Shell>
   );
 }

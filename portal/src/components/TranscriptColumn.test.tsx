@@ -22,17 +22,18 @@ function scrollBox() {
 }
 
 describe("TranscriptColumn (P3-4)", () => {
-  it("shows the live chip and an empty note before anyone talks", () => {
+  it("shows the Conversation label, the live chip, and an empty note before anyone talks", () => {
     render(<TranscriptColumn lines={[]} highlights={[]} />);
-    const col = screen.getByRole("complementary", { name: /transcript/i });
-    expect(within(col).getByText(/live transcript/i)).toBeInTheDocument();
+    const col = screen.getByRole("complementary", { name: /conversation/i });
+    expect(within(col).getByText("Conversation")).toBeInTheDocument();
     expect(within(col).getByText("Live")).toBeInTheDocument();
     expect(within(col).getByText(/shows up here/i)).toBeInTheDocument();
   });
 
-  it("labels lines CALLER (fuchsia) and YOU (muted)", () => {
+  it("each line has an avatar: caller initials (copper), agent You (LED tint, muted text)", () => {
     render(
       <TranscriptColumn
+        callerName="Maria Alvarez"
         lines={[line("caller-1", "caller", "I already called."), line("agent-1", "agent", "I'm sorry.")]}
         highlights={[]}
       />,
@@ -40,9 +41,11 @@ describe("TranscriptColumn (P3-4)", () => {
     const rows = screen.getAllByRole("listitem");
     expect(rows).toHaveLength(2);
     expect(rows[0]).toHaveClass("tr", "tr-caller");
-    expect(within(rows[0]).getByText("Caller")).toHaveClass("who");
+    const ma = within(rows[0]).getByText("MA");
+    expect(ma).toHaveClass("who", "av", "av-caller");
+    expect(ma).toHaveAttribute("title", "Caller");
     expect(rows[1]).toHaveClass("tr", "tr-agent");
-    expect(within(rows[1]).getByText("You")).toHaveClass("who");
+    expect(within(rows[1]).getByText("You")).toHaveClass("who", "av", "av-agent");
     expect(screen.queryByText(/shows up here/i)).not.toBeInTheDocument();
   });
 

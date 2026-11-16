@@ -127,7 +127,8 @@ describe("App", () => {
     it("sign out goes back to sign in and sets the agent not available", async () => {
       const { user, sock } = await signInAsAna();
       sendSnapshot(sock, [{ ...ana, state: "available" }]);
-      await user.click(screen.getByRole("button", { name: /sign out/i }));
+      await user.click(screen.getByRole("button", { name: /agent menu/i }));
+      await user.click(screen.getByRole("menuitem", { name: /sign out/i }));
       expect(JSON.parse(sock.sent.at(-1)!)).toEqual({
         type: "set_status",
         agent_id: "agent-1",
@@ -135,6 +136,46 @@ describe("App", () => {
       });
       expect(screen.getByRole("heading", { name: "Sign in" })).toBeInTheDocument();
       expect(sessionStorage.getItem("vitals.agentName")).toBeNull();
+    });
+  });
+
+  describe("theme (AP-16)", () => {
+    beforeEach(() => {
+      localStorage.clear();
+      delete document.documentElement.dataset.theme;
+    });
+
+    it("starts light on sign in, with the Studio rail and header", () => {
+      render(<App createSocket={makeSocket} />);
+      expect(document.documentElement.dataset.theme).toBe("light");
+      expect(screen.getByText("PHI masked")).toBeInTheDocument();
+    });
+
+    it("switches in the rail avatar menu and is saved per agent", async () => {
+      const { user } = await signInAsAna();
+      const rail = screen.getByRole("navigation", { name: /main/i });
+      expect(rail).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: /agent menu/i }));
+      const dark = screen.getByRole("menuitemradio", { name: /dark/i });
+      expect(dark).toHaveAttribute("aria-checked", "false");
+      expect(screen.getByRole("menuitemradio", { name: /light/i })).toHaveAttribute("aria-checked", "true");
+      await user.click(dark);
+      expect(document.documentElement.dataset.theme).toBe("dark");
+      expect(localStorage.getItem("vitals.theme.Ana")).toBe("dark");
+
+      // Reload: Ana gets dark back; another agent starts light.
+      cleanup();
+      delete document.documentElement.dataset.theme;
+      render(<App createSocket={makeSocket} />);
+      await screen.findByRole("switch", { name: /available/i });
+      expect(document.documentElement.dataset.theme).toBe("dark");
+      await user.click(screen.getByRole("button", { name: /agent menu/i }));
+      await user.click(screen.getByRole("menuitem", { name: /sign out/i }));
+      fetchMock.mockImplementation(async () => jsonResponse({ ...ana, agent_id: "agent-2", name: "Ben" }));
+      await user.type(screen.getByLabelText(/your name/i), "Ben");
+      await user.click(screen.getByRole("button", { name: /sign in/i }));
+      await screen.findByRole("switch", { name: /available/i });
+      expect(document.documentElement.dataset.theme).toBe("light");
     });
   });
 

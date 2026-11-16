@@ -36,6 +36,7 @@ describe("callerInfo", () => {
     expect(callerInfo(call())).toEqual({
       name: "Maria Alvarez",
       verified: "verified",
+      identity: "verified",
       reason: "MRI claim was denied",
       summary: "Denied MRI claim",
     });
@@ -46,6 +47,7 @@ describe("callerInfo", () => {
     expect(info.name).toBe("Unknown caller");
     expect(info.reason).toBe("No reason captured");
     expect(info.verified).toBe("not_verified");
+    expect(info.identity).toBeNull();
   });
 
   it("uses the one line summary when there is no reason", () => {

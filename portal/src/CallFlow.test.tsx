@@ -180,7 +180,9 @@ describe("incoming call and in-call shell (AP-3, AP-4, QH-6, QH-7)", () => {
     // QH-7: the summary is on screen before the audio connects.
     const caller = screen.getByRole("complementary", { name: /caller/i });
     expect(caller).toHaveTextContent("Maria Alvarez");
-    expect(caller).toHaveTextContent("EVM100231");
+    // AP-17: masked until Reveal.
+    expect(caller).toHaveTextContent("••••31");
+    expect(caller).not.toHaveTextContent("EVM100231");
     expect(caller).toHaveTextContent("MRI claim from Oct 28 was denied");
     expect(screen.getByRole("group", { name: /call/i })).toHaveTextContent(/connecting/i);
     expect(screen.queryByRole("dialog", { name: /incoming call/i })).not.toBeInTheDocument();
@@ -235,6 +237,27 @@ describe("incoming call and in-call shell (AP-3, AP-4, QH-6, QH-7)", () => {
     ring(sock);
     fireEvent.keyDown(window, { key: "Escape" });
     await waitFor(() => expect(fetchMock.mock.calls.at(-1)![0]).toBe("/agents/agent-1/decline"));
+  });
+
+  it("Esc in the open agent menu closes the menu and does not decline the offer", async () => {
+    const sock = await signedInAvailable();
+    ring(sock);
+    fireEvent.click(screen.getByRole("button", { name: /agent menu/i }));
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+    const calls = fetchMock.mock.calls.length;
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.length).toBe(calls);
+    expect(screen.getByRole("dialog", { name: /incoming call/i })).toBeInTheDocument();
+  });
+
+  it("Enter on a rail menu item does not accept the offer", async () => {
+    const sock = await signedInAvailable();
+    ring(sock);
+    fireEvent.click(screen.getByRole("button", { name: /agent menu/i }));
+    const calls = fetchMock.mock.calls.length;
+    fireEvent.keyDown(screen.getByRole("menuitemradio", { name: /dark/i }), { key: "Enter" });
+    expect(fetchMock.mock.calls.length).toBe(calls);
   });
 
   it("timeout: the server misses the offer and sets not available; the card closes with a notice", async () => {
@@ -306,7 +329,7 @@ describe("incoming call and in-call shell (AP-3, AP-4, QH-6, QH-7)", () => {
   it("live transcript: server messages render as labeled lines, interims update in place", async () => {
     const sock = await signedInAvailable();
     const media = await acceptAndJoin(sock);
-    const col = screen.getByRole("complementary", { name: /transcript/i });
+    const col = screen.getByRole("complementary", { name: /conversation/i });
     const send = (m: object) => act(() => media.events.onServerMessage(m));
     send({ type: "transcript", role: "caller", text: "I already", is_final: false, ts: 1, line_id: "caller-1" });
     expect(within(col).getByText("I already")).toHaveClass("typing");
@@ -314,7 +337,7 @@ describe("incoming call and in-call shell (AP-3, AP-4, QH-6, QH-7)", () => {
     send({ type: "transcript", role: "agent", text: "Let me check", is_final: false, ts: 3, line_id: "agent-1" });
     send({ type: "card", text: "not a transcript" });
     const rows = within(col).getAllByRole("listitem");
-    expect(rows.map((r) => r.textContent)).toEqual(["CallerI already called.", "YouLet me check"]);
+    expect(rows.map((r) => r.textContent)).toEqual(["MAI already called.", "YouLet me check"]);
     expect(within(col).getByText("I already called.")).not.toHaveClass("typing");
   });
 
@@ -540,10 +563,20 @@ describe("incoming call and in-call shell (AP-3, AP-4, QH-6, QH-7)", () => {
         }),
       ),
     );
-    expect(panel).toHaveTextContent("EVM100231 · Evergreen HMO Silver");
-    expect(panel).toHaveTextContent("Mar 12, 1984");
-    expect(within(panel).getByText("Repeat")).toBeInTheDocument();
+    expect(panel).toHaveTextContent("Evergreen HMO Silver · ••••31");
+    expect(panel).toHaveTextContent("••/••/1984");
+    expect(panel).not.toHaveTextContent("Mar 12, 1984");
+    expect(within(panel).getByText("Repeat caller")).toBeInTheDocument();
     expect(panel).toHaveTextContent("MRI, knee, left claim denied, CO-197");
+
+    // AP-17: Reveal shows the DOB and logs the reveal on the call record.
+    route = (url) => (url === "/calls/s1/phi-reveal" ? json({ field: "dob", agent_id: "agent-1", at: 1 }) : undefined);
+    fireEvent.click(within(panel).getByRole("button", { name: "Reveal date of birth" }));
+    expect(panel).toHaveTextContent("Mar 12, 1984");
+    const [url, init] = fetchMock.mock.calls.at(-1)!;
+    expect(url).toBe("/calls/s1/phi-reveal");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body)).toEqual({ agent_id: "agent-1", field: "dob" });
   });
 
   it("a caller history error keeps the accept summary on screen", async () => {

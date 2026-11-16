@@ -35,12 +35,18 @@ class HandoffError(RuntimeError):
 
 
 def enqueue_payload(handoff: IntakeHandoff) -> dict[str, Any]:
-    """Body for POST /queue/calls. The summary dict is what the agent sees on accept."""
+    """Body for POST /queue/calls. The summary dict is what the agent sees on accept.
+
+    `summary.identity_checks` lists which identity details matched (AP-18 badge); it is
+    left out when identity was never checked."""
+    summary: dict[str, Any] = {**handoff.intake, "summary": handoff.summary}
+    if handoff.identity_checks is not None:
+        summary["identity_checks"] = list(handoff.identity_checks)
     return {
         "session_id": handoff.session_id,
         "call_id": handoff.call_id,
         "outcome": handoff.outcome,
-        "summary": {**handoff.intake, "summary": handoff.summary},
+        "summary": summary,
         "identity_result": handoff.identity_result,
         "member_id": handoff.member_id,
         "flags": list(handoff.flags),

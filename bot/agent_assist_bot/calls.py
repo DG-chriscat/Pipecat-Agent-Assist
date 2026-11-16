@@ -50,10 +50,15 @@ class Member:
     dob: dt.date
 
 
+IdentityDetail = Literal["full_name", "dob", "member_id"]
+
+
 @dataclass(frozen=True)
 class IdentityCheck:
     result: IdentityResult
     member_id: str | None = None
+    # Which of the three details matched that member (AP-18 "Identity n of 3").
+    checks: tuple[IdentityDetail, ...] = ()
 
 
 def normalize_member_id(raw: str) -> str:
@@ -99,12 +104,18 @@ def match_identity(
     """
     birth = _parse_dob(dob)
     if by_id is not None:
-        if birth == by_id.dob and _name_matches(by_id, full_name):
-            return IdentityCheck("verified", by_id.member_id)
-        return IdentityCheck("not_verified", by_id.member_id)
+        name_ok, dob_ok = _name_matches(by_id, full_name), birth == by_id.dob
+        checks: list[IdentityDetail] = []
+        if name_ok:
+            checks.append("full_name")
+        if dob_ok:
+            checks.append("dob")
+        checks.append("member_id")
+        result = "verified" if name_ok and dob_ok else "not_verified"
+        return IdentityCheck(result, by_id.member_id, tuple(checks))
     hits = [m for m in candidates if birth == m.dob and _name_matches(m, full_name)]
     if len(hits) == 1:
-        return IdentityCheck("not_verified", hits[0].member_id)
+        return IdentityCheck("not_verified", hits[0].member_id, ("full_name", "dob"))
     return IdentityCheck("not_found", None)
 
 

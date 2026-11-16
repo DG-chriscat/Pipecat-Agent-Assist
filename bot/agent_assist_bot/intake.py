@@ -120,6 +120,8 @@ class IntakeHandoff:
     identity_result: str | None = None
     member_id: str | None = None
     flags: tuple[str, ...] = ()
+    # Which identity details matched (calls.IdentityCheck.checks); None if never checked.
+    identity_checks: tuple[str, ...] | None = None
 
 
 @runtime_checkable
@@ -231,6 +233,7 @@ class IntakeSession:
             identity_result=self._identity_result(),
             member_id=self.identity.member_id if self.identity else None,
             flags=tuple(self.flags),
+            identity_checks=self.identity.checks if self.identity else None,
         )
         logger.info(f"[intake] ready_for_queue outcome={outcome}")
         await self._safe("handoff hook", self.handoff.on_intake_complete(handoff))

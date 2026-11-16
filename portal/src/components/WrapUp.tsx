@@ -40,10 +40,10 @@ export function WrapUp({ info, loadError, saving, saveError, onSave, onRetry }: 
   }
 
   return (
-    <section className="glass wrapup" role="region" aria-label="Wrap up">
+    <section className="panel card wrapup" role="region" aria-label="Wrap up">
       <div className="wrapup-head">
         <span className="chip chip-info">
-          <ClipboardCheck strokeWidth={1.8} aria-hidden="true" />
+          <ClipboardCheck strokeWidth={1.7} aria-hidden="true" />
           Wrap up
         </span>
         {info?.ended_by && <span className="label">{ENDED[info.ended_by]}</span>}
@@ -88,7 +88,7 @@ export function WrapUp({ info, loadError, saving, saveError, onSave, onRetry }: 
           <div className={`wrapup-draft${info.summary_draft ? "" : " is-empty"}`} data-testid="summary-draft">
             <div className="wrapup-draft-head">
               <span className="chip chip-ai">
-                <Sparkles strokeWidth={1.8} aria-hidden="true" />
+                <Sparkles strokeWidth={1.7} aria-hidden="true" />
                 Summary draft
               </span>
               {!info.summary_draft && <span className="label">Coming soon</span>}
@@ -139,7 +139,7 @@ export function WrapUp({ info, loadError, saving, saveError, onSave, onRetry }: 
 
           <div className="incoming-actions">
             <button type="button" className="btn btn-primary" disabled={!canSave} aria-busy={saving} onClick={save}>
-              <Check strokeWidth={1.8} aria-hidden="true" />
+              <Check strokeWidth={1.7} aria-hidden="true" />
               {saving ? "Saving" : "Save and go available"}
             </button>
           </div>

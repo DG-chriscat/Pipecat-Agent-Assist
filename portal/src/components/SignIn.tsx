@@ -1,6 +1,6 @@
 import { ArrowRight } from "lucide-react";
 import { useState, type FormEvent } from "react";
-import { TopBar } from "./TopBar";
+import { Shell } from "./Shell";
 
 interface Props {
   onSubmit: (name: string) => void;
@@ -19,10 +19,9 @@ export function SignIn({ onSubmit, busy, error }: Props) {
   }
 
   return (
-    <div className="page">
-      <TopBar />
+    <Shell>
       <main className="center-stage">
-        <form className="glass panel signin" onSubmit={submit} noValidate>
+        <form className="panel card signin" onSubmit={submit} noValidate>
           <h1>Sign in</h1>
           <p className="sub">Enter your name to start taking calls.</p>
           <label className="label" htmlFor="agent-name">
@@ -45,11 +44,11 @@ export function SignIn({ onSubmit, busy, error }: Props) {
           )}
           <button className="btn btn-primary btn-block" type="submit" disabled={!trimmed || busy}>
             {busy ? "Signing in" : "Sign in"}
-            <ArrowRight strokeWidth={1.8} aria-hidden="true" />
+            <ArrowRight strokeWidth={1.7} aria-hidden="true" />
           </button>
           <p className="foot">Demo sign in. Use the same name to pick up where you left off.</p>
         </form>
       </main>
-    </div>
+    </Shell>
   );
 }

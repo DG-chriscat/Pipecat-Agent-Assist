@@ -267,3 +267,119 @@ def test_phi_reveal_rejects_unknown_fields(client):
     agent_id = on_call(client)
     r = client.post("/calls/s1/phi-reveal", json={"agent_id": agent_id, "field": "ssn"})
     assert r.status_code == 422
+
+
+# ---- P5-1: the wrap up draft (AP-9) ---------------------------------------------------
+
+DRAFT = {
+    "summary": "Maria Alvarez called about CLM-900001. The agent explained the denial. "
+    "The agent requested a retro authorization review for CLM-900001.",
+    "reason_code": "appeal_started",
+    "pack_id": "claims_status",
+    "source": "llm",
+}
+
+
+def post_draft(client, session_id="s1", **over):
+    return client.post(f"/queue/calls/{session_id}/wrap-up-draft", json={**DRAFT, **over})
+
+
+def test_bot_draft_shows_in_the_wrap_up_view_with_the_suggested_code(client):
+    agent_id = on_call(client)
+    client.post("/queue/calls/s1/end")
+    assert post_draft(client).status_code == 200
+    body = client.get("/calls/s1/wrap-up", params={"agent_id": agent_id}).json()
+    assert body["summary_draft"] == DRAFT["summary"]
+    assert body["suggested_reason_code"] == "appeal_started"
+    assert body["pack_id"] == "claims_status"
+    assert body["draft_pending"] is False
+
+
+def test_view_before_the_draft_says_it_is_pending(client):
+    agent_id = on_call(client)
+    client.post("/queue/calls/s1/end")
+    body = client.get("/calls/s1/wrap-up", params={"agent_id": agent_id}).json()
+    assert body["summary_draft"] is None
+    assert body["suggested_reason_code"] is None
+    assert body["draft_pending"] is True
+
+
+def test_draft_pending_stops_after_the_wait(client, monkeypatch):
+    agent_id = on_call(client)
+    client.post("/queue/calls/s1/end")
+    monkeypatch.setattr(wrap_up_api, "DRAFT_WAIT_SECS", 0)
+    body = client.get("/calls/s1/wrap-up", params={"agent_id": agent_id}).json()
+    assert body["draft_pending"] is False
+
+
+def test_reason_codes_follow_the_drafts_pack(client):
+    agent_id = on_call(client)
+    client.post("/queue/calls/s1/end")
+    post_draft(client, pack_id="account_payments", reason_code="refund_submitted")
+    body = client.get("/calls/s1/wrap-up", params={"agent_id": agent_id}).json()
+    codes = [c["code"] for c in body["reason_codes"]]
+    assert codes == [c["code"] for c in wrap_up_api.reason_codes("account_payments")]
+    assert body["suggested_reason_code"] == "refund_submitted"
+    # Save checks against the same pack.
+    r = wrap_up(client, agent_id, reason_code="refund_submitted")
+    assert r.status_code == 200, r.text
+    assert r.json()["wrap_up"]["reason_code"] == "refund_submitted"
+
+
+def test_draft_with_a_code_outside_the_pack_is_rejected(client):
+    on_call(client)
+    assert post_draft(client, reason_code="refund_submitted").status_code == 422
+    assert post_draft(client, pack_id="../etc").status_code == 422
+    assert post_draft(client, pack_id="nope").status_code == 422
+
+
+def test_draft_rejects_bad_bodies(client):
+    on_call(client)
+    assert post_draft(client, summary="").status_code == 422
+    assert post_draft(client, summary="x" * 3001).status_code == 422
+    assert post_draft(client, source="made_up").status_code == 422
+
+
+def test_draft_for_a_call_with_no_agent_is_409(client):
+    client.post("/queue/calls", json={"session_id": "s1", "summary": MARIA})
+    assert post_draft(client).status_code == 409
+    assert post_draft(client, session_id="nope").status_code == 404
+
+
+def test_save_wrap_up_with_the_edited_summary(client):
+    agent_id = on_call(client)
+    client.post("/queue/calls/s1/end")
+    post_draft(client)
+    r = client.post(
+        f"/agents/{agent_id}/wrap-up",
+        json={
+            "session_id": "s1",
+            "reason_code": "appeal_started",
+            "notes": "",
+            "summary": "  Edited summary.  ",
+        },
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["wrap_up"]["summary"] == "Edited summary."
+    call = queue_api.get_queue(app).get_call("s1")
+    assert call.wrap_up["summary"] == "Edited summary."
+    assert call.wrap_up_draft["summary"] == DRAFT["summary"]
+
+
+def test_save_wrap_up_rejects_a_long_summary(client):
+    agent_id = on_call(client)
+    client.post("/queue/calls/s1/end")
+    r = client.post(
+        f"/agents/{agent_id}/wrap-up",
+        json={"session_id": "s1", "reason_code": "other", "summary": "x" * 3001},
+    )
+    assert r.status_code == 422
+
+
+def test_bot_key_opens_the_draft_route():
+    secret = "s" * 32
+    env = {auth.PASSWORD_ENV: "pw", auth.SECRET_ENV: secret}
+    with TestClient(create_app(env)) as c:
+        hdr = {"authorization": f"Bearer {auth.bot_key(secret)}"}
+        assert c.post("/queue/calls/s9/wrap-up-draft", headers=hdr, json=DRAFT).status_code == 404
+        assert c.post("/queue/calls/s9/wrap-up-draft", json=DRAFT).status_code == 401

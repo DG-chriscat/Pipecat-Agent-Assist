@@ -124,13 +124,13 @@ Icons: Lucide, 1.7 stroke, round caps.
 ## Other screens
 Sign in, idle home, and the incoming call card use the same themes, ground, rail, and glass. Their current builds (P3-1, P3-2) are restyled to this file by the Studio restyle card.
 
-## Wrap up (P3-5)
+## Wrap up (P3-5, P5-1)
 Layout and content only; P3-5 shipped it in the Focus styling and the Studio restyle card (P4-0) restyles it with the screens above. After End or a caller hang up, the in-call frame closes and the center stage shows one glass card (max 600 px):
 - Head: info chip "Wrap up" and a faint label naming who ended it ("You ended the call" or "The caller hung up").
 - Caller name, identity chip, call length chip (mono `mm:ss`), then the **Why they called** box.
-- **Summary draft** box: AI chip "Summary draft". Until AP-9 lands it is an empty dashed outline with placeholder copy and a "Coming soon" label; with a draft it is a solid outline.
-- **Reason code**: label, then the active pack's codes (`wrap_up.reason_codes`) as mono pill buttons in a radio group. Selected uses the AI tint.
-- **Notes**: textarea. Cmd or Ctrl plus Enter saves.
-- Primary button "Save and go available", disabled until a reason code is picked.
+- **Summary draft** box (P5-1, AP-9): AI chip "Summary draft" and the summary editor inside the box (no inner border; the box takes the focus ring). While the assist is writing it the outline is dashed with a pulsing "Drafting from the call" label; with a draft it is a solid outline with "Edit before you save"; with no draft the outline is dashed and the editor is empty with a "Write a short summary of the call." placeholder.
+- **Reason code**: label, then the pack's codes (`wrap_up.reason_codes`) as mono pill buttons in a radio group. Selected uses the AI tint. The assist's suggestion is preselected and carries a small spark plus "Suggested" tag, which stays on that code if the agent picks another.
+- **Notes**: textarea (2 rows), "Anything else for the record". Cmd or Ctrl plus Enter saves from the summary or the notes.
+- Primary button "Save and go available", disabled until a reason code is picked (the suggestion counts).
 - Call island, wrap up state: info dot, caller name, "Wrap up" chip, queue count.
 - After Save the idle home returns with the notice "Call saved. You are available."

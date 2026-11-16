@@ -118,6 +118,9 @@ const wrapInfo: WrapUpInfo = {
   identity_result: "verified",
   duration_secs: 252,
   summary_draft: null,
+  suggested_reason_code: null,
+  draft_pending: false,
+  pack_id: "claims_status",
   reason_codes: [
     { code: "claim_status_given", label: "Claim status given" },
     { code: "denial_explained", label: "Denial explained" },

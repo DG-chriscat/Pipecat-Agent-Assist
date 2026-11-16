@@ -220,3 +220,42 @@ async def test_event_recorder_writes_in_order():
         rec.add("card_sent", f"c{i}", {"i": i})
     await asyncio.wait_for(rec.close(), 2)
     assert [e[1] for e in store.calls[call_id].assist_events] == ["c0", "c1", "c2"]
+
+
+# ---- P5-1: wrap up inputs (AP-9) ---------------------------------------------------
+
+
+async def test_wrap_up_inputs_carry_lines_accepted_actions_and_plan():
+    s, roles, _, _, _, _ = await make()
+    await accept(s, roles)
+    s.on_final(transcript_message("caller", "It was denied.", True, 1.0, "caller-1"))
+    s.on_final(transcript_message("agent", "I see the claim.", False, 1.5, "agent-1"))
+    s.on_final(transcript_message("agent", "I see the claim.", True, 2.0, "agent-1"))
+    await s.drain()
+    hero = s.engine.hero
+    await s.on_app_message(_feedback(hero.id, "accept"), "a1")
+    inputs = s.wrap_up_inputs()
+    assert inputs.pack.id == "claims_status"
+    assert [(ln["role"], ln["text"]) for ln in inputs.transcript] == [
+        ("caller", "It was denied."),
+        ("agent", "I see the claim."),
+    ]
+    assert [(a.id, a.label, a.records) for a in inputs.accepted] == [
+        ("request_retro_auth_review", "Request retro auth review", ("CLM-900001",))
+    ]
+    plan = {p.id: p.done for p in inputs.plan}
+    assert plan["take_next_step"] is True
+    assert plan["set_expectations"] is False
+    assert inputs.intake["full_name"] == "Maria Alvarez"
+    await s.close()
+
+
+async def test_wrap_up_inputs_without_an_engine_use_the_intake_pack():
+    s, roles, _, _, _, _ = await make()
+    inputs = s.wrap_up_inputs()
+    assert inputs.pack.id == "claims_status"
+    assert list(inputs.accepted) == [] and list(inputs.transcript) == []
+    assert [p.done for p in inputs.plan] == [False] * len(load_pack("claims_status").call_plan)
+    assert s.accepted is False
+    await accept(s, roles)
+    assert s.accepted is True

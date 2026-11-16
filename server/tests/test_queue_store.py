@@ -207,3 +207,30 @@ async def test_write_through_saves_phi_reveals_on_the_call(schema):
         ("dob", agent.agent_id),
     ]
     assert all(isinstance(r["at"], float) for r in got[0])
+
+
+async def test_write_through_saves_the_summary_draft_and_the_saved_summary(schema):
+    """P5-1 (AP-9): the bot's draft and the agent's edited summary land on the row."""
+    store = QueueStore(schema=schema)
+    svc = QueueService(mint_token=mint)
+    svc.subscribe(store.on_event)
+    agent = svc.sign_in("Ana")
+    svc.set_status(agent.agent_id, AgentState.AVAILABLE)
+    svc.enqueue_call("sess-9", "https://x.daily.co/caller-9", {"reason": "claim denied"})
+    await svc.accept(agent.agent_id, "sess-9")
+    svc.end_call("sess-9")
+    draft = {
+        "summary": "Drafted.",
+        "reason_code": "appeal_started",
+        "pack_id": "claims_status",
+        "source": "llm",
+    }
+    svc.set_wrap_up_draft("sess-9", draft)
+    svc.save_wrap_up(agent.agent_id, "sess-9", "appeal_started", "", summary="Edited.")
+    await store.drain()
+    got = await rows(
+        schema,
+        "SELECT wrap_up_summary, wrap_up_draft->>'summary', wrap_up_draft->>'reason_code', "
+        "wrap_up_draft->>'source' FROM calls",
+    )
+    assert got == [("Edited.", "Drafted.", "appeal_started", "llm")]

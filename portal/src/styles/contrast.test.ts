@@ -97,7 +97,8 @@ describe("body text never uses the faint ink", () => {
   it.each([
     ".muted-note",
     ".tile.is-empty p",
-    ".wrapup-draft.is-empty p",
+    // P5-1: the empty draft is the editor's placeholder (was `.wrapup-draft.is-empty p`).
+    ".wrapup-summary::placeholder",
     ".foot",
     ".caller-id",
     ".time",

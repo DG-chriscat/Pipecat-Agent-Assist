@@ -238,7 +238,8 @@ next_best_steps:
     source: Utilization management
 
 # Wrap up (P3-5, AP-9): the reason codes the agent picks from after the call. Saved on
-# the call record with the agent's notes.
+# the call record with the agent's notes. `actions` (P5-1): an accepted next best step
+# with one of these action ids suggests the code; with none, the first code.
 wrap_up:
   reason_codes:
     - code: claim_status_given
@@ -247,8 +248,10 @@ wrap_up:
       label: Denial explained
     - code: appeal_started
       label: Appeal or retro review started
+      actions: [request_retro_auth_review, start_network_appeal]
     - code: callback_needed
       label: Callback needed
+      actions: [contact_provider_for_info, request_auth_clinical_notes]
     - code: transferred
       label: Transferred
     - code: other

@@ -242,6 +242,9 @@ RLS is enabled with no policies (same lock as 0002); `seed` truncates it.
 | `ASSIST_LLM_MODEL` | `LLM_MODEL`, then the factory default | assist model |
 | `DATABASE_URL` / `DATABASE_SCHEMA` | | connectors and `assist_events`; without a database the assist does not start |
 
+At call end the accepted actions, plan ticks, and the call's final lines feed the
+wrap up summary draft (P5-1, docs/wrap_up.md).
+
 ## Tests
 
 - `bot/tests/test_assist.py`: real packs, fake connectors and LLM. Trigger path,

@@ -8,7 +8,18 @@ import {
   type AssistState,
   type LocalAction,
 } from "../state/assist";
-import { askCard, heroCard, msg, PLAN_STEPS, planMsg, recordCard, toneTipCard } from "../test/assistFixtures";
+import {
+  askCard,
+  heroCard,
+  identityMsg,
+  lockedCard,
+  msg,
+  PLAN_STEPS,
+  planMsg,
+  recordCard,
+  toneTipCard,
+  verifyCard,
+} from "../test/assistFixtures";
 import { ACK_MS, AssistColumn, SLOW_ASK_MS } from "./AssistColumn";
 
 function state(...raws: Record<string, unknown>[]): AssistState {
@@ -496,5 +507,127 @@ describe("AssistColumn Earlier this call", () => {
   it("says what will show up before anything is done", () => {
     const { region } = setup(emptyAssist());
     expect(within(region).getByText("Steps you finish show up here.")).toBeInTheDocument();
+  });
+
+  it("lists the agent's identity decision (IN-13)", () => {
+    let s = state(identityMsg("pending"), verifyMsg());
+    s = localAssist(s, { type: "verify", cardId: "verify:identity", verified: true }, 75);
+    const { region } = setup(s);
+    const hist = within(region).getByRole("list", { name: "Earlier this call" });
+    expect(within(hist).getByRole("listitem").textContent).toMatch(/Caller verified.*By you.*01:15/);
+  });
+});
+
+const verifyMsg = (over = {}, result = "close_match") =>
+  msg("hero", { card: verifyCard(over, result), reason: "new", replaces: null });
+
+describe("AssistColumn verify hero (IN-13)", () => {
+  it("headline, what matched and what did not, Say this, and the two decisions", () => {
+    const { hero } = setup(state(identityMsg("pending"), verifyMsg()));
+    const h = hero();
+    expect(h).toHaveAttribute("data-state", "verify");
+    expect(h).toHaveAttribute("data-result", "close_match");
+    expect(within(h).getByRole("heading", { name: /Confirm who you're speaking with/ })).toBeInTheDocument();
+    const items = within(h).getAllByRole("listitem");
+    expect(items.map((i) => i.textContent)).toEqual([
+      expect.stringMatching(/Member ID.*Match/),
+      expect.stringMatching(/Date of birth.*Match/),
+      expect.stringMatching(/Name.*Heard “Linda Yuen”.*On file “Linda Nguyen”/),
+    ]);
+    expect(items[2]).toHaveAttribute("data-ok", "false");
+    expect(within(h).getByText("Say this")).toBeInTheDocument();
+    expect(within(h).getByText(/spell your last name/)).toBeInTheDocument();
+    expect(within(h).getByRole("button", { name: "Mark verified" })).toHaveClass("btn-primary");
+    expect(within(h).getByRole("button", { name: "Could not verify" })).not.toHaveClass("btn-primary");
+    // Not an AI suggestion, and no Not now: only the agent's decision closes it.
+    expect(within(h).queryByText("AI suggested")).not.toBeInTheDocument();
+    expect(within(h).queryByRole("button", { name: /not now/i })).not.toBeInTheDocument();
+  });
+
+  it("not found uses the clay treatment", () => {
+    const { hero } = setup(state(identityMsg("pending", { result: "not_found" }), verifyMsg({}, "not_found")));
+    expect(hero()).toHaveAttribute("data-result", "not_found");
+    expect(hero()).toHaveClass("is-not-found");
+  });
+
+  it("Mark verified and Could not verify send the decision", () => {
+    const { hero, onAction } = setup(state(identityMsg("pending"), verifyMsg()));
+    fireEvent.click(within(hero()).getByRole("button", { name: "Mark verified" }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: "verify", cardId: "verify:identity", verified: true });
+    fireEvent.click(within(hero()).getByRole("button", { name: "Could not verify" }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: "verify", cardId: "verify:identity", verified: false });
+  });
+
+  it("Enter marks verified; Esc does nothing (no dismiss)", () => {
+    const { onAction } = setup(state(identityMsg("pending"), verifyMsg()));
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onAction).not.toHaveBeenCalled();
+    fireEvent.keyDown(window, { key: "Enter" });
+    expect(onAction).toHaveBeenCalledWith({ type: "verify", cardId: "verify:identity", verified: true });
+  });
+
+  it("verified ack: phosphor check and Verified by you", () => {
+    vi.useFakeTimers();
+    let s = state(identityMsg("pending"), verifyMsg());
+    s = localAssist(s, { type: "verify", cardId: "verify:identity", verified: true }, 20);
+    const { hero } = setup(s);
+    expect(hero()).toHaveAttribute("data-state", "verified");
+    expect(within(hero()).getByTestId("ack-check")).toBeInTheDocument();
+    expect(within(hero()).getByText(/Records are unlocked/)).toBeInTheDocument();
+  });
+
+  it("could not verify ack: says records stay hidden and to offer a callback", () => {
+    let s = state(identityMsg("pending"), verifyMsg());
+    s = localAssist(s, { type: "verify", cardId: "verify:identity", verified: false }, 20);
+    const { hero } = setup(s);
+    expect(hero()).toHaveAttribute("data-state", "not_verified");
+    expect(within(hero()).getByText(/Records stay hidden for this call/)).toBeInTheDocument();
+  });
+});
+
+describe("AssistColumn locked tiles (IN-13)", () => {
+  it("a locked record is a stone tile with a lock: no values, no source records", () => {
+    const { region } = setup(state(identityMsg("pending"), verifyMsg(), msg("card_added", { card: lockedCard() })));
+    const tile = within(region).getByTestId(`tile-${lockedCard().id}`);
+    expect(tile).toHaveClass("is-locked");
+    expect(tile).toHaveAttribute("data-locked", "true");
+    expect(within(tile).getByText("Verify the caller to see records")).toBeInTheDocument();
+    expect(within(tile).getByTestId("tile-lock")).toBeInTheDocument();
+    expect(tile.textContent).not.toMatch(/CLM-|MRI|\$/);
+    // No pin, thumbs, or dismiss on a tile the agent cannot read.
+    expect(within(tile).queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  it("an Ask answer is withheld the same way", () => {
+    let s = localAssist(state(identityMsg("pending"), verifyMsg()), { type: "ask", askId: "ask-1", text: "Show the last 3 claims" }, 5);
+    s = applyAssist(s, parseAssistMessage(msg("card_added", { card: lockedCard({ id: "ask:ask-1", trigger: askCard().trigger }) }))!, 6);
+    s = applyAssist(s, parseAssistMessage(msg("ask_result", { ask_id: "ask-1", status: "answered", card_id: "ask:ask-1", message: null }))!, 6);
+    const { region } = setup(s);
+    const tile = within(region).getByTestId("tile-ask:ask-1");
+    expect(within(tile).getByText("Verify the caller to see records")).toBeInTheDocument();
+    expect(within(tile).getByText("You asked “Show the last 3 claims”")).toBeInTheDocument();
+    expect(tile.textContent).not.toMatch(/CLM-/);
+  });
+
+  it("the empty records slot says records wait for verification; articles and the plan still show", () => {
+    const article = recordCard({
+      id: "kb:KB-CL-010",
+      kind: "article",
+      title: "Knowledge base",
+      body: { fields: ["article_id", "title", "summary"], rows: [{ article_id: "KB-CL-010", title: "Reading an EOB", summary: "Not a bill." }], summary: null },
+    });
+    const { region } = setup(state(identityMsg("pending"), verifyMsg(), planMsg(), msg("card_added", { card: article })));
+    expect(within(region).getByTestId("tile-kb:KB-CL-010")).not.toHaveClass("is-locked");
+    expect(within(region).getByTestId("tile-plan")).toBeInTheDocument();
+  });
+
+  it("once verified, the unlocked record replaces the locked tile", () => {
+    let s = state(identityMsg("pending"), verifyMsg(), msg("card_added", { card: lockedCard() }));
+    s = applyAssist(s, parseAssistMessage(identityMsg("verified", { by: "Ana", at: 1 }))!, 9);
+    s = applyAssist(s, parseAssistMessage(msg("card_removed", { card_id: lockedCard().id, reason: "unlocked" }))!, 9);
+    s = applyAssist(s, parseAssistMessage(msg("card_added", { card: recordCard() }))!, 9);
+    const { region } = setup(s);
+    expect(within(region).queryByText("Verify the caller to see records")).not.toBeInTheDocument();
+    expect(within(region).getByTestId("tile-card:denied_claim")).toHaveTextContent("CLM-900001");
   });
 });

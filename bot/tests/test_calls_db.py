@@ -182,6 +182,34 @@ async def test_assist_events_table_has_rls(store, schema):
     assert await cur.fetchall() == [(True,)]
 
 
+@pytest.mark.parametrize("result", ["close_match", "incomplete"])
+async def test_identity_v2_results_are_stored(store, result):
+    # IN-6 v2 (migration 0009): close_match and incomplete are valid results.
+    call_id = await store.create_call(f"sess-{result}")
+    await store.set_identity(call_id, result, "EVM100234")
+    assert (await row(store, call_id))[3] == result
+
+
+async def test_close_match_against_seed(store):
+    check = await store.verify_identity("Linda Yuen", "1958-01-30", "EVM100234")
+    assert (check.result, check.member_id, check.on_file_name) == (
+        "close_match",
+        "EVM100234",
+        "Linda Nguyen",
+    )
+
+
+async def test_identity_decision_is_logged_as_an_assist_event(store):
+    # IN-13: the agent's decision, who made it, and when, on the call record.
+    call_id = await store.create_call("sess-decision")
+    data = {"decision": "verified", "by": "Ana", "at": 1794800000.5, "intake_result": "close_match"}
+    await store.add_assist_event(call_id, "identity_decision", "verify:identity", data)
+    cur = await store._execute(
+        "SELECT kind, card_id, data FROM assist_events WHERE call_id = %s", (call_id,)
+    )
+    assert await cur.fetchall() == [("identity_decision", "verify:identity", data)]
+
+
 async def test_reconnects_after_dropped_connection(store):
     call_id = await store.create_call("sess-5")
     await store._conn.close()

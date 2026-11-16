@@ -122,7 +122,8 @@ async def test_start_sends_status_and_the_pack_plan(packs):
         "set_expectations",
     ]
     assert plan["done"] == 0 and all(m["v"] == 1 and m["type"] == "assist" for m in h.sent)
-    assert [m["seq"] for m in h.sent] == [1, 2]
+    assert [m["seq"] for m in h.sent] == [1, 2, 3]
+    assert h.sent[2]["event"] == "identity" and h.sent[2]["state"] == "verified"
 
 
 # --- deterministic trigger path --------------------------------------------------------

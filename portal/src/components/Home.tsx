@@ -6,6 +6,7 @@ import {
   getCaller,
   getWrapUp,
   logPhiReveal,
+  postIdentityDecision,
   saveWrapUp,
   setStatusRest,
   type QueueSocket,
@@ -14,6 +15,7 @@ import { settingsApi } from "../api/settingsClient";
 import type { Agent, AgentState, ServerMessage, WrapUpInfo } from "../api/types";
 import type { CreateMedia } from "../call/media";
 import { useCall } from "../hooks/useCall";
+import type { LocalAction } from "../state/assist";
 import { useQueueSocket } from "../hooks/useQueueSocket";
 import { offerFor, type Offer } from "../state/offer";
 import type { Theme } from "../state/theme";
@@ -307,6 +309,24 @@ export function Home({ agent: signedIn, theme, onTheme, createSocket, createMedi
     }
   }
 
+  /**
+   * IN-13: the bot unlocks (or keeps locked) the records; the server stores the decision
+   * and, on Mark verified, the caller panel reloads with the member's history.
+   */
+  function onAssist(a: LocalAction) {
+    assistAction(a);
+    if (a.type !== "verify" || !call) return;
+    const sessionId = call.sessionId;
+    postIdentityDecision(sessionId, agentId, a.verified ? "verified" : "not_verified")
+      .then(() => getCaller(sessionId, agentId))
+      .then(
+        (details) => setDetails(sessionId, details),
+        () => {
+          // The bot already has the decision; the panel keeps what it shows.
+        },
+      );
+  }
+
   /** AP-17: each reveal is logged on the call record. A failed log never blocks the agent. */
   function revealPhi(field: PhiFieldName) {
     if (!call) return;
@@ -345,7 +365,7 @@ export function Home({ agent: signedIn, theme, onTheme, createSocket, createMedi
         transcript={call.transcript}
         highlights={call.highlights}
         assist={call.assist}
-        onAssist={assistAction}
+        onAssist={onAssist}
         onMute={toggleMute}
         onHold={toggleHold}
         onEnd={() => void endCall()}

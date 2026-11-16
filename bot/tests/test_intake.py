@@ -9,7 +9,9 @@ import pytest
 from agent_assist_bot import intake
 from agent_assist_bot.calls import (
     FLAG_ASKED_FOR_PERSON,
+    FLAG_CLOSE_MATCH,
     FLAG_EMERGENCY,
+    FLAG_INCOMPLETE,
     FLAG_NOT_FOUND,
     FLAG_NOT_VERIFIED,
     Member,
@@ -18,6 +20,7 @@ from agent_assist_bot.calls import (
 from agent_assist_bot.packs import load_pack
 
 MARIA = Member("EVM100231", "Maria", "Alvarez", dt.date(1984, 3, 12))
+LINDA = Member("EVM100234", "Linda", "Nguyen", dt.date(1958, 1, 30))
 
 
 class FakeFlowManager:
@@ -280,7 +283,7 @@ async def test_identity_confirm_node_offers_verify_correct_person_emergency(sess
     }
 
 
-async def test_correction_saves_and_reads_back_again(session, store):
+async def test_correction_saves_and_checks(session, store):
     _, confirm = await call(
         session.identity_node(),
         "save_identity",
@@ -288,17 +291,9 @@ async def test_correction_saves_and_reads_back_again(session, store):
         date_of_birth="1984-03-12",
         member_id="EVM00231",
     )
-    result, again = await call(
+    result, nxt = await call(
         confirm, "correct_identity", full_name="Maria Alvarez", member_id="E V M 100231"
     )
-    rec = record(session, store)
-    assert rec.intake["full_name"] == "Maria Alvarez"
-    assert rec.intake["member_id"] == "EVM100231"
-    assert rec.identity_result is None
-    assert again["name"] == "identity_confirm"
-    assert "Maria Alvarez" in tts(again)["text"]
-    assert "one zero zero, two three one" in tts(again)["text"]
-    _, nxt = await call(again, "verify_identity")
     assert record(session, store).identity_result == "verified"
     assert nxt["name"] == "reason"
 
@@ -320,8 +315,8 @@ async def test_correction_of_one_field_keeps_the_others(session, store):
     }
 
 
-async def test_second_correction_checks_without_another_read_back(session, store):
-    # Keeps intake under the 2 minute target: at most one repeat read back.
+async def test_one_correction_then_checks_without_another_read_back(session, store):
+    # IN-6 v2: one correction, then check and move on (no read back loops).
     _, confirm = await call(
         session.identity_node(),
         "save_identity",
@@ -329,11 +324,99 @@ async def test_second_correction_checks_without_another_read_back(session, store
         date_of_birth="1984-03-12",
         member_id="EVM00231",
     )
-    _, again = await call(confirm, "correct_identity", full_name="Maria Alvarez")
-    assert again["name"] == "identity_confirm"
-    result, nxt = await call(again, "correct_identity", member_id="EVM100231")
+    result, nxt = await call(
+        confirm, "correct_identity", full_name="Maria Alvarez", member_id="E V M 100231"
+    )
+    rec = record(session, store)
+    assert rec.intake["full_name"] == "Maria Alvarez"
+    assert rec.intake["member_id"] == "EVM100231"
+    assert result["identity"] == "verified"
+    assert rec.identity_result == "verified"
+    assert nxt["name"] == "reason"
+
+
+async def test_correction_still_misheard_close_match_moves_on(store, pack, hook):
+    # Docs/spikes/identity.md: Linda Nguyen heard as "Linda Yuen" through 6 corrections.
+    store.members["EVM100234"] = LINDA
+    s = intake.IntakeSession(pack=pack, store=store, session_id="sess-l", handoff=hook)
+    await s.start()
+    _, confirm = await call(
+        s.identity_node(),
+        "save_identity",
+        full_name="Linda Yuen",
+        date_of_birth="1958-01-30",
+        member_id="EVM100234",
+    )
+    result, nxt = await call(confirm, "correct_identity", full_name="Linda Yuen")
+    assert result["identity"] == "close_match"
+    assert nxt["name"] == "reason"
+    rec = store.calls[s.call_id]
+    assert rec.identity_result == "close_match"
+    assert FLAG_CLOSE_MATCH in rec.flags
+
+
+async def test_one_free_form_re_ask_is_allowed(session):
+    _, confirm = await call(
+        session.identity_node(),
+        "save_identity",
+        full_name="Marie Alvarez",
+        date_of_birth="1984-03-12",
+        member_id="EVM100231",
+    )
+    result, nxt = await call(confirm, "say_to_caller", text="Could you spell your first name?")
+    assert result == {"said": True}
+    assert session.identity is None
+
+
+async def test_second_free_form_re_ask_checks_and_moves_on(session, store):
+    # The spike's loops: the LLM re-asked in its own words instead of correcting, so
+    # the old cap never counted them. Re-asks count toward the one correction now.
+    _, confirm = await call(
+        session.identity_node(),
+        "save_identity",
+        full_name="Marie Alvarez",
+        date_of_birth="1984-03-12",
+        member_id="EVM100231",
+    )
+    await call(confirm, "say_to_caller", text="Could you spell your first name?")
+    result, nxt = await call(confirm, "say_to_caller", text="Sorry, once more?")
+    # "Marie" vs Maria is close by spelling, with the exact DOB and member ID.
+    assert result["identity"] == "close_match"
+    assert nxt["name"] == "reason"
+    assert record(session, store).identity_result == "close_match"
+
+
+async def test_re_ask_then_correction_checks(session, store):
+    _, confirm = await call(
+        session.identity_node(),
+        "save_identity",
+        full_name="Marie Alvarez",
+        date_of_birth="1984-03-12",
+        member_id="EVM100231",
+    )
+    await call(confirm, "say_to_caller", text="Could you spell your first name?")
+    result, nxt = await call(confirm, "correct_identity", full_name="Maria Alvarez")
     assert result["identity"] == "verified"
     assert nxt["name"] == "reason"
+
+
+async def test_missing_field_after_the_cap_is_incomplete(session, store, hook):
+    node = session.identity_node()
+    result, nxt = await call(node, "save_identity", full_name="Maria Alvarez")
+    assert nxt is None and "error" in result
+    result, nxt = await call(
+        node, "save_identity", full_name="Maria Alvarez", member_id="EVM100231"
+    )
+    assert result["identity"] == "incomplete"
+    assert nxt["name"] == "reason"
+    rec = record(session, store)
+    assert rec.identity_result == "incomplete"
+    assert rec.intake["member_id"] == "EVM100231"
+    assert "dob" not in rec.intake
+    assert FLAG_INCOMPLETE in rec.flags
+    # What matched is still known for the agent's verification step.
+    assert session.identity.checks == ("full_name", "member_id")
+    assert session.identity.member_id == "EVM100231"
 
 
 async def test_identity_prompt_says_dates_are_us_order(session):
@@ -392,8 +475,10 @@ async def test_identity_stt_stays_on_through_the_read_back(tuned):
         date_of_birth="1984-03-12",
         member_id="EVM100231",
     )
-    await call(confirm, "correct_identity", member_id="EVM100231")
+    await call(confirm, "say_to_caller", text="Is that right?")
     assert tuning.calls == [True]
+    await call(confirm, "correct_identity", member_id="EVM100231")
+    assert tuning.calls == [True, False]
 
 
 async def test_identity_stt_turns_off_when_the_check_runs(tuned):
@@ -581,6 +666,60 @@ async def test_handoff_happens_once(session, store, hook):
     await call(session.identity_node(), "request_person")
     assert len(hook.handoffs) == 1
     assert FLAG_ASKED_FOR_PERSON in record(session, store).flags
+
+
+# Seen live (PR #48, identity v2 harness): on a plain identity answer the intake LLM
+# called report_emergency. In the identity steps it needs explicit emergency language.
+ID_ANSWER = (
+    "Sure. My name is Linda Nguyen. My date of birth is 01/30/1958, and my member ID is "
+    "EVM 1 0 0 2 3 4."
+)
+IDENTITY = {"full_name": "Linda Nguyen", "date_of_birth": "1958-01-30", "member_id": "EVM100234"}
+
+
+@pytest.mark.parametrize("getter", ["identity_node", "identity_confirm_node"])
+async def test_identity_answer_is_not_an_emergency(session, store, hook, getter):
+    if getter == "identity_confirm_node":
+        await call(session.identity_node(), "save_identity", **IDENTITY)
+    await session.on_caller_turn(ID_ANSWER)
+    result, nxt = await call(
+        getattr(session, getter)(), "report_emergency", description="caller gave member ID"
+    )
+    assert nxt is None
+    assert "not an emergency" in result["error"]
+    rec = record(session, store)
+    assert FLAG_EMERGENCY not in rec.flags and "emergency" not in rec.intake
+    assert rec.status != "ready_for_queue" and hook.handoffs == []
+
+
+@pytest.mark.parametrize(
+    "said",
+    [
+        "My name is Linda Nguyen and I'm having chest pain right now",
+        "I can't breathe",
+        "my husband collapsed and isn't breathing",
+        "I want to kill myself",
+        "this is an emergency, I need an ambulance",
+    ],
+)
+async def test_emergency_words_in_the_identity_step_still_go_to_911(session, store, said):
+    await session.on_caller_turn(said)
+    _, nxt = await call(session.identity_node(), "report_emergency", description="see words")
+    assert nxt["name"] == "emergency"
+    assert FLAG_EMERGENCY in record(session, store).flags
+
+
+async def test_emergency_description_alone_is_enough_in_the_identity_step(session, store):
+    # The caller's words may reach the LLM before the turn event; the description counts.
+    _, nxt = await call(
+        session.identity_node(), "report_emergency", description="caller has severe bleeding"
+    )
+    assert nxt["name"] == "emergency"
+
+
+def test_identity_task_says_ids_are_never_an_emergency(session):
+    task = session.identity_node()["task_messages"][0]["content"]
+    assert "never an emergency" in task
 
 
 # ---- resilience --------------------------------------------------------------

@@ -196,6 +196,12 @@ async def test_live_intake(schema, who: Persona, run: int):
         if "[intake]" in line or "[caller]" in line or "ERROR" in line:
             print("  " + line.split(" - ", 1)[-1])
     intake = (row or {}).get("intake") or {}
+    # IN-6 v2: a name heard close by spelling, with member ID and DOB exact, is a correct
+    # check for that member (close_match; the agent confirms the name, IN-13).
+    accepted = {who.expected_identity}
+    if who.expected_identity == "verified":
+        accepted.add("close_match")
+    correct = bool(row) and row["identity_result"] in accepted and row["member_id"] == who.member_id
     result = {
         "persona": who.key,
         "run": run,
@@ -203,7 +209,8 @@ async def test_live_intake(schema, who: Persona, run: int):
         "status": row and row["status"],
         "identity_result": row and row["identity_result"],
         "expected_identity": who.expected_identity,
-        "identity_correct": bool(row) and row["identity_result"] == who.expected_identity,
+        "identity_correct": correct,
+        "identity_exact": bool(row) and row["identity_result"] == who.expected_identity,
         "member_id": row and row["member_id"],
         "heard_name": intake.get("full_name"),
         "heard_member_id": intake.get("member_id"),
@@ -219,7 +226,7 @@ async def test_live_intake(schema, who: Persona, run: int):
 
     assert row is not None, "bot never created the calls row"
     assert row["status"] == "ready_for_queue"
-    assert row["identity_result"] == who.expected_identity
+    assert row["identity_result"] in accepted
     assert row["member_id"] == who.member_id
     assert row["intake"].get("reason")
     assert row["intake"].get("summary")

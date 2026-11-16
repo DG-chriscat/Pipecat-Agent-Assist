@@ -7,6 +7,7 @@ import type {
   Call,
   CallerDetails,
   ClientCommand,
+  IdentityDecision,
   QueueSnapshot,
   ServerMessage,
   WrapUpInfo,
@@ -96,6 +97,13 @@ export const logPhiReveal = (sessionId: string, agentId: string, field: "member_
     `/calls/${encodeURIComponent(sessionId)}/phi-reveal`,
     { agent_id: agentId, field },
   );
+
+/** IN-13: store the agent's verification decision; "verified" unlocks the caller panel. */
+export const postIdentityDecision = (sessionId: string, agentId: string, decision: "verified" | "not_verified") =>
+  request<IdentityDecision>("POST", `/calls/${encodeURIComponent(sessionId)}/identity-decision`, {
+    agent_id: agentId,
+    decision,
+  });
 
 export function wsUrlFor(loc: Pick<Location, "protocol" | "host">): string {
   return `${loc.protocol === "https:" ? "wss:" : "ws:"}//${loc.host}/ws/queue`;

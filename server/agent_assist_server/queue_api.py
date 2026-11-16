@@ -332,7 +332,9 @@ class EnqueueRequest(BaseModel):
     summary: dict[str, Any] = Field(default_factory=dict)
     call_id: str | None = None
     outcome: Literal["completed", "asked_for_person", "emergency"] | None = None
-    identity_result: Literal["verified", "not_verified", "not_found"] | None = None
+    identity_result: (
+        Literal["verified", "close_match", "not_verified", "not_found", "incomplete"] | None
+    ) = None
     member_id: str | None = Field(default=None, max_length=64)
     flags: list[Annotated[str, Field(min_length=1, max_length=64)]] = Field(
         default_factory=list, max_length=20

@@ -2,8 +2,16 @@
 
 export type AgentState = "offline" | "available" | "ringing" | "on_call" | "wrap_up";
 export type CallStatus = "queued" | "with_agent" | "ended" | "abandoned";
-export type IdentityResult = "verified" | "not_verified" | "not_found";
+export type IdentityResult = "verified" | "close_match" | "not_verified" | "not_found" | "incomplete";
 export type Outcome = "completed" | "asked_for_person" | "emergency";
+
+/** IN-13: the agent's decision on the verification step, stored on the call. */
+export interface IdentityDecision {
+  decision: "verified" | "not_verified";
+  agent_id: string;
+  agent_name: string | null;
+  at: number;
+}
 
 export interface Agent {
   agent_id: string;
@@ -115,6 +123,8 @@ export interface CallerEvent {
 export interface CallerDetails {
   session_id: string;
   identity_result: IdentityResult | null;
+  /** IN-13: set once the agent marks the caller verified or could not verify. */
+  identity_decision?: IdentityDecision | null;
   not_verified: boolean;
   outcome: Outcome | null;
   flags: string[];

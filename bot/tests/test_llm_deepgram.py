@@ -239,11 +239,16 @@ async def test_run_inference_drops_max_tokens_and_schema_but_asks_for_json():
     assert body["stream"] is False
     assert "mip_opt_out" not in body  # Think-Fast cannot opt out
     assert "response_format" not in body
-    # The schema the API cannot enforce goes into the system message instead.
+    # The schema the API cannot enforce goes into the request instead: in the system
+    # message and again at the end of the last user message (phoneLLM ignored it in a
+    # long system prompt alone).
     system = body["messages"][0]
     assert system["role"] == "system"
     assert system["content"].startswith("Draft it.")
     assert '"required": ["a"]' in system["content"]
+    last = body["messages"][-1]
+    assert last["role"] == "user" and last["content"].startswith("go")
+    assert "one JSON object only" in last["content"]
     # Code fences around the JSON are removed.
     assert json.loads(reply) == {"a": 1}
 

@@ -261,8 +261,22 @@ class DeepgramLLMService(OpenAILLMService):
     ) -> str | None:
         if response_schema is not None:
             base = system_instruction or self._settings.system_instruction or ""
-            system_instruction = base + schema_instruction(response_schema)
+            instruction = schema_instruction(response_schema)
+            system_instruction = base + instruction
+            context = _with_trailing_instruction(context, instruction.strip())
         reply = await BaseOpenAILLMService.run_inference(
             self, context, max_tokens=max_tokens, system_instruction=system_instruction
         )
         return clean_reply(reply)
+
+
+def _with_trailing_instruction(context: LLMContext, instruction: str) -> LLMContext:
+    """A copy of the context with the instruction at the end of the last user message
+    (or as a new user message). The caller's context is not changed."""
+    messages = [dict(m) if isinstance(m, dict) else m for m in context.get_messages()]
+    last = messages[-1] if messages else None
+    if isinstance(last, dict) and last.get("role") == "user":
+        last["content"] = f"{_plain(last.get('content'))}\n\n{instruction}"
+    else:
+        messages.append({"role": "user", "content": instruction})
+    return LLMContext(messages=messages, tools=context.tools, tool_choice=context.tool_choice)

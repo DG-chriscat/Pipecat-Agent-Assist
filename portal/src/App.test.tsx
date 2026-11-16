@@ -282,4 +282,64 @@ describe("App", () => {
       expect(screen.getByRole("alert")).toHaveTextContent(/session expired/i);
     });
   });
+
+  describe("settings page (P5-5, AP-20)", () => {
+    const settingsBody = {
+      values: {
+        tts_model: "aura-2",
+        tts_voice: "aura-2-thalia-en",
+        greeting_text: "Hi. You're talking to an AI assistant, and a person will join soon.",
+        intake_pack: "claims_status",
+        identity_read_back: true,
+        hold_update_text: "Thanks for waiting. {place}",
+        hold_update_secs: 60,
+      },
+      is_default: true,
+      updated_at: null,
+      packs: [{ id: "claims_status", name: "Claim status", questions: [] }],
+      limits: { greeting_text: 400, hold_update_text: 300, hold_update_secs: [5, 600] },
+    };
+
+    beforeEach(() => {
+      fetchMock.mockImplementation(async (url: string) => {
+        if (url === "/settings") return jsonResponse({ ...settingsBody, defaults: settingsBody.values });
+        if (url === "/settings/voices")
+          return jsonResponse({ "aura-2": [{ id: "aura-2-thalia-en", name: "Thalia", accent: "", gender: "" }], flux: [] });
+        return jsonResponse(ana);
+      });
+    });
+
+    it("opens from the rail and goes back to Calls", async () => {
+      const { user, sock } = await signInAsAna();
+      sendSnapshot(sock);
+      const rail = screen.getByRole("navigation", { name: /main/i });
+      await user.click(screen.getByRole("button", { name: "Settings" }));
+      expect(await screen.findByRole("region", { name: "Settings" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Settings" })).toHaveAttribute("aria-current", "page");
+      expect(rail).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "Calls" }));
+      expect(screen.getByText("Waiting for the next call")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Calls" })).toHaveAttribute("aria-current", "page");
+    });
+
+    it("a ringing call takes the agent back to Calls", async () => {
+      const { user, sock } = await signInAsAna();
+      sendSnapshot(sock, [{ ...ana, state: "available" }]);
+      await user.click(screen.getByRole("button", { name: "Settings" }));
+      await screen.findByRole("region", { name: "Settings" });
+      const call = { ...queued("s9"), offered_to: "agent-1" };
+      const exp = Date.now() / 1000 + 20;
+      act(() => {
+        sock.serverSend({ type: "call_queued", call, position: 1 });
+        sock.serverSend({
+          type: "agent_updated",
+          agent: { ...ana, state: "ringing", offer_call_id: "s9", offer_expires_at: exp },
+        });
+        sock.serverSend({ type: "offer", agent_id: "agent-1", call, expires_at: exp });
+      });
+      expect(screen.queryByRole("region", { name: "Settings" })).not.toBeInTheDocument();
+      expect(screen.getByRole("dialog", { name: /incoming call/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Calls" })).toHaveAttribute("aria-current", "page");
+    });
+  });
 });

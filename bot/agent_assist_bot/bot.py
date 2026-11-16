@@ -1,9 +1,9 @@
 """Intake bot: joins a Daily room as "Vitals Assistant" and runs the intake flow.
 
 Pipeline: Daily in -> Deepgram STT (Nova 3) -> user aggregator -> LLM -> Deepgram TTS
-(Aura 2) -> Daily out -> assistant aggregator. A Pipecat Flow (`intake.py`) drives the
-LLM through the intake steps from the use case pack (PRD IN-3, IN-4) and writes each
-answer to the `calls` row (IN-5).
+(Aura-2 or Flux, per the call's settings) -> Daily out -> assistant aggregator. A Pipecat
+Flow (`intake.py`) drives the LLM through the intake steps from the use case pack (PRD
+IN-3, IN-4) and writes each answer to the `calls` row (IN-5).
 
 Two ways in, one bot:
 - Spike S1 (`agent_assist_bot.spike_s1`): plain WebRTC room, greet the first participant.
@@ -23,9 +23,13 @@ When the call ends, the bot drafts the wrap up summary and reason code (P5-1,
 The greeting is the flow's first node: a fixed `tts_say` pre-action with no LLM call,
 so the first utterance needs only a TTS round trip to hit the <2 s target (PRD IN-1).
 
+Settings (P5-5, `call_settings.py`): the TTS model and voice, greeting, intake pack,
+identity read back, and hold line and interval come from the portal's Settings page,
+read by the server when it assigns the call. Without them the bot runs its defaults.
+
 Env: DATABASE_URL (calls row + identity check; in memory when unset),
-INTAKE_PACK (pack id, default claims_status), HOLD_MUSIC / HOLD_MUSIC_VOLUME /
-HOLD_MUSIC_PATH (hold music while queued, QH-5, `hold_music.py`).
+INTAKE_PACK (default pack when no settings, default claims_status), HOLD_MUSIC /
+HOLD_MUSIC_VOLUME / HOLD_MUSIC_PATH (hold music while queued, QH-5, `hold_music.py`).
 """
 
 from __future__ import annotations
@@ -53,13 +57,13 @@ from pipecat.processors.audio.vad_processor import VADProcessor
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.processors.frameworks.rtvi import RTVIObserverParams
 from pipecat.services.deepgram.stt import DeepgramSTTService
-from pipecat.services.deepgram.tts import DeepgramTTSService
 from pipecat.transports.daily.transport import DailyParams, DailyTransport
 from pipecat.workers.runner import WorkerRunner
 
 from agent_assist_bot.assist import LLM_DEBOUNCE_SECS
 from agent_assist_bot.assist_llm import LLMProposer
 from agent_assist_bot.assist_runtime import AssistSession
+from agent_assist_bot.call_settings import CallSettings, build_tts
 from agent_assist_bot.calls import CallStore, MemoryCallStore, PostgresCallStore
 from agent_assist_bot.dialin import DEFAULT_DAILY_API_URL as DEFAULT_DAILY_API_URL
 from agent_assist_bot.dialin import DialinConfig as DialinConfig
@@ -71,12 +75,18 @@ from agent_assist_bot.handoff import (
     handoff_from_env,
     post_wrap_up_draft,
 )
-from agent_assist_bot.hold import BotGate, HoldController, HoldState, hold_interval_from_env
+from agent_assist_bot.hold import BotGate, HoldController, HoldState
 from agent_assist_bot.hold_music import HoldMusicMixer, hold_music_from_env
 from agent_assist_bot.intake import GREETING as GREETING  # re-export (PRD IN-2)
-from agent_assist_bot.intake import ROLE_MESSAGE, HandoffHook, IntakeSession, NoopHandoff
+from agent_assist_bot.intake import (
+    ROLE_MESSAGE,
+    HandoffHook,
+    IntakeSession,
+    NoopHandoff,
+    uninterruptible_tts_say,
+)
 from agent_assist_bot.llm import create_llm
-from agent_assist_bot.packs import DEFAULT_PACK, MAX_KEYTERMS, Pack, load_pack, load_packs
+from agent_assist_bot.packs import MAX_KEYTERMS, Pack, load_pack, load_packs
 from agent_assist_bot.server_channel import ServerChannel
 from agent_assist_bot.stt_tuning import IdentitySTTTuning, build_intake_stt
 from agent_assist_bot.timing import FirstAudioTimer, log_timing
@@ -93,7 +103,6 @@ from agent_assist_bot.wrap_up import drain_pending as drain_wrap_ups
 
 BOT_NAME = "Vitals Assistant"
 STT_MODEL = "nova-3-general"
-TTS_VOICE = "aura-2-thalia-en"
 PACK_ENV = "INTAKE_PACK"
 REQUIRED_KEYS = ("DAILY_API_KEY", "DEEPGRAM_API_KEY", "ANTHROPIC_API_KEY")
 
@@ -424,20 +433,25 @@ def build_worker(
     pack: Pack | None = None,
     store: CallStore | None = None,
     handoff: HandoffHook | None = None,
+    settings: CallSettings | None = None,
 ) -> tuple[PipelineWorker, DailyTransport]:
     """`handoff` defaults to handoff_from_env(): QueueHandoff when
-    AGENT_ASSIST_SERVER_URL is set, else NoopHandoff."""
+    AGENT_ASSIST_SERVER_URL is set, else NoopHandoff.
+
+    `settings` (P5-5) are this call's bot settings, fixed for the call: TTS model and
+    voice, greeting, intake pack, identity read back, hold line and interval. Default:
+    CallSettings.defaults() (today's bot). An explicit `pack` wins over the setting."""
     session_id = session_id or str(uuid.uuid4())
+    settings = settings or CallSettings.defaults()
+    logger.info(f"[settings] session={session_id} {settings.describe()}")
     handoff = handoff or handoff_from_env()
     music = hold_music_from_env()
     transport = build_transport(room_url, token, mixer=music)
-    pack = pack or load_pack(os.environ.get(PACK_ENV) or DEFAULT_PACK)
+    pack = pack or load_pack(settings.intake_pack)
     # Intake STT: the pack's fixed keyterms; identity step tuning in stt_tuning.py.
     stt = build_intake_stt(os.environ["DEEPGRAM_API_KEY"], STT_MODEL, pack.keyterms)
-    tts = DeepgramTTSService(
-        api_key=os.environ["DEEPGRAM_API_KEY"],
-        settings=DeepgramTTSService.Settings(voice=TTS_VOICE),
-    )
+    # Aura-2 (/v1/speak) or Flux (/v2/speak) from the settings (call_settings.build_tts).
+    tts = build_tts(settings, api_key=os.environ["DEEPGRAM_API_KEY"])
     llm = create_llm(system_instruction=ROLE_MESSAGE)
 
     context = LLMContext()
@@ -453,6 +467,8 @@ def build_worker(
         store=store,
         session_id=session_id,
         handoff=handoff,
+        greeting=settings.greeting_text,
+        identity_read_back=settings.identity_read_back,
     )
 
     # After an agent accepts, the gate stops caller turns reaching the LLM (QH-6),
@@ -533,6 +549,8 @@ def build_worker(
     flow_manager = FlowManager(
         llm=llm, context_aggregator=aggregators, worker=worker, transport=transport
     )
+    # A barge-in must not drop the end of a fixed line (intake.uninterruptible_tts_say).
+    flow_manager.register_action("tts_say", uninterruptible_tts_say)
 
     async def on_caller_joined() -> None:
         await start_intake(session, flow_manager)
@@ -565,7 +583,11 @@ def build_worker(
         on_caller_joined=on_caller_joined,
         on_ended=on_ended,
         hold=HoldController(
-            worker.queue_frames, gate=gate, interval=hold_interval_from_env(), music=music
+            worker.queue_frames,
+            gate=gate,
+            interval=settings.hold_update_secs,
+            music=music,
+            line=settings.hold_line,
         ),
         handoff=handoff,
         session_id=session_id,
@@ -632,9 +654,15 @@ async def run_bot(
     token: str | None = None,
     dialin: DialinConfig | None = None,
     session_id: str = "",
+    settings: CallSettings | None = None,
 ) -> None:
     worker, _ = build_worker(
-        room_url, token, dialin, session_id=session_id, handoff=handoff_from_env()
+        room_url,
+        token,
+        dialin,
+        session_id=session_id,
+        handoff=handoff_from_env(),
+        settings=settings,
     )
     # SIGTERM too: the server stops per-call bot processes with terminate().
     runner = WorkerRunner(handle_sigint=True, handle_sigterm=True)

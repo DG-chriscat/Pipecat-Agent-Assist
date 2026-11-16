@@ -95,7 +95,7 @@ def test_preloaded_tone_model_is_the_one_the_reader_shares():
 def test_warm_main_prints_ready_then_runs_the_assigned_call(monkeypatch, capsys):
     ran = {}
 
-    async def fake_run_bot(room_url, token, dialin, session_id=""):
+    async def fake_run_bot(room_url, token, dialin, session_id="", settings=None):
         ran.update(room_url=room_url, token=token, dialin=dialin, session_id=session_id)
 
     monkeypatch.setattr(cli, "run_bot", fake_run_bot)
@@ -125,3 +125,61 @@ def test_ready_line_matches_the_server():
 
     assert warm.READY_LINE == bot_launcher.READY_LINE
     assert bot_launcher.WARM_FLAG == "--warm"
+
+
+# ---- P5-5: the call's settings come with the assignment --------------------------------
+
+FLUX = {"tts_model": "flux", "tts_voice": "flux-hannah-en", "intake_pack": "account_payments"}
+
+
+def test_assignment_carries_the_calls_settings():
+    args = warm.read_assignment(line(room_url=ROOM, token="t1", session_id="s1", settings=FLUX))
+    assert args.settings == FLUX
+
+
+def test_assignment_without_settings_has_none():
+    assert warm.read_assignment(line(room_url=ROOM, token="t1")).settings is None
+
+
+def test_settings_that_are_not_an_object_are_rejected():
+    with pytest.raises(warm.AssignmentError):
+        warm.read_assignment(line(room_url=ROOM, token="t1", settings=[1]))
+
+
+def test_server_assignment_line_is_what_the_warm_bot_reads():
+    from agent_assist_server.bot_launcher import BotLaunchRequest, assignment_line
+
+    req = BotLaunchRequest(ROOM, "t1", "s1", settings=FLUX)
+    args = warm.read_assignment(io.StringIO(assignment_line(req)))
+    assert args.settings == FLUX and args.session_id == "s1"
+
+
+def test_warm_call_runs_with_the_assigned_settings(monkeypatch):
+    ran = {}
+
+    async def fake_run_bot(room_url, token, dialin, session_id="", settings=None):
+        ran["settings"] = settings
+
+    monkeypatch.setattr(cli, "run_bot", fake_run_bot)
+    monkeypatch.setattr(warm, "preload", lambda env=None, loaders=None: {})
+    for k in ("DAILY_API_KEY", "DEEPGRAM_API_KEY", "ANTHROPIC_API_KEY"):
+        monkeypatch.setenv(k, "k")
+    monkeypatch.setattr("sys.stdin", line(room_url=ROOM, token="t1", settings=FLUX))
+    assert cli.main(["--warm"]) == 0
+    assert ran["settings"].tts_voice == "flux-hannah-en"
+    assert ran["settings"].intake_pack == "account_payments"
+
+
+def test_cold_call_reads_its_settings_from_the_env(monkeypatch):
+    ran = {}
+
+    async def fake_run_bot(room_url, token, dialin, session_id="", settings=None):
+        ran["settings"] = settings
+
+    monkeypatch.setattr(cli, "run_bot", fake_run_bot)
+    for k in ("DAILY_API_KEY", "DEEPGRAM_API_KEY", "ANTHROPIC_API_KEY"):
+        monkeypatch.setenv(k, "k")
+    monkeypatch.setenv("DAILY_ROOM_TOKEN", "t1")
+    monkeypatch.setenv("AGENT_ASSIST_BOT_SETTINGS", json.dumps(FLUX))
+    assert cli.main(["--room-url", ROOM]) == 0
+    assert ran["settings"].tts_model == "flux"

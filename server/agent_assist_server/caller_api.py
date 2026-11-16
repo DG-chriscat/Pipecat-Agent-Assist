@@ -33,7 +33,7 @@ from pydantic import BaseModel, Field
 
 from agent_assist_server.db import connect
 from agent_assist_server.queue_api import get_queue
-from agent_assist_server.queue_service import QueueError
+from agent_assist_server.queue_service import DecisionMadeError, QueueError
 
 logger = logging.getLogger(__name__)
 
@@ -180,6 +180,7 @@ async def caller_panel(
     body: dict[str, Any] = {
         "session_id": call.session_id,
         "identity_result": call.identity_result,
+        "identity_decision": dict(call.identity_decision) if call.identity_decision else None,
         "not_verified": True,
         "outcome": call.outcome,
         "flags": list(call.flags),
@@ -190,7 +191,9 @@ async def caller_panel(
         "repeat_caller": None,
         "recent_events": [],
     }
-    if call.identity_result != "verified" or not call.member_id:
+    # Records show once identity is verified: by intake, or by the agent's human
+    # verification step (IN-13) for the member matched by member ID.
+    if not call.records_unlocked or not call.member_id:
         return body
 
     try:
@@ -231,5 +234,30 @@ async def phi_reveal(session_id: str, body: PhiRevealRequest, request: Request) 
         raise HTTPException(status_code=404, detail="unknown call") from None
     try:
         return svc.log_phi_reveal(body.agent_id, session_id, body.field)
+    except QueueError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from None
+
+
+class IdentityDecisionRequest(BaseModel):
+    agent_id: str = Field(min_length=1, max_length=64)
+    decision: Literal["verified", "not_verified"]
+
+
+@router.post("/calls/{session_id}/identity-decision")
+async def identity_decision(
+    session_id: str, body: IdentityDecisionRequest, request: Request
+) -> dict[str, Any]:
+    """IN-13: the agent's choice on the verification step (Mark verified or Could not
+    verify), stored on the call record (calls.identity_decision via the queue
+    write-through). Mark verified unlocks the caller panel and PHI Reveal."""
+    svc = get_queue(request.app)
+    try:
+        svc.get_call(session_id)
+    except QueueError:
+        raise HTTPException(status_code=404, detail="unknown call") from None
+    try:
+        return svc.set_identity_decision(body.agent_id, session_id, body.decision)
+    except DecisionMadeError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from None
     except QueueError as e:
         raise HTTPException(status_code=403, detail=str(e)) from None

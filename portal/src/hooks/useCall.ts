@@ -226,6 +226,12 @@ export function useCall(createMedia: CreateMedia) {
       cur && cur.sessionId === sessionId ? { ...cur, assist: localAssist(cur.assist, a, callSecs(cur)) } : cur,
     );
     if (a.type === "tick" || a.type === "settle") return;
+    if (a.type === "verify") {
+      // IN-13: the bot unlocks records (or keeps them locked) and logs the decision.
+      const action = a.verified ? "mark_verified" : "could_not_verify";
+      media.current?.sendClientMessage("assist_feedback", { v: ASSIST_VERSION, card_id: a.cardId, action });
+      return;
+    }
     if (a.type === "ask") {
       const text = a.text.trim().slice(0, MAX_ASK_CHARS);
       media.current?.sendClientMessage("assist_ask", { v: ASSIST_VERSION, ask_id: a.askId, text });

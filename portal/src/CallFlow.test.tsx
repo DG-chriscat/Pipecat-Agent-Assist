@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { QueueSocket } from "./api/queueClient";
 import type { AcceptResult, Agent, Call } from "./api/types";
-import { heroCard, msg, PLAN_STEPS, planMsg } from "./test/assistFixtures";
+import { heroCard, msg, PLAN_STEPS, planMsg, verifyCard } from "./test/assistFixtures";
 import { createFakeMedia, FakeMedia } from "./test/fakeMedia";
 import { MockWebSocket } from "./test/mockSocket";
 
@@ -661,6 +661,34 @@ describe("incoming call and in-call shell (AP-3, AP-4, QH-6, QH-7)", () => {
     expect(url).toBe("/calls/s1/phi-reveal");
     expect(init.method).toBe("POST");
     expect(JSON.parse(init.body)).toEqual({ agent_id: "agent-1", field: "dob" });
+  });
+
+  it("IN-13: Mark verified tells the bot, stores the decision on the server, and reloads the caller panel", async () => {
+    let callerReads = 0;
+    route = (url) => {
+      if (url === "/agents/agent-1/accept") return json({ ...acceptResult, identity_result: "close_match" });
+      if (url === "/calls/s1/caller?agent_id=agent-1") {
+        callerReads += 1;
+        return json({ session_id: "s1", identity_result: "close_match", not_verified: callerReads === 1, outcome: "completed", flags: [], intake: call.summary, wait_secs: 10, member: null, calls_30d: null, repeat_caller: false, recent_events: [] });
+      }
+      if (url === "/calls/s1/identity-decision") return json({ decision: "verified", agent_id: "agent-1", agent_name: "Ana", at: NOW });
+      return undefined;
+    };
+    const sock = await signedInAvailable();
+    ring(sock);
+    fireEvent.click(screen.getByRole("button", { name: /accept/i }));
+    await screen.findByRole("group", { name: /call/i });
+    act(() => sock.serverSend({ type: "agent_updated", agent: onCall }));
+    const media = FakeMedia.last();
+    await act(async () => media.finishJoin());
+    await waitFor(() => expect(callerReads).toBe(1));
+    act(() => media.events.onServerMessage(msg("hero", { card: verifyCard(), reason: "new", replaces: null })));
+    fireEvent.click(screen.getByRole("button", { name: /mark verified/i }));
+    expect(media.sent.at(-1)).toEqual(["assist_feedback", { v: 1, card_id: "verify:identity", action: "mark_verified" }]);
+    await waitFor(() => expect(callerReads).toBe(2));
+    const post = fetchMock.mock.calls.find(([u]) => u === "/calls/s1/identity-decision")!;
+    expect(post[1].method).toBe("POST");
+    expect(JSON.parse(post[1].body)).toEqual({ agent_id: "agent-1", decision: "verified" });
   });
 
   it("a caller history error keeps the accept summary on screen", async () => {

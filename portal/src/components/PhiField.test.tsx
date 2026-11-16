@@ -6,6 +6,16 @@ describe("PhiField (AP-17)", () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
+  it("a disabled Reveal never reveals or logs (IN-13)", () => {
+    const onReveal = vi.fn();
+    render(<PhiField field="dob" label="Date of birth" value="Jan 30, 1958" masked="••/••/1958" onReveal={onReveal} disabled />);
+    const btn = screen.getByRole("button", { name: "Reveal date of birth" });
+    expect(btn).toBeDisabled();
+    fireEvent.click(btn);
+    expect(onReveal).not.toHaveBeenCalled();
+    expect(screen.getByTestId("phi-dob")).toHaveTextContent("••/••/1958");
+  });
+
   it("is masked by default", () => {
     render(<PhiField field="member_id" label="Member ID" value="EVM100231" masked="••••31" onReveal={vi.fn()} />);
     expect(screen.getByTestId("phi-member_id")).toHaveTextContent("••••31");

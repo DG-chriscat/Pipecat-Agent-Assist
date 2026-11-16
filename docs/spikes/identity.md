@@ -162,3 +162,81 @@ Options, for a decision (not done here):
    correction. Costs about 5 s on every call.
 3. Cap name corrections at one, then check and flag (the agent confirms the name), so a
    bad name never pushes intake over 120 s. Easy to add in `identity_confirm`.
+
+## v2: close match, one fix, agent verification (card t_978435cf, Chris Nov 16)
+
+Options 1 and 3 above were approved (PRD IN-6 updated, IN-13 new).
+
+- **Close match** (`calls.name_part_close`): member ID and DOB exact, name not exact.
+  One of first/last must match exactly; the other must be within 3 edits (Levenshtein)
+  with normalized similarity of at least 0.5 (1 - edits / longer length). Pure Python, no
+  new dependency (a Double Metaphone package was considered; edit distance separates
+  the spike's cases well enough and is easier to reason about). Examples:
+
+  | heard | on file | edits, similarity | result |
+  | --- | --- | --- | --- |
+  | Linda Yuen | Linda Nguyen | 3, 0.50 | close_match |
+  | Linda Hengguyen | Linda Nguyen | 3, 0.67 | close_match |
+  | Ayesha Patel | Aisha Patel | 2, 0.67 | close_match |
+  | Daniel Lokafor | Daniel Okafor | 1, 0.86 | close_match |
+  | Maria Alvares | Maria Alvarez | 1, 0.86 | close_match |
+  | Linda Yuan | Linda Nguyen | 4, 0.33 | not_verified |
+  | Linda Wayne / Linda Win | Linda Nguyen | 0.17 | not_verified |
+  | Daniel Luca Ford | Daniel Okafor | 4, 0.33 | not_verified |
+  | Ayesha Pattel | Aisha Patel | both parts differ | not_verified |
+  | Linda (one word) | Linda Nguyen | | not_verified |
+
+  A wrong DOB or another member's ID is never a close match, and name alone never
+  identifies (the two James Chens still need DOB and ID). Unit tests:
+  `bot/tests/test_identity.py`.
+- **One fix** (`intake.MAX_IDENTITY_FIXES = 1`): a `correct_identity`, or one free
+  form re-ask by the LLM in `identity_confirm`, then the bot checks and moves on (no
+  second read back). A `save_identity` missing a field is refused once; the second time
+  it checks what was given (`incomplete`).
+- **Agent verification** (IN-13, docs/assist.md): any result but verified gives the
+  agent a verify hero first; records stay locked until Mark verified.
+
+### v2 harness (feat/identity-v2, Nov 16, 5 personas x 2)
+
+`INTAKE_RUNS=2 uv run pytest -m live bot/tests/test_live_intake.py`. "Correct" now
+counts close_match for the real member (the agent confirms the name); Daniel's wrong DOB
+must still be not_verified.
+
+| persona | run | result | correct | intake s | heard name | caller lines |
+| --- | --- | --- | --- | --- | --- | --- |
+| Maria | 1 | verified | yes | 109.7 | Maria Alvarez | identity, fix_member_id, then reason... |
+| Maria | 2 | (none) | no | 24.7 | | identity; LLM called report_emergency |
+| James | 1 | (none) | no | 78.6 | | identity; Daily/Deepgram transport failure (1011, SFU ChannelNotOpen) |
+| James | 2 | verified | yes | 116.0 | James Chen | identity, confirm_yes |
+| Aisha | 1 | close_match | yes | 97.1 | Ayesha Patel | identity, fix_name |
+| Aisha | 2 | close_match | yes | 102.3 | Ayesha Patel | identity, fix_name |
+| Linda | 1 | (none) | no | 25.1 | | identity; LLM called report_emergency |
+| Linda | 2 | verified | yes | 131.8 | Linda Nguyen | identity (missing field, asked again), identity, confirm_yes |
+| Daniel | 1 | not_verified | yes | 124.3 | Daniel | identity, fix_both |
+| Daniel | 2 | not_verified | yes | 99.7 | Daniel Okafor | identity, confirm_yes |
+
+- **Identity correct: 7 of 10; 7 of 7 runs that reached the check.** Aisha, heard as
+  "Ayesha" both times, is now close_match after one correction (v1: not_verified or a
+  loop). No run looped on a name.
+- **Intake under 120 s: 5 of the 7 completed runs.** Linda 2 (131.8 s) spent one
+  re-ask on a `save_identity` with a missing field; Daniel 1 (124.3 s) had the LLM speak
+  its own reasoning aloud before the read back (a 30 s turn).
+- **Not met: 10 of 10 and 9 of 10.** The three misses are not identity checks:
+  - Maria 2 and Linda 1: on a clean first identity line ("My name is Linda Nguyen. My
+    date of birth is 01/30/1958, and my member ID is EVM 1 0 0 2 3 4."), the intake LLM
+    called `report_emergency`, so the call went straight to the emergency line. The
+    identity node and the emergency tool are unchanged on this branch; v1 runs never
+    showed this, and PR #48 saw the same in about 1 of 6 live calls. Fixed after the
+    batch (Dutch, Nov 16): in the identity steps `report_emergency` now needs
+    emergency words from the caller or in its description, or it is refused and intake
+    continues (`test_identity_answer_is_not_an_emergency`). Not yet measured live.
+  - James 1: Daily SFU and Deepgram 1011 timeouts mid identity line, host load ~5 on
+    the 2 CPU build host.
+- **Live agent side** (`server/tests/test_identity_verify_live.py`, passed): a Linda call
+  that says "Linda Yuen" (STT heard "Linda Yuan", not_verified, ID matched). The verify
+  hero showed 3.19 s after Enter, with Member ID and DOB matched and the name heard vs on
+  file. The caller's question produced a locked tile 3.71 s later, with no claim
+  content. Mark verified unlocked CLM-900005 and showed the appeal next step, the caller
+  panel switched to Linda Nguyen "Verified by agent", and Reveal worked.
+  `calls.identity_decision` and the `assist_events` `identity_decision` row were
+  written. Screenshots: docs/screenshots/identity-v2/.

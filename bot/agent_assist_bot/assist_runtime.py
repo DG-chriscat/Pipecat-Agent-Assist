@@ -32,7 +32,7 @@ from typing import Any
 from loguru import logger
 from pipecat.transports.daily.transport import DailyOutputTransportMessageUrgentFrame
 
-from agent_assist_bot.assist import AssistEngine, max_cards_from_env
+from agent_assist_bot.assist import AssistEngine, identity_gate, max_cards_from_env
 from agent_assist_bot.assist_contract import parse_ask_message, parse_feedback
 from agent_assist_bot.packs import Pack
 from agent_assist_bot.transcript import CallRoles, rtvi_server_message
@@ -145,7 +145,10 @@ class AssistSession:
         if self.engine is not None:
             return
         identity = getattr(self.intake, "identity", None)
-        member_id = identity.member_id if identity and identity.result == "verified" else None
+        # The member matched by exact member ID (verified, close_match, not_verified).
+        # For anyone not fully verified the engine locks those records until the agent
+        # marks the caller verified (IN-13), so the scope is set now and nothing shows.
+        member_id = identity.member_id if identity is not None else None
         call_id = self.intake.call_id or "unknown"
         self._connectors = self._connectors_factory(call_id, member_id)
         if self._connectors is None:
@@ -170,8 +173,10 @@ class AssistSession:
             trend=self.trend,
             **kwargs,
         )
+        self.engine.agent_name = self.roles.agent_name or None
         intake = {k: v for k, v in dict(self.intake.intake).items() if k not in PRIVATE_INTAKE_KEYS}
-        await self.engine.start(intake, default_pack=self.intake.pack.id)
+        gate = identity_gate(identity, str(self.intake.intake.get("full_name") or ""))
+        await self.engine.start(intake, default_pack=self.intake.pack.id, identity=gate)
         self._worker = asyncio.get_running_loop().create_task(self._run())
 
     async def close(self) -> None:

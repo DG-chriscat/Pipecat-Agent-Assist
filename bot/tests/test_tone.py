@@ -263,7 +263,7 @@ async def test_intake_readings_are_sent_on_start_and_resync():
     trend.add(reading("neutral", line_id="intake-caller-1"), can_tip=False)
     trend.add(reading("sad", 0.45, line_id="intake-caller-2"), can_tip=False)
     e, out = await engine(trend)
-    assert [d["event"] for d in out.data] == ["assist_status", "plan_update", "mood"]
+    assert [d["event"] for d in out.data] == ["assist_status", "plan_update", "identity", "mood"]
     assert out.of("mood")[0]["label"] == "Uneasy, worsening"
     out.data.clear()
     await e.resync()

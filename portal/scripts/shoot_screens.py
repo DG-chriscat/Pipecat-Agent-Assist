@@ -29,6 +29,8 @@ SCREENS = [
     "in-call-slow-connector",
     "in-call-ask",
     "in-call-audio-error",
+    "in-call-verify",
+    "in-call-verified",
     "wrap-up",
     "wrap-up-loading",
     "wrap-up-error",

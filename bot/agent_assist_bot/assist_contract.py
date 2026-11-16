@@ -27,6 +27,7 @@ Only messages whose Daily sender is the agent's participant id count.
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -45,14 +46,36 @@ EVENTS = (
     "assist_status",
     "mood",
     "ask_result",
+    "identity",
 )
-HERO_REASONS = ("new", "higher_rank", "accepted", "dismissed", "updated")
-REMOVE_REASONS = ("dismissed", "accepted", "promoted", "replaced")
-FEEDBACK_ACTIONS = ("accept", "dismiss", "pin", "unpin", "rate")
+# verified / not_verified: the agent's decision on the verify hero closed it (IN-13).
+HERO_REASONS = (
+    "new",
+    "higher_rank",
+    "accepted",
+    "dismissed",
+    "updated",
+    "verified",
+    "not_verified",
+)
+# unlocked: a locked tile is sent again with its records after Mark verified (IN-13).
+REMOVE_REASONS = ("dismissed", "accepted", "promoted", "replaced", "unlocked")
+# mark_verified / could_not_verify: the verify hero's two actions (IN-13).
+FEEDBACK_ACTIONS = (
+    "accept",
+    "dismiss",
+    "pin",
+    "unpin",
+    "rate",
+    "mark_verified",
+    "could_not_verify",
+)
 RATINGS = ("up", "down")
 STATUS_STATES = ("listening", "rate_limited", "error", "stopped")
+# The identity gate (IN-13): pending until the agent decides on the verify hero.
+IDENTITY_STATES = ("verified", "pending", "not_verified")
 
-CardKind = Literal["next_step", "record", "article", "alert", "tone_tip"]
+CardKind = Literal["next_step", "record", "article", "alert", "tone_tip", "verify"]
 
 
 @dataclass(frozen=True)
@@ -110,14 +133,39 @@ class Card:
     rule_id: str | None = None
     template_id: str | None = None
 
-    def to_dict(self) -> dict[str, Any]:
+    def wire_id(self, locked: bool = False) -> str:
+        """The id the portal sees. A locked tile's id hides the record ids in it
+        (`nbs:<rule>:CLM-...` -> `locked:<hash>`); Ask answers keep their id."""
+        if not locked or self.id.startswith("ask:"):
+            return self.id
+        return "locked:" + hashlib.sha256(self.id.encode()).hexdigest()[:12]
+
+    def to_dict(self, locked: bool = False) -> dict[str, Any]:
+        """The card for the portal. `locked` (IN-13, caller not verified yet): kind,
+        title, and trigger only; no record ids, values, or rendered text."""
+        if locked:
+            return {
+                "id": self.wire_id(True),
+                "kind": self.kind,
+                "title": "Locked record",
+                "pack_id": self.pack_id,
+                "rank": self.rank,
+                "ai_suggested": True,
+                "locked": True,
+                "trigger": self.trigger.to_dict(),
+                "source": {"label": "Records", "records": []},
+                "rule_id": None,
+                "template_id": None,
+                "body": {"locked": True},
+            }
         return {
             "id": self.id,
             "kind": self.kind,
             "title": self.title,
             "pack_id": self.pack_id,
             "rank": self.rank,
-            "ai_suggested": True,
+            "ai_suggested": self.kind != "verify",
+            "locked": False,
             "trigger": self.trigger.to_dict(),
             "source": self.source.to_dict(),
             "rule_id": self.rule_id,
@@ -133,7 +181,13 @@ def assist_message(event: str, *, seq: int, ts: float, **fields: Any) -> dict[st
 
 
 def hero_message(
-    card: Card | None, *, seq: int, ts: float, reason: str, replaces: str | None
+    card: Card | None,
+    *,
+    seq: int,
+    ts: float,
+    reason: str,
+    replaces: str | None,
+    locked: bool = False,
 ) -> dict[str, Any]:
     """The next best step. `card` None clears the hero (back to "Listening")."""
     if reason not in HERO_REASONS:
@@ -142,14 +196,34 @@ def hero_message(
         "hero",
         seq=seq,
         ts=ts,
-        card=card.to_dict() if card else None,
+        card=card.to_dict(locked) if card else None,
         reason=reason,
         replaces=replaces,
     )
 
 
-def card_added_message(card: Card, *, seq: int, ts: float) -> dict[str, Any]:
-    return assist_message("card_added", seq=seq, ts=ts, card=card.to_dict())
+def card_added_message(card: Card, *, seq: int, ts: float, locked: bool = False) -> dict[str, Any]:
+    return assist_message("card_added", seq=seq, ts=ts, card=card.to_dict(locked))
+
+
+def identity_message(
+    state: str,
+    *,
+    seq: int,
+    ts: float,
+    result: str | None,
+    checks: list[str],
+    by: str | None = None,
+    at: float | None = None,
+) -> dict[str, Any]:
+    """The identity gate (IN-13). `pending`: records are locked until the agent decides
+    on the verify hero; `verified`: by intake (`by` None) or by the agent;
+    `not_verified`: the agent could not verify, records stay locked."""
+    if state not in IDENTITY_STATES:
+        raise ValueError(f"unknown identity state {state!r}")
+    return assist_message(
+        "identity", seq=seq, ts=ts, state=state, result=result, checks=checks, by=by, at=at
+    )
 
 
 def card_removed_message(card_id: str, reason: str, *, seq: int, ts: float) -> dict[str, Any]:

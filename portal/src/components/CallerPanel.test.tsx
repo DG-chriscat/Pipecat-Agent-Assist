@@ -298,3 +298,70 @@ describe("CallerPanel (AP-5, AP-13, AP-17, AP-18, DESIGN.md caller panel)", () =
     expect(area).toHaveAttribute("aria-label", "Mood: Worried, easing. 5 caller turns.");
   });
 });
+
+/** Linda Nguyen heard as "Linda Yuen": member ID and DOB exact (IN-6 close match). */
+const linda = {
+  caller: {
+    name: "Linda Yuen",
+    verified: "close_match" as const,
+    identity: "close_match" as const,
+    reason: "Dermatology claim denied",
+    summary: "",
+  },
+  memberId: "EVM100234",
+  intake: { full_name: "Linda Yuen", dob: "1958-01-30", reason: "Dermatology claim denied", identity_checks: ["dob", "member_id"] },
+  waitSecs: 30,
+  details: {
+    ...danielDetails,
+    identity_result: "close_match" as const,
+    identity_decision: null,
+    intake: {},
+  },
+  detailsState: "ready" as const,
+};
+
+describe("CallerPanel human verification (IN-13)", () => {
+  it("before the agent decides: Reveal is disabled and the badge asks to confirm", () => {
+    const { panel, props } = setup({ ...linda, identityGate: { state: "pending", result: "close_match", checks: ["dob", "member_id"], by: null, at: null } });
+    const reveal = within(panel).getByRole("button", { name: "Reveal member ID" });
+    expect(reveal).toBeDisabled();
+    expect(reveal).toHaveAttribute("title", "Verify the caller to reveal");
+    fireEvent.click(reveal);
+    expect(props.onRevealPhi).not.toHaveBeenCalled();
+    const badge = within(panel).getByTestId("identity-badge");
+    expect(badge).toHaveTextContent("Identity 2 of 3");
+    expect(badge).toHaveClass("chip-warn");
+  });
+
+  it("Mark verified: the badge says Verified by agent in phosphor, the name on hover", () => {
+    const decided = {
+      ...linda,
+      details: {
+        ...mariaDetails,
+        identity_result: "close_match" as const,
+        identity_decision: { decision: "verified" as const, agent_id: "a1", agent_name: "Ana", at: 1794800900 },
+        member: { ...mariaDetails.member!, name: "Linda Nguyen", first_name: "Linda", last_name: "Nguyen", member_id: "EVM100234" },
+      },
+      identityGate: { state: "verified" as const, result: "close_match", checks: ["dob", "member_id"], by: "Ana", at: 1794800900 },
+    };
+    const { panel } = setup(decided);
+    const badge = within(panel).getByTestId("identity-badge");
+    expect(badge).toHaveTextContent("Verified by agent");
+    expect(badge).toHaveClass("chip-ok");
+    expect(badge).toHaveAttribute("title", "Verified by Ana on the call");
+    expect(within(panel).getByTestId("caller-avatar")).toHaveClass("is-verified");
+    expect(within(panel).getByRole("heading", { name: "Linda Nguyen" })).toBeInTheDocument();
+    expect(within(panel).getByRole("button", { name: "Reveal member ID" })).toBeEnabled();
+  });
+
+  it("Could not verify: Reveal stays off and the badge says so", () => {
+    const { panel } = setup({
+      ...linda,
+      identityGate: { state: "not_verified", result: "close_match", checks: ["dob", "member_id"], by: "Ana", at: 1 },
+    });
+    expect(within(panel).getByRole("button", { name: "Reveal member ID" })).toBeDisabled();
+    const badge = within(panel).getByTestId("identity-badge");
+    expect(badge).toHaveTextContent("Not verified by agent");
+    expect(badge).toHaveClass("chip-bad");
+  });
+});

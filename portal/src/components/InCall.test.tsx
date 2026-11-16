@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { applyAssist, emptyAssist, parseAssistMessage } from "../state/assist";
-import { moodMsg } from "../test/assistFixtures";
+import { identityMsg, moodMsg } from "../test/assistFixtures";
 import { InCall, type InCallProps } from "./InCall";
 
 function setup(over: Partial<InCallProps> = {}) {
@@ -34,6 +34,19 @@ function setup(over: Partial<InCallProps> = {}) {
 }
 
 describe("InCall shell (AP-4)", () => {
+  it("close match: island says so, then Verified by agent once the agent marks verified (IN-13)", () => {
+    const caller = { name: "Linda Yuen", verified: "close_match" as const, identity: "close_match" as const, reason: "x", summary: "" };
+    const pending = applyAssist(emptyAssist(), parseAssistMessage(identityMsg("pending"))!, 0);
+    const { rerender, props } = setup({ caller, memberId: "EVM100234", assist: pending });
+    const island = () => screen.getByRole("group", { name: /call/i });
+    expect(within(island()).getByText("Close match")).toHaveClass("chip-warn");
+    expect(screen.getByRole("button", { name: "Reveal member ID" })).toBeDisabled();
+    const done = applyAssist(pending, parseAssistMessage(identityMsg("verified", { by: "Ana", at: 1 }))!, 0);
+    rerender(<InCall {...props} assist={done} />);
+    expect(within(island()).getByText("Verified by agent")).toHaveClass("chip-ok");
+    expect(screen.getByTestId("identity-badge")).toHaveTextContent("Verified by agent");
+    expect(screen.getByRole("button", { name: "Reveal member ID" })).toBeEnabled();
+  });
   it("shows the call island: caller, verified chip, waveform, mood placeholder, timer", () => {
     setup();
     const island = screen.getByRole("group", { name: /call/i });

@@ -25,7 +25,19 @@ import { applyAssist, emptyAssist, type AssistMessage, type AssistState } from "
 import { callerInfo } from "../state/offer";
 import { applyTheme, type Theme } from "../state/theme";
 import type { TranscriptLine } from "../state/transcript";
-import { askCard, heroCard, moodMsg, msg, PLAN_STEPS, planMsg, recordCard, toneTipCard } from "../test/assistFixtures";
+import {
+  askCard,
+  heroCard,
+  identityMsg,
+  lockedCard,
+  moodMsg,
+  msg,
+  PLAN_STEPS,
+  planMsg,
+  recordCard,
+  toneTipCard,
+  verifyCard,
+} from "../test/assistFixtures";
 
 const params = new URLSearchParams(window.location.search);
 const screen = params.get("screen") ?? "index";
@@ -340,6 +352,49 @@ const SCREENS: Record<string, () => ReactNode> = {
         assist: {
           ...assistFrom([planMsg(doneSteps)]),
           asks: [{ askId: "ask-1", text: "Show the last 3 claims", status: "pending", cardId: null, message: null }],
+        },
+      })}
+    />
+  ),
+  "in-call-verify": () => (
+    <InCall
+      {...inCallProps({
+        caller: { ...callerInfo({ summary, identity_result: "close_match" }), name: "Linda Yuen" },
+        memberId: "EVM100234",
+        intake: { ...summary, full_name: "Linda Yuen", identity_checks: ["dob", "member_id"] },
+        details: { ...details, identity_result: "close_match", not_verified: true, member: null, calls_30d: null, repeat_caller: false, recent_events: [] },
+        transcript: LINES.slice(0, 1),
+        assist: assistFrom([
+          planMsg(PLAN_STEPS),
+          identityMsg("pending"),
+          msg("hero", { card: verifyCard(), reason: "new", replaces: null }),
+          msg("card_added", { card: lockedCard() }),
+          moodMsg([1, 2], "Calm", "ok"),
+        ]),
+      })}
+    />
+  ),
+  "in-call-verified": () => (
+    <InCall
+      {...inCallProps({
+        caller: { ...callerInfo({ summary, identity_result: "close_match" }), name: "Linda Yuen" },
+        memberId: "EVM100234",
+        intake: { ...summary, full_name: "Linda Yuen", identity_checks: ["dob", "member_id"] },
+        details: {
+          ...details,
+          identity_result: "close_match",
+          identity_decision: { decision: "verified", agent_id: "agent-1", agent_name: "Agent Ana", at: NOW },
+          member: { ...details.member!, member_id: "EVM100234", name: "Linda Nguyen", first_name: "Linda", last_name: "Nguyen", dob: "1958-01-30" },
+        },
+        transcript: LINES.slice(0, 1),
+        assist: {
+          ...assistFrom([
+            planMsg(PLAN_STEPS),
+            identityMsg("verified", { by: "Agent Ana", at: NOW }),
+            msg("card_added", { card: recordCard() }),
+          ]),
+          ack: { card: verifyCard(), outcome: "verified" },
+          history: [{ key: "identity", label: "Caller verified", detail: "Verified by you · close match", atSecs: 40 }],
         },
       })}
     />

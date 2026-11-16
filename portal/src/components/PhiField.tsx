@@ -12,13 +12,16 @@ interface Props {
   /** Called once per reveal; the parent logs it on the call record (AP-17). */
   onReveal: (field: PhiFieldName) => void;
   className?: string;
+  /** IN-13: Reveal is off until the agent marks the caller verified. */
+  disabled?: boolean;
 }
 
 /**
  * A masked PHI value with a Reveal link (DESIGN.md "PHI field"). Masked by default;
- * Reveal is a deliberate click that logs an event and re-masks after 30 s.
+ * Reveal is a deliberate click that logs an event and re-masks after 30 s. Disabled
+ * (caller not verified yet, IN-13) it stays masked.
  */
-export function PhiField({ field, label, value, masked, onReveal, className }: Props) {
+export function PhiField({ field, label, value, masked, onReveal, className, disabled = false }: Props) {
   const [shown, setShown] = useState(false);
   // Restarts on every reveal: each reveal gets its own 30 s.
   const [revealId, setRevealId] = useState(0);
@@ -30,6 +33,7 @@ export function PhiField({ field, label, value, masked, onReveal, className }: P
   }, [shown, revealId]);
 
   function toggle() {
+    if (disabled) return;
     if (shown) {
       setShown(false);
       return;
@@ -41,13 +45,21 @@ export function PhiField({ field, label, value, masked, onReveal, className }: P
 
   // "Member ID" -> "member ID", "Date of birth" -> "date of birth".
   const name = label.charAt(0).toLowerCase() + label.slice(1);
+  const visible = shown && !disabled;
   return (
-    <span className={`phi${shown ? " is-shown" : ""}${className ? ` ${className}` : ""}`}>
+    <span className={`phi${visible ? " is-shown" : ""}${className ? ` ${className}` : ""}`}>
       <span className="phi-value mono" data-testid={`phi-${field}`}>
-        {shown ? value : masked}
+        {visible ? value : masked}
       </span>
-      <button type="button" className="phi-reveal" aria-label={`${shown ? "Hide" : "Reveal"} ${name}`} onClick={toggle}>
-        {shown ? "Hide" : "Reveal"}
+      <button
+        type="button"
+        className="phi-reveal"
+        aria-label={`${visible ? "Hide" : "Reveal"} ${name}`}
+        onClick={toggle}
+        disabled={disabled}
+        title={disabled ? "Verify the caller to reveal" : undefined}
+      >
+        {visible ? "Hide" : "Reveal"}
       </button>
     </span>
   );

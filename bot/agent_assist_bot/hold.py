@@ -90,6 +90,7 @@ class HoldController:
         self._interval = interval
         self.state = HoldState.INTAKE
         self.position: int | None = None
+        self.agent_name: str | None = None
         self._task: asyncio.Task | None = None
 
     async def on_app_message(self, message: Any, sender: str) -> None:
@@ -106,6 +107,7 @@ class HoldController:
                 self._task = asyncio.create_task(self._hold_loop())
         elif event == "agent_accepted" and self.state is not HoldState.WITH_AGENT:
             self.state = HoldState.WITH_AGENT
+            self.agent_name = message.get("agent_name")
             self.stop()
             self.gate.close()
             logger.info(f"[hold] agent {message.get('agent_name')!r} accepted; going quiet")

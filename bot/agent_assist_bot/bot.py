@@ -13,6 +13,10 @@ Two ways in, one bot:
 - Browser caller (PRD IN-12, `POST /calls/browser`): same CLI without dial-in args, so
   no DialinConfig; the caller is greeted when their browser joins.
 
+After an agent accepts (QH-6) the bot says "Connecting you now." and goes listen only:
+intake hears nothing more and the caller and the agent are transcribed on their own
+tracks, each line sent to the agent's portal only (P3-4, `transcript.py`).
+
 The greeting is the flow's first node: a fixed `tts_say` pre-action with no LLM call,
 so the first utterance needs only a TTS round trip to hit the <2 s target (PRD IN-1).
 
@@ -30,6 +34,7 @@ from loguru import logger
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.flows import FlowManager
 from pipecat.frames.frames import Frame, TranscriptionFrame
+from pipecat.pipeline.parallel_pipeline import ParallelPipeline
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
@@ -37,7 +42,9 @@ from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
     LLMUserAggregatorParams,
 )
+from pipecat.processors.audio.vad_processor import VADProcessor
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
+from pipecat.processors.frameworks.rtvi import RTVIObserverParams
 from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.services.deepgram.tts import DeepgramTTSService
 from pipecat.transports.daily.transport import DailyParams, DailyTransport
@@ -48,12 +55,19 @@ from agent_assist_bot.dialin import DEFAULT_DAILY_API_URL as DEFAULT_DAILY_API_U
 from agent_assist_bot.dialin import DialinConfig as DialinConfig
 from agent_assist_bot.dialin import DialinForwarder, DialinForwardError, sip_uri_from_ready
 from agent_assist_bot.handoff import end_call, handoff_from_env
-from agent_assist_bot.hold import BotGate, HoldController
+from agent_assist_bot.hold import BotGate, HoldController, HoldState
 from agent_assist_bot.intake import GREETING as GREETING  # re-export (PRD IN-2)
 from agent_assist_bot.intake import ROLE_MESSAGE, HandoffHook, IntakeSession, NoopHandoff
 from agent_assist_bot.llm import create_llm
 from agent_assist_bot.packs import DEFAULT_PACK, Pack, load_pack
 from agent_assist_bot.timing import FirstAudioTimer, log_timing
+from agent_assist_bot.transcript import (
+    ROLES,
+    AudioRoute,
+    CallRoles,
+    TranscriptRecorder,
+    TranscriptRelay,
+)
 
 BOT_NAME = "Vitals Assistant"
 STT_MODEL = "nova-3-general"
@@ -95,6 +109,7 @@ def build_transport(room_url: str, token: str | None = None) -> DailyTransport:
     (see agent_assist_bot.dialin for why Pipecat's built-in forwarding is not used)."""
     params = DailyParams(
         audio_in_enabled=True,
+        audio_in_user_tracks=True,  # one audio stream per participant (S2, P3-4)
         audio_out_enabled=True,
         camera_out_enabled=False,
     )
@@ -142,6 +157,7 @@ def register_handlers(
     session_id: str = "",
     dialin: DialinConfig | None = None,
     forwarder: DialinForwarder | None = None,
+    roles: CallRoles | None = None,
 ) -> None:
     """Start intake for the first participant (the caller); end when they leave.
 
@@ -150,8 +166,13 @@ def register_handlers(
     or ringing call is cleared. For a dial-in call (`dialin` set) the bot warms a
     Daily API connection on join and forwards the held call into the room when Daily
     fires dialin-ready. `[timing]` lines mark the call timeline for the IN-1 test.
+
+    `roles` (P3-4) learns who the caller and the agent are: the caller is the first
+    participant; on the server's agent_accepted message the agent is whoever joined
+    with the accepting agent's name, and the bot switches to listen only.
     """
     hold = hold or HoldController(worker.queue_frames)
+    roles = roles or CallRoles()
     handoff = handoff or NoopHandoff()
     if dialin is not None and forwarder is None:
         forwarder = DialinForwarder(dialin)
@@ -169,17 +190,26 @@ def register_handlers(
     async def on_first_participant_joined(transport, participant):
         name = participant.get("info", {}).get("userName", "")
         caller["id"] = participant.get("id")
+        roles.set_caller(participant["id"])
         log_timing("caller_joined", session=session_id)
         logger.info(f"[bot] first participant joined: {name!r}")
         if on_caller_joined is not None:
             await on_caller_joined()
 
+    @transport.event_handler("on_participant_joined")
+    async def on_participant_joined(transport, participant):
+        roles.joined(participant["id"], participant.get("info", {}).get("userName"))
+
     @transport.event_handler("on_app_message")
     async def on_app_message(transport, message, sender):
         await hold.on_app_message(message, sender)
+        if hold.state is HoldState.WITH_AGENT and not roles.listening:
+            roles.agent_accepted(hold.agent_name)
+            logger.info("[bot] agent accepted: listen only, live transcript to the agent")
 
     @transport.event_handler("on_participant_left")
     async def on_participant_left(transport, participant, reason):
+        roles.left(participant.get("id"))
         if caller["id"] is not None and participant.get("id") != caller["id"]:
             name = participant.get("info", {}).get("userName", "")
             logger.info(f"[bot] {name!r} left ({reason}); caller still on the line")
@@ -222,6 +252,19 @@ def register_handlers(
         await worker.cancel()
 
 
+def listen_branch(role: str, roles: CallRoles, on_final) -> list[FrameProcessor]:
+    """One role's live transcript (S2): its own audio, VAD, and Deepgram stream."""
+    return [
+        AudioRoute(role, roles),
+        VADProcessor(vad_analyzer=SileroVADAnalyzer()),
+        DeepgramSTTService(
+            api_key=os.environ["DEEPGRAM_API_KEY"],
+            settings=DeepgramSTTService.Settings(model=STT_MODEL),
+        ),
+        TranscriptRelay(role, roles, on_final=on_final),
+    ]
+
+
 def build_worker(
     room_url: str,
     token: str | None = None,
@@ -253,13 +296,27 @@ def build_worker(
         user_params=LLMUserAggregatorParams(vad_analyzer=SileroVADAnalyzer()),
     )
 
-    # After an agent accepts, the gate stops caller turns reaching the LLM (QH-6).
+    store = store or call_store_from_env()
+    session = IntakeSession(
+        pack=pack or load_pack(os.environ.get(PACK_ENV) or DEFAULT_PACK),
+        store=store,
+        session_id=session_id,
+        handoff=handoff,
+    )
+
+    # After an agent accepts, the gate stops caller turns reaching the LLM (QH-6),
+    # intake hears nothing more, and the listen branches transcribe both people.
     gate = BotGate()
+    roles = CallRoles()
+    recorder = TranscriptRecorder(store, lambda: session.call_id)
+    listen = [listen_branch(role, roles, recorder.add) for role in ROLES]
     pipeline = Pipeline(
         [
             transport.input(),
-            stt,
-            TurnLogger("caller", TranscriptionFrame),
+            ParallelPipeline(
+                [AudioRoute(None, roles), stt, TurnLogger("caller", TranscriptionFrame)],
+                *listen,
+            ),
             aggregators.user(),
             gate,
             llm,
@@ -273,16 +330,16 @@ def build_worker(
         pipeline,
         params=PipelineParams(enable_metrics=True),
         idle_timeout_secs=120,
+        # RTVI's own transcription messages go to everyone in the room, the caller
+        # included. The listen branches are invisible to it; TranscriptRelay sends
+        # their lines to the agent only.
+        rtvi_observer_params=RTVIObserverParams(
+            ignored_sources=[p for branch in listen for p in branch]
+        ),
     )
 
     # Intake (PRD IN-3 to IN-9): a Pipecat Flow driven by the use case pack. When it
     # ends (completed, request_person, or emergency) the hook enqueues the call.
-    session = IntakeSession(
-        pack=pack or load_pack(os.environ.get(PACK_ENV) or DEFAULT_PACK),
-        store=store or call_store_from_env(),
-        session_id=session_id,
-        handoff=handoff,
-    )
     flow_manager = FlowManager(
         llm=llm, context_aggregator=aggregators, worker=worker, transport=transport
     )
@@ -291,6 +348,7 @@ def build_worker(
         await start_intake(session, flow_manager)
 
     async def on_ended() -> None:
+        await recorder.close()
         await session.store.close()
 
     register_handlers(
@@ -302,6 +360,7 @@ def build_worker(
         handoff=handoff,
         session_id=session_id,
         dialin=dialin,
+        roles=roles,
     )
     return worker, transport
 

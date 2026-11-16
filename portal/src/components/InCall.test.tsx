@@ -17,6 +17,8 @@ function setup(over: Partial<InCallProps> = {}) {
     remoteLevel: 0,
     elapsedSecs: 252,
     error: null,
+    transcript: [],
+    highlights: [],
     onMute: vi.fn(),
     onHold: vi.fn(),
     onEnd: vi.fn(),

@@ -2,8 +2,10 @@ import { Mic, MicOff, Pause, PhoneOff, Play, Sparkles } from "lucide-react";
 import type { CallerDetails } from "../api/types";
 import type { CallerInfo } from "../state/offer";
 import { formatClock } from "../state/offer";
+import type { HighlightRange, TranscriptLine } from "../state/transcript";
 import { CallerPanel, type DetailsState } from "./CallerPanel";
 import { TopBar } from "./TopBar";
+import { TranscriptColumn } from "./TranscriptColumn";
 import { VerifiedChip } from "./VerifiedChip";
 
 export type CallPhase = "connecting" | "live";
@@ -24,6 +26,9 @@ export interface InCallProps {
   remoteLevel: number;
   elapsedSecs: number;
   error: string | null;
+  /** Live transcript (P3-4). */
+  transcript: TranscriptLine[];
+  highlights: HighlightRange[];
   onMute: () => void;
   onHold: () => void;
   onEnd: () => void;
@@ -132,21 +137,6 @@ function AssistColumn() {
   );
 }
 
-function TranscriptColumn() {
-  return (
-    <aside className="glass transcript" aria-label="Transcript">
-      <div className="transcript-head">
-        <span className="label">Live transcript</span>
-        <span className="chip chip-bad">
-          <span className="live-dot" aria-hidden="true" />
-          Live
-        </span>
-      </div>
-      <p className="muted-note">The transcript shows up here once the caller and you talk.</p>
-    </aside>
-  );
-}
-
 /** In-call frame (DESIGN.md "Layout"): top bar with call island and controls, three columns. */
 export function InCall(props: InCallProps) {
   return (
@@ -167,7 +157,7 @@ export function InCall(props: InCallProps) {
           detailsState={props.detailsState ?? "loading"}
         />
         <AssistColumn />
-        <TranscriptColumn />
+        <TranscriptColumn lines={props.transcript} highlights={props.highlights} />
       </main>
     </div>
   );

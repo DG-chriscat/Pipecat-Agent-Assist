@@ -2,11 +2,16 @@
 
 import pytest
 from agent_assist_bot import __main__ as cli
-from agent_assist_bot import bot
+from agent_assist_bot import bot, hold
 from agent_assist_bot.calls import MemoryCallStore, PostgresCallStore
 from agent_assist_bot.intake import IntakeSession
 from agent_assist_bot.packs import load_pack
+from agent_assist_bot.transcript import CallRoles, TranscriptRelay
+from pipecat.pipeline.parallel_pipeline import ParallelPipeline
 from pipecat.pipeline.worker import PipelineWorker
+from pipecat.processors.frameworks.rtvi import RTVIObserver
+
+LISTEN_STAGES = ("AudioRoute", "VADProcessor", "DeepgramSTTService", "TranscriptRelay")
 
 KEYS = {
     "DAILY_API_KEY": "fake-daily",
@@ -158,6 +163,65 @@ async def test_participant_left_ends_session():
     bot.register_handlers(transport, worker)
     await transport.handlers["on_participant_left"](transport, {"id": "caller"}, "hangup")
     assert worker.cancelled
+
+
+def _p(pid: str, name: str) -> dict:
+    return {"id": pid, "info": {"userName": name}}
+
+
+async def test_roles_follow_the_call_flow_and_accept_starts_listening():
+    # P3-4: caller = first participant, agent = the accepting agent's user_name.
+    transport, worker = FakeTransport(), FakeWorker()
+    roles = CallRoles()
+    bot.register_handlers(transport, worker, roles=roles)
+    h = transport.handlers
+    await h["on_first_participant_joined"](transport, _p("c1", "caller"))
+    await h["on_participant_joined"](transport, _p("c1", "caller"))
+    await h["on_participant_joined"](transport, _p("a1", "Agent Ana"))
+    assert roles.caller_id == "c1"
+    assert not roles.listening and roles.agent_id is None
+
+    accepted = {"type": hold.MESSAGE_TYPE, "event": "agent_accepted", "agent_name": "Agent Ana"}
+    await h["on_app_message"](transport, accepted, "api")
+    assert roles.listening
+    assert roles.agent_id == "a1"
+    assert worker.queued[0].text == hold.CONNECTING_LINE
+
+    await h["on_participant_left"](transport, _p("a1", "Agent Ana"), "left")
+    assert roles.agent_id is None
+    assert not worker.cancelled  # the agent leaving never ends the caller's call
+
+
+async def test_accept_from_a_participant_does_not_start_listening():
+    transport, worker = FakeTransport(), FakeWorker()
+    roles = CallRoles()
+    bot.register_handlers(transport, worker, roles=roles)
+    accepted = {"type": hold.MESSAGE_TYPE, "event": "agent_accepted", "agent_name": "x"}
+    await transport.handlers["on_app_message"](transport, accepted, "some-participant")
+    assert not roles.listening
+
+
+def test_pipeline_has_intake_and_two_listen_branches(api_keys):
+    worker, transport = bot.build_worker(ROOM, "tok")
+    assert transport._params.audio_in_user_tracks is True
+    inner = next(p for p in worker._pipeline.processors if type(p).__name__ == "Pipeline")
+    par = next(p for p in inner.processors if isinstance(p, ParallelPipeline))
+    branches = [[type(x).__name__ for x in b.processors] for b in par._pipelines]
+    assert [b[1] for b in branches] == ["AudioRoute"] * 3
+    assert "DeepgramSTTService" in branches[0] and "TranscriptRelay" not in branches[0]
+    for b in branches[1:]:
+        core = [n for n in b if n in LISTEN_STAGES]
+        assert core == list(LISTEN_STAGES)
+    relays = [x for b in par._pipelines for x in b.processors if isinstance(x, TranscriptRelay)]
+    assert sorted(r._role for r in relays) == ["agent", "caller"]
+    # RTVI's own user transcription messages go to everyone in the room, so the
+    # listen branches are ignored by the RTVI observer: only TranscriptRelay speaks.
+    observer = next(o for o in worker._observer._observers if isinstance(o, RTVIObserver))
+    listen = [
+        x for b in par._pipelines[1:] for x in b.processors if type(x).__name__ in LISTEN_STAGES
+    ]
+    assert len(listen) == 8
+    assert set(listen) <= observer._ignored_sources
 
 
 class FakeForwarder:

@@ -83,6 +83,9 @@ class _Handler(EventHandler):
     def on_participant_left(self, participant: Mapping[str, Any], reason: str) -> None:
         self._owner._on_participant_left(participant)
 
+    def on_app_message(self, message: Any, sender: str) -> None:
+        self._owner._on_app_message(message, sender)
+
 
 class HarnessParticipant:
     def __init__(self, user_name: str, *, sample_rate: int = SAMPLE_RATE):
@@ -92,11 +95,14 @@ class HarnessParticipant:
         self.joined_at: float | None = None
         self.participants: dict[str, ParticipantInfo] = {}
         self.recordings: dict[str, Recording] = {}
+        # (wall time, sender, message) for every Daily app message this client got.
+        self.app_messages: list[tuple[float, str, Any]] = []
         self._loop = asyncio.get_running_loop()
         self._changed = asyncio.Event()
         self._source = CustomAudioSource(sample_rate, 1)
         self._track = CustomAudioTrack(self._source)
-        self._client = CallClient(event_handler=_Handler(self))
+        self._handler = _Handler(self)
+        self._client = CallClient(event_handler=self._handler)
 
     async def __aenter__(self) -> HarnessParticipant:
         return self
@@ -200,6 +206,25 @@ class HarnessParticipant:
                 await self._changed.wait()
 
         return await asyncio.wait_for(_wait(), timeout)
+
+    # ---- app messages ---------------------------------------------------
+
+    def _on_app_message(self, message: Any, sender: str) -> None:
+        now = time.time()
+
+        def _apply():
+            self.app_messages.append((now, sender, message))
+            self._changed.set()
+
+        self._loop.call_soon_threadsafe(_apply)
+
+    async def wait_for_app_messages(self, count: int, timeout: float = 30) -> None:
+        async def _wait():
+            while len(self.app_messages) < count:
+                self._changed.clear()
+                await self._changed.wait()
+
+        await asyncio.wait_for(_wait(), timeout)
 
     # ---- audio ----------------------------------------------------------
 

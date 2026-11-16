@@ -26,6 +26,7 @@ Reference: `docs/design/studio/in-call-studio-light.png` and `-dark.png`, DESIGN
 | 15 | In call, suggestion, 1440 x 900 | Grid fills the laptop screen. Hero actions stay on one row (key hints hide below 760 px of assist width; the keys still work) and the source drops under them. |
 | 16 | Wrap up, 1440 x 900 | Card scrolls inside the stage instead of clipping. |
 | 17 | In call, suggestion, 1920 x 1080 | Projector: side columns widen (340 and 400 px), transcript text 14.5 px, hero headline line length capped. |
+| 18 | Live call vs the mockup | A real call (`server/tests/test_studio_screens_live.py`, Daily + Deepgram + Anthropic) after this change, next to `in-call-studio-*.png`. Not a before/after: the reference is on the left. |
 
 Keyboard and motion (no screenshot):
 - Cmd+K (Ctrl+K off Mac) focuses Ask; the hint shows "Ctrl K" off Mac.

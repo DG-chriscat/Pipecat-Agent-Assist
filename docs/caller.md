@@ -12,7 +12,8 @@ just without dial-in settings.
    - creates a private Daily room (`caller-<id>`, expires in 1 hour, ejects at expiry),
    - mints an owner token for the bot (`user_name` "Vitals Assistant") and a non-owner token for the
      caller (`user_name` "caller"),
-   - starts the bot through `BotLauncher`: `python -m agent_assist_bot --room-url ... --session-id ...`
+   - starts the bot through `BotLauncher` after the response: a warm bot from the pool
+     (P5-2, [warm-bot.md](warm-bot.md)), or a cold `python -m agent_assist_bot --room-url ... --session-id ...`
      with no `--call-id`/`--call-domain`; the bot token goes in `DAILY_ROOM_TOKEN`, not argv,
    - returns `{"session_id", "room_url", "caller_token"}`. The bot token is never returned.
    - `DAILY_API_KEY` missing: 503. Daily error or unreachable: 502, no bot is started.
@@ -71,7 +72,7 @@ PASSED
 
 "bot joined after" includes the bot process start (Python imports, Silero VAD and Smart Turn
 model load), roughly 6 to 10 s on the build host and much longer when the host is loaded. That
-is time the caller sits in an empty room; the page shows "Waiting for the assistant...". Not in
-scope here, noted as an open item: pre-warming a bot process would remove it.
+is time the caller sits in an empty room; the page shows "Waiting for the assistant...". P5-2
+removes most of it with a pre-warmed bot: see [warm-bot.md](warm-bot.md).
 
 The manual Chrome check (real microphone) was not run on the build host; it needs a person.

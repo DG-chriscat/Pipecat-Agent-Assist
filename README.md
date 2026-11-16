@@ -34,6 +34,10 @@ curl -X POST https://api.daily.co/v1/ \
 Daily sends `{"test": "test"}` to verify the URL; the endpoint answers `{"status": "OK"}`.
 Save the `hmac` Daily returns as `DAILY_DIALIN_HMAC` to enable signature checks.
 
+Warm bot (P5-2): the server keeps `WARM_BOT_POOL` bots (default 1, max 2, 0 off)
+already loaded and hands each new call (dial-in or browser) to one; see
+[docs/warm-bot.md](docs/warm-bot.md).
+
 Live test (real Daily room + bot, no phone call): `uv run --env-file .env pytest -m live -s`
 
 Live call test (IN-1, against a deployed server):

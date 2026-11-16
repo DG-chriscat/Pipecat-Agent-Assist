@@ -112,19 +112,20 @@ async def test_live_warm_bot_joins_sooner_than_a_cold_start(keys_present, capfd,
     pool = WarmBotPool(1)
     warm = BotLauncher(pool=pool)
     app.state.bot_launcher = warm
+    ready_notes: list[str] = []
     try:
         await warm.start()
         started = time.time()
         while pool.ready_count < 1:
             assert time.time() - started < 90, "warm bot never got ready"
             await asyncio.sleep(0.1)
-        print(f"\nwarm bot ready {time.time() - started:.2f}s after the pool started")
+        ready_notes.append(f"first warm bot ready {time.time() - started:.2f}s after pool start")
         results.append(await one_call(warm, daily, "warm"))
         started = time.time()
         while pool.ready_count < 1:
             assert time.time() - started < 90, "pool never refilled"
             await asyncio.sleep(0.1)
-        print(f"refilled warm bot ready {time.time() - started:.2f}s after call 2 ended")
+        ready_notes.append(f"refill ready {time.time() - started:.2f}s after call 2 ended")
         results.append(await one_call(warm, daily, "warm (refill)"))
     finally:
         await warm.close()
@@ -138,6 +139,8 @@ async def test_live_warm_bot_joins_sooner_than_a_cold_start(keys_present, capfd,
     text = "\n".join([logs.out, logs.err, caplog.text])
     with capfd.disabled():
         print()
+        for note in ready_notes:
+            print(note)
         hdr = (
             f"{'call':<14} {'mode':<5} {'req->launched':>13} {'req->bot_joined':>15} "
             f"{'req->greeting':>13} {'joined->greeting':>16} | caller: joined, heard"

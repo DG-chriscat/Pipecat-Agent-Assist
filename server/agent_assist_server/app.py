@@ -3,6 +3,7 @@ import os
 from collections.abc import Callable, Mapping
 
 from fastapi import FastAPI
+from fastapi.responses import RedirectResponse
 
 from agent_assist_server import auth, portal
 from agent_assist_server.agent_token import router as agent_token_router
@@ -29,6 +30,11 @@ def configure_logging() -> None:
     log.setLevel(logging.INFO)
 
 
+def root() -> RedirectResponse:
+    """The site root opens the agent portal. The caller demo page stays at /caller."""
+    return RedirectResponse(portal.MOUNT, status_code=307)
+
+
 def create_app(
     env: Mapping[str, str] | None = None, clock: Callable[[], float] | None = None
 ) -> FastAPI:
@@ -44,6 +50,7 @@ def create_app(
     app.include_router(wrap_up_router)
     app.include_router(portal.build_router(portal.dist_from_env(env)))
     app.add_api_route("/healthz", healthz, methods=["GET"])
+    app.add_api_route("/", root, methods=["GET"], include_in_schema=False)
     auth.install(app, config)
     return app
 

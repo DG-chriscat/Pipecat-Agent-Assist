@@ -50,6 +50,7 @@ class ParticipantInfo:
     id: str
     user_name: str
     joined_at: float
+    left_at: float | None = None
 
 
 @dataclass
@@ -174,7 +175,31 @@ class HarnessParticipant:
         self._loop.call_soon_threadsafe(_apply)
 
     def _on_participant_left(self, participant: Mapping[str, Any]) -> None:
-        pass
+        pid = participant["id"]
+        now = time.time()
+
+        def _apply():
+            p = self.participants.get(pid)
+            if p is not None and p.left_at is None:
+                p.left_at = now
+                self._changed.set()
+
+        self._loop.call_soon_threadsafe(_apply)
+
+    async def wait_for_participant_left(
+        self, user_name: str, timeout: float = 30
+    ) -> ParticipantInfo:
+        """Wait until a participant with this name, seen in the room, has left."""
+
+        async def _wait():
+            while True:
+                for p in self.participants.values():
+                    if p.user_name == user_name and p.left_at is not None:
+                        return p
+                self._changed.clear()
+                await self._changed.wait()
+
+        return await asyncio.wait_for(_wait(), timeout)
 
     # ---- audio ----------------------------------------------------------
 

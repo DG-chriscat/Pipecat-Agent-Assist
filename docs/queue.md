@@ -144,4 +144,4 @@ bot stays quiet while the agent talks.
 
 - QH-8 callback offer after 5 minutes, QH-9 agent drop re-queue (Should, later cards).
 - Hold music.
-- Portal UI (Phase 3).
+- Server side hold (the portal's hold only mutes the agent mic in v1).

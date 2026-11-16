@@ -398,6 +398,27 @@ describe("AssistColumn Ask bar (P4-6, AP-8)", () => {
     expect(within(done.region).getByRole("status")).toHaveTextContent("No claims found for this caller.");
   });
 
+  it("an answer the agent asked for is scrolled into view on the shelf, once", () => {
+    const into = vi.fn();
+    Element.prototype.scrollIntoView = into;
+    let s = state(planMsg(), msg("card_added", { card: recordCard() }));
+    s = localAssist(s, { type: "ask", askId: "ask-1", text: "Show the last 3 claims" }, 20);
+    const onAction = vi.fn();
+    const r = render(<AssistColumn assist={s} onAction={onAction} firstName="Maria" />);
+    expect(into).not.toHaveBeenCalled();
+    s = applyAssist(s, parseAssistMessage(msg("card_added", { card: askCard() }))!, 21);
+    s = applyAssist(
+      s,
+      parseAssistMessage(msg("ask_result", { ask_id: "ask-1", status: "answered", card_id: "ask:ask-1", message: null }))!,
+      21,
+    );
+    r.rerender(<AssistColumn assist={s} onAction={onAction} firstName="Maria" />);
+    expect(into).toHaveBeenCalledTimes(1);
+    expect(into.mock.contexts[0]).toBe(screen.getByTestId("tile-ask:ask-1"));
+    r.rerender(<AssistColumn assist={{ ...s }} onAction={onAction} firstName="Maria" />);
+    expect(into).toHaveBeenCalledTimes(1);
+  });
+
   it("an answer is a supporting card that names the question and its source", () => {
     let s = state(planMsg());
     s = localAssist(s, { type: "ask", askId: "ask-1", text: "Show the last 3 claims" }, 20);

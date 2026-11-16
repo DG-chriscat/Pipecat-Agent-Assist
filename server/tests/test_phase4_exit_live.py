@@ -217,6 +217,20 @@ def log(t0: float, msg: str) -> None:
     print(f"[{time.time() - t0:7.2f}s] {msg}", flush=True)
 
 
+async def trigger_audio(text: str, word: str, tries: int = 4) -> tuple[bytes, float]:
+    """TTS for the trigger line, re-synthesized until Deepgram hears `word` in it (Aura
+    output varies run to run). Returns the PCM and where `word` ends in it."""
+    last: AssertionError | None = None
+    for _ in range(tries):
+        pcm = await synthesize(text, sample_rate=SAMPLE_RATE, voice=VOICE_CALLER)
+        try:
+            return pcm, await word_end(pcm, word)
+        except AssertionError as e:
+            last = e
+            print(f"  re-synthesizing the trigger: {e}")
+    raise last  # type: ignore[misc]
+
+
 async def word_end(pcm: bytes, word: str) -> float:
     """Seconds into `pcm` where `word` ends, from Deepgram prerecorded word timings."""
     async with httpx.AsyncClient(timeout=30) as client:
@@ -228,8 +242,11 @@ async def word_end(pcm: bytes, word: str) -> float:
         )
     resp.raise_for_status()
     words = resp.json()["results"]["channels"][0]["alternatives"][0]["words"]
-    hit = next(w for w in words if w["word"].strip(".,?!").lower() == word)
-    return float(hit["end"])
+    norm = [(w["word"].strip(".,?!'").lower(), float(w["end"])) for w in words]
+    for said, end in norm:
+        if said == word or said.startswith(word.rstrip("s")):
+            return end
+    raise AssertionError(f"{word!r} not in the trigger audio: {[w for w, _ in norm]}")
 
 
 async def intake_row(store: PostgresCallStore, session_id: str):
@@ -300,8 +317,7 @@ async def test_pack_trigger_shows_its_card_within_3s(sc: Scenario, schema, shots
     monkeypatch.delenv("APP_PASSWORD", raising=False)
     monkeypatch.delenv("INTAKE_PACK", raising=False)
     audio = {k: await synthesize(v, sample_rate=SAMPLE_RATE) for k, v in sc.lines.items()}
-    trigger_pcm = await synthesize(sc.trigger, sample_rate=SAMPLE_RATE, voice=VOICE_CALLER)
-    trigger_offset = await word_end(trigger_pcm, sc.trigger_word)
+    trigger_pcm, trigger_offset = await trigger_audio(sc.trigger, sc.trigger_word)
     launcher = BotLauncher()
     app.state.bot_launcher = launcher
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
@@ -355,6 +371,8 @@ async def test_pack_trigger_shows_its_card_within_3s(sc: Scenario, schema, shots
                     timeout=5_000
                 )
                 accept_at = time.time()
+                # Focus is still on the Available switch: Enter there would toggle it.
+                await page.evaluate("document.activeElement && document.activeElement.blur()")
                 await page.keyboard.press("Enter")
                 await expect(page.get_by_role("button", name="Mute")).to_be_enabled(timeout=30_000)
                 hero = page.get_by_test_id("hero")
@@ -385,7 +403,7 @@ async def test_pack_trigger_shows_its_card_within_3s(sc: Scenario, schema, shots
                 }
                 log(t0, f"card {card_id} on screen {secs:.2f}s after the trigger word")
                 await page.wait_for_timeout(2500)  # supporting cards land
-                tiles = await page.locator(".shelf [data-testid^='tile-']").evaluate_all(
+                tiles = await page.locator(".shelf > [data-testid^='tile-']").evaluate_all(
                     "(els) => els.map((e) => e.dataset.testid)"
                 )
                 marked = (

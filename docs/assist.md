@@ -116,6 +116,7 @@ The portal ignores messages with `v` other than 1.
 | `card_added` | `card`: a supporting card. Re-adding an id replaces it in place. |
 | `card_removed` | `card_id`, `reason`: `dismissed`, `accepted`, `promoted` (moved to hero), `replaced` (an older tone tip). |
 | `mood` | P4-5. The caller's mood trend: `label` ("Worried, easing"), `tone` (`ok`, `warn`, `bad`), `step` (0 to 4), `readings`: every tone reading of the call, `[{line_id, ts, emotion, confidence, sarcasm, step, mood, score}]` (`score` = step / 4). Sent on start and resync when there are intake readings, and after each caller line with a reading. |
+| `ask_result` | P4-6. How an Ask bar question ended: `ask_id`, `status` (`answered`, `no_answer`, `error`), `card_id` (the answer card, or null), `message` (why there is no answer, or null). Sent after the answer's `card_added`. |
 
 Card:
 
@@ -152,7 +153,8 @@ Card:
   `phrase`, `start`, `end` null. Rank 4: above alerts, below every next step, never
   the hero. A newer tip replaces the older one (`card_removed` reason `replaced`).
 - Card ids: `nbs:<rule>:<record>`, `card:<template>` (record cards), `kb:<article
-  ids>`, `alert:<template>:<record ids>`, `tone:<caller line id>`.
+  ids>`, `alert:<template>:<record ids>`, `tone:<caller line id>`, `ask:<ask id>` (Ask
+  bar answers; `trigger.role` is `ask`, `trigger.text` the question).
 
 ### Portal to bot: feedback
 
@@ -173,6 +175,48 @@ caller's and the REST API's are ignored.
   promotes the next hero. Nothing is written to source systems (DC-9).
 - `dismiss` removes the card (hero: promote or clear).
 - `pin`, `unpin`, `rate` are logged; pinning is portal state.
+
+### Portal to bot: Ask bar (P4-6, AP-8)
+
+```
+{"label": "rtvi-ai", "type": "client-message", "id": "...",
+ "data": {"t": "assist_ask", "d": {"v": 1, "ask_id": "ask-...", "text": "Show the last 3 claims"}}}
+```
+
+Same sender rule as feedback (the agent's participant only). `text` is 1 to 300
+characters, `ask_id` 1 to 64. Code: `assist_ask.py` (parsing, card building),
+`AssistEngine.on_ask`.
+
+1. **The question names a connector** (`parse_ask`): claims, payments (charges,
+   premium, refund), prior authorizations, referrals, calls (interactions), plan
+   (members); the one named first wins. A count ("last 3", "two") limits the rows (max
+   5); status and kind words become search filters ("denied claims", "premium
+   payments"). If the active pack allows the connector, it is searched through the same
+   member scoped `ConnectorSession` and the rows are rendered with the pack's general
+   record card for that connector (its fields and title; built in defaults if the pack
+   has none). A connector the pack does not allow is never called: `no_answer` with
+   "The Claim status pack does not use payments."
+2. **No connector named**: the assist LLM gets the question with the usual request and
+   the pack's tools, and returns card template ids and record ids only; the engine
+   renders the template (as on the LLM path). If it proposes nothing, the knowledge
+   base is searched with the question's words and articles whose title or tags the
+   question names are shown.
+3. The answer is a supporting card `ask:<ask_id>`, rank 0, sent at once (an Ask is not
+   rate limited: the agent asked for it), logged as `card_sent` with `ask: true` and
+   `latency_ms` from the question. Then `ask_result`. Each Ask runs as its own task, so
+   a slow lookup never holds up transcript cards (DC-6).
+
+## Pack at accept, and the general question pack (P4-6)
+
+On accept the engine picks the pack whose triggers match the intake answers (every
+key except name, member id, and DOB) most. When there are answers and no pack's
+triggers match them, the call is a general question and starts on the fallback pack
+(`general_question`); with no answers, the intake pack.
+
+On the fallback pack a caller line that asks something (a `?` or a question word)
+searches the knowledge base with its words. An article whose title or tag words appear
+in the line, as a run of words, is shown at once as an article card, no LLM; that run
+("explanation of benefits") is the trigger and is underlined in the conversation.
 
 ## Call record: `assist_events`
 
@@ -236,3 +280,16 @@ RLS is enabled with no policies (same lock as 0002); `seed` truncates it.
 - Trigger words of the cards on screen are marked in the conversation.
 - Live: `server/tests/test_assist_ui_live.py` (the portal in headless Chromium on the
   Maria Alvarez call; screenshots in `docs/screenshots/p4-4/`).
+
+## Ask bar in the portal (P4-6)
+
+- `AssistColumn` `AskBar`: Cmd+K (Ctrl+K) focuses the field from anywhere in the call;
+  Enter sends `assist_ask` and clears the field; Esc clears and leaves it (it never
+  dismisses the hero, and Enter in the field never accepts it).
+- While the bot looks it up, a status line above the bar says `Looking up "<question>"`;
+  a `no_answer` or `error` shows the bot's reason there. The bar itself never moves.
+- The answer is a shelf tile like any other supporting card (pin, dismiss, thumbs,
+  source); its context line is `You asked "<question>"`.
+- Tests: `bot/tests/test_assist_ask.py`, `test_assist_runtime.py`; portal
+  `state/assist.test.ts`, `AssistColumn.test.tsx`, `useCall.test.ts`.
+- Live: `server/tests/test_phase4_exit_live.py` (Phase 4 exit, `docs/spikes/phase4.md`).

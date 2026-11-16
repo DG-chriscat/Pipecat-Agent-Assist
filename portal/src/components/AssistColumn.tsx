@@ -530,6 +530,19 @@ function useShelfOrder(cards: AssistCard[], pinned: string[]) {
 function Shelf({ assist, onAction }: { assist: AssistState; onAction: (a: LocalAction) => void }) {
   const plan = planView(assist);
   const { ordered, freeze, thaw } = useShelfOrder(assist.cards, assist.pinned);
+  const shelf = useRef<HTMLDivElement>(null);
+  // An Ask answer (P4-6) is what the agent is waiting for: bring its tile into view once,
+  // unless the pointer is on the shelf (nothing moves under the cursor).
+  const shown = useRef<string | null>(null);
+  const answered = [...assist.asks].reverse().find((a) => a.status === "answered" && a.cardId)?.cardId ?? null;
+  useEffect(() => {
+    const box = shelf.current;
+    if (!answered || shown.current === answered || !box) return;
+    const tile = box.querySelector<HTMLElement>(`[data-testid="tile-${CSS.escape(answered)}"]`);
+    if (!tile) return;
+    shown.current = answered;
+    if (!box.matches(":hover")) tile.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
+  }, [answered, ordered]);
   const tile = (c: AssistCard) => (
     <CardTile key={c.id} card={c} pinned={assist.pinned.includes(c.id)} rating={assist.ratings[c.id]} onAction={onAction} />
   );
@@ -539,7 +552,7 @@ function Shelf({ assist, onAction }: { assist: AssistState; onAction: (a: LocalA
   const tips = ordered.filter((c) => c.kind === "tone_tip");
   const [first, ...rest] = ordered.filter((c) => c.kind !== "tone_tip");
   return (
-    <div className="shelf" onMouseEnter={freeze} onMouseLeave={thaw}>
+    <div className="shelf" ref={shelf} onMouseEnter={freeze} onMouseLeave={thaw}>
       {first ? (
         tile(first)
       ) : (

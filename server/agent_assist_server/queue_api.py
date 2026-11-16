@@ -70,7 +70,15 @@ def get_queue(app: FastAPI) -> QueueService:
         async def mint(room_name: str, user_name: str) -> tuple[str, int]:
             return await mint_agent_token(_daily_factory(app)(), room_name, user_name)
 
-        svc = QueueService(mint_token=mint)
+        minter: PrefetchingMinter | None = None
+
+        async def mint_prefetched(room_name: str, user_name: str) -> tuple[str, int]:
+            assert minter is not None
+            return await minter(room_name, user_name)
+
+        svc = QueueService(mint_token=mint_prefetched)
+        minter = PrefetchingMinter(mint, svc)
+        svc.subscribe(minter.on_event)
         svc.subscribe(BotNotifier(svc, lambda: _daily_factory(app)()).on_event)
         if os.environ.get(PERSIST_ENV) == "1":
             from agent_assist_server.queue_store import QueueStore
@@ -103,6 +111,61 @@ class SerialWorker:
                 await job()
             except Exception as e:
                 logger.error("%s job failed: %s", self._name, e)
+
+
+class PrefetchingMinter:
+    """Mints the agent's meeting token as soon as the offer rings, so accept does not
+    wait on Daily (P3-5: accept to hearing the caller under 2 s).
+
+    The token is kept here, in memory, and handed over only by the accept call for
+    that room and agent, so it still reaches only the accepting agent. A missed or
+    declined offer drops it (an unused non-owner token that expires in an hour). If
+    the prefetch failed or is missing, accept mints a fresh one.
+    """
+
+    def __init__(self, mint, svc: QueueService):
+        self._mint = mint
+        self._svc = svc
+        self.pending: dict[tuple[str, str], asyncio.Task] = {}
+
+    async def __call__(self, room_name: str, user_name: str) -> tuple[str, int]:
+        task = self.pending.pop((room_name, user_name), None)
+        if task is not None:
+            try:
+                return await task
+            except Exception as e:
+                logger.warning("token prefetch failed (%s); minting again", type(e).__name__)
+        return await self._mint(room_name, user_name)
+
+    def on_event(self, event: Event) -> None:
+        kind = event["type"]
+        if kind == "offer":
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                return
+            key = (event["call"]["room_name"], self._svc.get_agent(event["agent_id"]).name)
+            self._drop(key)
+            task = loop.create_task(self._mint(*key))
+            # A failed prefetch is retried on accept; do not log it as unhandled.
+            task.add_done_callback(lambda t: t.cancelled() or t.exception())
+            self.pending[key] = task
+        elif kind == "offer_missed":
+            try:
+                room = self._svc.get_call(event["session_id"] or "").room_name
+                name = self._svc.get_agent(event["agent_id"]).name
+            except QueueError:
+                return
+            self._drop((room, name))
+        elif kind == "call_ended":
+            room = event["call"]["room_name"]
+            for key in [k for k in self.pending if k[0] == room]:
+                self._drop(key)
+
+    def _drop(self, key: tuple[str, str]) -> None:
+        task = self.pending.pop(key, None)
+        if task is not None and not task.done():
+            task.cancel()
 
 
 class BotNotifier:

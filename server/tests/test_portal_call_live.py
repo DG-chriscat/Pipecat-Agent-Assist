@@ -258,23 +258,21 @@ async def test_live_portal_accepts_call_and_joins_room(schema, shots, monkeypatc
                 await hold.click()
                 assert (await agent_state(http)) == "on_call"
 
-                # ---- End: leave the room, wrap up ------------------------------------
+                # ---- End: wrap up, leave the room; the bot says goodbye and leaves ----
                 end_at = time.time()
                 await page.get_by_role("button", name="End call").click()
-                await expect(page.get_by_text("Wrap up", exact=True)).to_be_visible(timeout=10_000)
+                wrap = page.get_by_role("region", name="Wrap up")
+                await expect(wrap).to_be_visible(timeout=10_000)
                 assert (await agent_state(http)) == "wrap_up"
                 # REST presence lags; the caller's own client sees the leave at once.
                 gone = await caller.wait_for_participant_left(AGENT_NAME, timeout=15)
                 timings["end_to_agent_left_secs"] = gone.left_at - end_at
                 log(t0, f"agent left the room {timings['end_to_agent_left_secs']:.2f}s after End")
-                assert proc.returncode is None, "bot must stay with the caller"
-                assert not [
-                    p for p in caller.participants.values() if p.user_name == BOT_NAME and p.left_at
-                ]
                 await browser.close()
 
+            # P3-5: after the agent's End the bot says goodbye and exits; the room closes.
             await asyncio.wait_for(proc.wait(), 30)
-            log(t0, f"caller left; bot exited returncode={proc.returncode}")
+            log(t0, f"bot exited after End, returncode={proc.returncode}")
     finally:
         for p in launcher.processes.values():
             if p.returncode is None:

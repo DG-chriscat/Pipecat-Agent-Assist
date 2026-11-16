@@ -94,3 +94,14 @@ Icons: Lucide, 1.8 stroke, round caps (closest match to the brand icon style).
 
 ## Out of scope for this file
 Sign in, queue, and incoming call screens follow the same tokens; layouts get added here before their cards are built.
+
+## Wrap up (P3-5)
+After End or a caller hang up, the in-call frame closes and the center stage shows one glass card (max 600 px), same tokens as the incoming call card:
+- Head: info chip "Wrap up" (clipboard check icon) and a faint label naming who ended it ("You ended the call" or "The caller hung up").
+- Caller name (24 / 500), Verified chip, call length chip (mono `mm:ss`), then the **Why they called** box.
+- **Summary draft** box: AI chip "Summary draft". Until AP-9 lands it is a dashed fuchsia outline with faint placeholder copy and a "Coming soon" label; with a draft it is a solid hero-line border.
+- **Reason code**: label, then the active pack's codes as mono pill buttons (radio group). Selected: fuchsia border and 16% fuchsia fill.
+- **Notes**: textarea in the sign in field style. Cmd or Ctrl plus Enter saves.
+- Primary button "Save and go available" (fuchsia gradient), disabled until a reason code is picked.
+- Call island in wrap-up state: glass-blue dot, caller name, info chip "Wrap up", queue count.
+- After Save the idle home returns with the notice "Call saved. You are available."

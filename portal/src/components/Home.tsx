@@ -200,10 +200,12 @@ export function Home({ agent: signedIn, createSocket, createMedia, onSignOut }: 
 
   async function accept() {
     if (!offer || inFlight) return;
+    performance.mark?.("vitals:accept");
     setInFlight(offer);
     setOfferError(null);
     try {
       const res = await acceptRest(agentId, offer.call.session_id);
+      performance.mark?.("vitals:accepted");
       setEventOffer(null);
       setNotice(null);
       // AP-5: the accept summary fills the panel now; the history call fills the rest.

@@ -11,6 +11,15 @@
 import type { PipecatClient } from "@pipecat-ai/client-js";
 import type { CallMedia, CallMediaEvents } from "./media";
 
+/** Call timeline marks (performance.mark "vitals:<name>"), read by the live tests. */
+function mark(name: string): void {
+  try {
+    performance.mark(`vitals:${name}`);
+  } catch {
+    // No performance API (old test env): timing is optional.
+  }
+}
+
 export class DailyCallMedia implements CallMedia {
   private client: PipecatClient | null = null;
   private readonly audio = new Map<string, HTMLAudioElement>();
@@ -22,10 +31,12 @@ export class DailyCallMedia implements CallMedia {
   }
 
   async join(roomUrl: string, token: string): Promise<void> {
+    mark("join");
     const [{ PipecatClient }, { DailyTransport }] = await Promise.all([
       import("@pipecat-ai/client-js"),
       import("@pipecat-ai/daily-transport"),
     ]);
+    mark("sdk-loaded");
     if (this.closed) return;
     const ev = this.events;
     let joined: () => void = () => {};
@@ -36,14 +47,20 @@ export class DailyCallMedia implements CallMedia {
       enableCam: false,
       disconnectOnBotDisconnect: false,
       callbacks: {
-        onConnected: () => joined(),
+        onConnected: () => {
+          mark("connected");
+          joined();
+        },
         onServerMessage: (data: unknown) => ev.onServerMessage(data),
         onRemoteAudioLevel: (level, p) => ev.onRemoteLevel(level, p.id),
         onParticipantLeft: (p) => {
           if (!p.local) ev.onParticipantLeft(p.id);
         },
         onTrackStarted: (track, p) => {
-          if (p && !p.local && track.kind === "audio") this.play(p.id, track);
+          if (p && !p.local && track.kind === "audio") {
+            mark(`track:${p.id}`);
+            this.play(p.id, track);
+          }
         },
         onTrackStopped: (track, p) => {
           if (p && !p.local && track.kind === "audio") this.stop(p.id);

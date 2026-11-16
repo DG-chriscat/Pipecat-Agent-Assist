@@ -76,14 +76,17 @@ def hold_interval_from_env(env: Mapping[str, str] | None = None) -> float:
     return float(secs if secs > 0 else HOLD_INTERVAL_SECS)
 
 
-def hold_line(position: int | None) -> str:
+def place_line(position: int | None) -> str:
+    """The caller's place in line, the {place} part of the hold line (P5-5 setting)."""
     if position == 1:
-        where = "You're next in line."
-    elif position:
-        where = f"You're number {position} in line."
-    else:
-        where = "You're still in line."
-    return f"Thanks for waiting. {where} A person will be with you shortly."
+        return "You're next in line."
+    if position:
+        return f"You're number {position} in line."
+    return "You're still in line."
+
+
+def hold_line(position: int | None) -> str:
+    return f"Thanks for waiting. {place_line(position)} A person will be with you shortly."
 
 
 class HoldState(StrEnum):
@@ -141,11 +144,14 @@ class HoldController:
         gate: BotGate | None = None,
         interval: float = HOLD_INTERVAL_SECS,
         music: HoldMusic | None = None,
+        line: Callable[[int | None], str] = hold_line,
     ):
         self._queue_frames = queue_frames
         self.gate = gate or BotGate()
         self._interval = interval
         self.music = music
+        # The hold update for a place in line (P5-5: the Settings page's hold message).
+        self._line = line
         self.state = HoldState.INTAKE
         self.position: int | None = None
         self.agent_name: str | None = None
@@ -212,7 +218,7 @@ class HoldController:
         while self.state is HoldState.QUEUED:
             await asyncio.sleep(self._interval)
             if self.state is HoldState.QUEUED:
-                await self._queue_frames([TTSSpeakFrame(hold_line(self.position))])
+                await self._queue_frames([TTSSpeakFrame(self._line(self.position))])
 
     def _cancel_updates(self) -> None:
         if self._task is not None:

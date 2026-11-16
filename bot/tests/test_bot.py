@@ -639,7 +639,7 @@ def test_cli_requires_token():
 def test_cli_main_runs_bot_with_dialin(monkeypatch, api_keys):
     seen = {}
 
-    async def fake_run_bot(room_url, token=None, dialin=None, session_id=""):
+    async def fake_run_bot(room_url, token=None, dialin=None, session_id="", settings=None):
         seen.update(room_url=room_url, token=token, dialin=dialin)
 
     monkeypatch.setenv("DAILY_ROOM_TOKEN", "tok")
@@ -670,7 +670,7 @@ def test_cli_rejects_half_dialin(extra):
 def test_cli_main_runs_bot_without_dialin(monkeypatch, api_keys):
     seen = {}
 
-    async def fake_run_bot(room_url, token=None, dialin=None, session_id=""):
+    async def fake_run_bot(room_url, token=None, dialin=None, session_id="", settings=None):
         seen.update(room_url=room_url, token=token, dialin=dialin, session_id=session_id)
 
     monkeypatch.setenv("DAILY_ROOM_TOKEN", "tok")
@@ -682,7 +682,7 @@ def test_cli_main_runs_bot_without_dialin(monkeypatch, api_keys):
 def test_cli_main_without_session_id_makes_one(monkeypatch, api_keys):
     seen = {}
 
-    async def fake_run_bot(room_url, token=None, dialin=None, session_id=""):
+    async def fake_run_bot(room_url, token=None, dialin=None, session_id="", settings=None):
         seen["session_id"] = session_id
 
     monkeypatch.setenv("DAILY_ROOM_TOKEN", "tok")
@@ -747,7 +747,7 @@ def test_pipeline_has_gate_before_llm(api_keys):
 def test_cli_passes_session_id(monkeypatch, api_keys):
     seen = {}
 
-    async def fake_run_bot(room_url, token=None, dialin=None, session_id=""):
+    async def fake_run_bot(room_url, token=None, dialin=None, session_id="", settings=None):
         seen.update(session_id=session_id)
 
     monkeypatch.setenv("DAILY_ROOM_TOKEN", "tok")
@@ -951,3 +951,131 @@ async def test_call_ended_by_agent_ends_the_bot():
     assert worker.cancelled
     assert ended == [True]
     assert h.ended == []
+
+
+# ---- P5-5: the call's settings shape the pipeline --------------------------------------
+
+
+def _tts(worker):
+    from pipecat.services.tts_service import TTSService
+
+    inner = next(p for p in worker._pipeline.processors if type(p).__name__ == "Pipeline")
+    return next(p for p in inner.processors if isinstance(p, TTSService))
+
+
+def test_default_call_uses_flux_alexis(api_keys):
+    """IN-11: Flux is the default voice (docs/spikes/tts-flux-vs-aura.md)."""
+    from pipecat.services.deepgram.flux.tts import DeepgramFluxTTSService
+
+    worker, _ = bot.build_worker(ROOM, "tok", store=MemoryCallStore())
+    tts = _tts(worker)
+    assert isinstance(tts, DeepgramFluxTTSService) and tts._settings.voice == "flux-alexis-en"
+
+
+def test_aura_settings_put_the_aura_service_in_the_pipeline(api_keys):
+    from agent_assist_bot.call_settings import CallSettings
+    from pipecat.services.deepgram.tts import DeepgramTTSService
+
+    s = CallSettings.from_mapping({"tts_model": "aura-2", "tts_voice": "aura-2-thalia-en"}, env={})
+    worker, _ = bot.build_worker(ROOM, "tok", store=MemoryCallStore(), settings=s)
+    tts = _tts(worker)
+    assert type(tts) is DeepgramTTSService and tts._settings.voice == "aura-2-thalia-en"
+
+
+def test_flux_settings_put_the_flux_service_in_the_pipeline(api_keys):
+    from agent_assist_bot.call_settings import CallSettings
+    from pipecat.services.deepgram.flux.tts import DeepgramFluxTTSService
+
+    s = CallSettings.from_mapping({"tts_model": "flux", "tts_voice": "flux-alexis-en"}, env={})
+    worker, _ = bot.build_worker(ROOM, "tok", store=MemoryCallStore(), settings=s)
+    tts = _tts(worker)
+    assert isinstance(tts, DeepgramFluxTTSService) and tts._settings.voice == "flux-alexis-en"
+    # The greeting timer still sits right after the TTS, before the output (IN-1 log).
+    inner = next(p for p in worker._pipeline.processors if type(p).__name__ == "Pipeline")
+    names = [type(p).__name__ for p in inner.processors]
+    assert names[names.index("DeepgramFluxTTSService") + 1] == "FirstAudioTimer"
+
+
+async def test_settings_pick_the_pack_greeting_and_read_back(api_keys, monkeypatch):
+    from agent_assist_bot.call_settings import CallSettings
+
+    seen = {}
+    real = bot.IntakeSession
+
+    def spy(**kw):
+        s = real(**kw)
+        seen["session"] = s
+        return s
+
+    monkeypatch.setattr(bot, "IntakeSession", spy)
+    greeting = "Hello. You're talking to an AI assistant, and a person will join after."
+    s = CallSettings.from_mapping(
+        {"intake_pack": "account_payments", "greeting_text": greeting, "identity_read_back": False},
+        env={},
+    )
+    bot.build_worker(ROOM, "tok", store=MemoryCallStore(), settings=s)
+    session = seen["session"]
+    assert session.pack.id == "account_payments"
+    assert session.greeting == greeting and session.identity_read_back is False
+
+
+async def test_settings_set_the_hold_interval_and_line(api_keys, monkeypatch):
+    from agent_assist_bot.call_settings import CallSettings
+
+    made = {}
+    real = bot.HoldController
+
+    def spy(*a, **kw):
+        made.update(kw)
+        return real(*a, **kw)
+
+    monkeypatch.setattr(bot, "HoldController", spy)
+    s = CallSettings.from_mapping(
+        {"hold_update_secs": 25, "hold_update_text": "Still here. {place}"}, env={}
+    )
+    bot.build_worker(ROOM, "tok", store=MemoryCallStore(), settings=s)
+    assert made["interval"] == 25
+    assert made["line"](2) == "Still here. You're number 2 in line."
+
+
+async def test_run_bot_passes_the_settings_to_build_worker(monkeypatch):
+    from agent_assist_bot.call_settings import CallSettings
+
+    class FakeRunner:
+        def __init__(self, **kwargs):
+            pass
+
+        async def add_workers(self, *workers):
+            pass
+
+        async def run(self):
+            pass
+
+    seen = {}
+
+    def fake_build_worker(room_url, token=None, dialin=None, session_id="", **kwargs):
+        seen.update(kwargs)
+        return object(), None
+
+    monkeypatch.setattr(bot, "WorkerRunner", FakeRunner)
+    monkeypatch.setattr(bot, "build_worker", fake_build_worker)
+    s = CallSettings.defaults({})
+    await bot.run_bot(ROOM, "tok", None, session_id="s", settings=s)
+    assert seen["settings"] is s
+
+
+def test_flow_manager_uses_the_uninterruptible_tts_say(api_keys, monkeypatch):
+    from agent_assist_bot import intake as intake_mod
+
+    seen = {}
+    real = bot.FlowManager
+
+    def spy(**kw):
+        fm = real(**kw)
+        seen["fm"] = fm
+        return fm
+
+    monkeypatch.setattr(bot, "FlowManager", spy)
+    bot.build_worker(ROOM, "tok", store=MemoryCallStore())
+    handlers = seen["fm"]._action_manager._action_handlers
+    assert handlers["tts_say"] is intake_mod.uninterruptible_tts_say

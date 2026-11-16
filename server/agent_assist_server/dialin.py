@@ -31,6 +31,7 @@ from agent_assist_server.bot_launcher import (
 from agent_assist_server.bot_launcher import log_timing as _log_timing
 from agent_assist_server.daily import DailyAPIError, DailyConfigError, DailyRestClient
 from agent_assist_server.queue_api import get_queue
+from agent_assist_server.settings_api import get_call_settings
 
 logger = logging.getLogger(__name__)
 
@@ -148,6 +149,7 @@ async def daily_dialin_webhook(request: Request, background: BackgroundTasks) ->
             call_domain=call.call_domain,
             session_id=session_id,
         ),
+        get_call_settings(request.app),
     )
 
     return {"status": "OK", "sessionId": session_id, "dailyRoom": room.url}

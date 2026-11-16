@@ -69,10 +69,22 @@ def reason_codes(pack: str | None = None) -> list[dict[str, str]]:
     return [{"code": c, "label": label} for c, label in _load_codes(path, path.stat().st_mtime)]
 
 
-def _call_pack(call: Any) -> str:
-    """The pack whose codes this call's wrap up uses: the draft's, else the active one."""
+def _call_pack(app: Any, call: Any) -> str:
+    """The pack whose codes this call's wrap up uses: the draft's (the bot names the pack
+    it ran), else the pack in the settings the call was assigned with (P5-5), else the
+    active one."""
     draft = call.wrap_up_draft or {}
     pack = draft.get("pack_id")
+    if isinstance(pack, str) and pack_exists(pack):
+        return pack
+    return _settings_pack(app, call.session_id)
+
+
+def _settings_pack(app: Any, session_id: str) -> str:
+    from agent_assist_server.settings_api import get_call_settings
+
+    values = get_call_settings(app).for_session(session_id)
+    pack = values.get("intake_pack") if values else None
     return pack if isinstance(pack, str) and pack_exists(pack) else active_pack()
 
 
@@ -109,7 +121,7 @@ async def wrap_up_view(
     end = call.ended_at if call.ended_at is not None else now
     start = call.answered_at if call.answered_at is not None else end
     draft = call.wrap_up_draft or {}
-    pack = _call_pack(call)
+    pack = _call_pack(request.app, call)
     return {
         "session_id": call.session_id,
         "status": call.status.value,
@@ -131,9 +143,9 @@ async def wrap_up_view(
 async def save_wrap_up(agent_id: str, body: WrapUpRequest, request: Request) -> dict[str, Any]:
     svc = get_queue(request.app)
     try:
-        pack = _call_pack(svc.get_call(body.session_id))
+        pack = _call_pack(request.app, svc.get_call(body.session_id))
     except QueueError:
-        pack = active_pack()
+        pack = _settings_pack(request.app, body.session_id)
     if body.reason_code not in {c["code"] for c in reason_codes(pack)}:
         raise HTTPException(status_code=422, detail="pick a reason code from the list")
     if len(body.notes.strip()) > MAX_NOTES:

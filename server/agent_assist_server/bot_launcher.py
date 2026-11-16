@@ -19,13 +19,15 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import dataclasses
 import json
 import logging
 import os
 import sys
 import time
 from collections.abc import Callable, Mapping
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
+from typing import Any, Protocol
 
 from agent_assist_server import auth
 
@@ -33,6 +35,8 @@ logger = logging.getLogger(__name__)
 
 BOT_MODULE = "agent_assist_bot"
 TOKEN_ENV = "DAILY_ROOM_TOKEN"
+# P5-5: a cold bot gets its call's settings as JSON here (a warm one on stdin).
+SETTINGS_ENV = "AGENT_ASSIST_BOT_SETTINGS"
 WARM_FLAG = "--warm"
 READY_LINE = "agent_assist_bot warm ready"
 WARM_POOL_ENV = "WARM_BOT_POOL"
@@ -55,13 +59,17 @@ WARM_WAIT_SECS = 12.0
 @dataclass(frozen=True)
 class BotLaunchRequest:
     """One bot process. call_id/call_domain are set for dial-in calls only; a browser
-    caller (IN-12) leaves them None and the bot joins without dial-in settings."""
+    caller (IN-12) leaves them None and the bot joins without dial-in settings.
+
+    `settings` (P5-5) are the bot settings read when the call was assigned
+    (settings_api.CallSettingsBook); None means the bot's own defaults."""
 
     room_url: str
     token: str
     session_id: str
     call_id: str | None = None
     call_domain: str | None = None
+    settings: dict[str, Any] | None = field(default=None, compare=False)
 
 
 def build_bot_command(req: BotLaunchRequest, python: str | None = None) -> list[str]:
@@ -81,6 +89,7 @@ def build_warm_env(base: Mapping[str, str] | None = None) -> dict[str, str]:
     handoff endpoints, never the app password or the session secret itself (P2-6)."""
     env = dict(os.environ if base is None else base)
     env.pop(TOKEN_ENV, None)
+    env.pop(SETTINGS_ENV, None)
     password = env.pop(auth.PASSWORD_ENV, "")
     secret = env.pop(auth.SECRET_ENV, "")
     env.pop(auth.BOT_KEY_ENV, None)
@@ -92,6 +101,8 @@ def build_warm_env(base: Mapping[str, str] | None = None) -> dict[str, str]:
 def build_bot_env(req: BotLaunchRequest, base: dict[str, str] | None = None) -> dict[str, str]:
     env = build_warm_env(base)
     env[TOKEN_ENV] = req.token
+    if req.settings is not None:
+        env[SETTINGS_ENV] = json.dumps(req.settings)
     return env
 
 
@@ -298,10 +309,18 @@ class WarmBotPool:
         self._spawn_task(self._refill_after(self._retry_delay))
 
 
+def assignment_line(req: BotLaunchRequest) -> str:
+    """The JSON line a warm bot reads (agent_assist_bot.warm.read_assignment)."""
+    data = asdict(req)
+    if data["settings"] is None:
+        del data["settings"]
+    return json.dumps(data) + "\n"
+
+
 async def assign(proc: asyncio.subprocess.Process, req: BotLaunchRequest) -> None:
     """Hand a warm bot its call: one JSON line on stdin, then EOF."""
     assert proc.stdin is not None
-    proc.stdin.write((json.dumps(asdict(req)) + "\n").encode())
+    proc.stdin.write(assignment_line(req).encode())
     await proc.stdin.drain()
     proc.stdin.close()
 
@@ -372,10 +391,21 @@ def get_launcher(app) -> BotLauncher:
     return launcher
 
 
-async def launch_in_background(launcher: BotLauncher, req: BotLaunchRequest) -> None:
+class CallSettings(Protocol):
+    async def for_call(self, session_id: str) -> dict[str, Any] | None: ...
+
+
+async def launch_in_background(
+    launcher: BotLauncher, req: BotLaunchRequest, settings: CallSettings | None = None
+) -> None:
     """Run after the HTTP response: the launch may wait for a warm bot that is still
     loading. Logs the `bot_launched` timing line (with warm or cold); errors are
-    logged, since there is no request left to fail."""
+    logged, since there is no request left to fail.
+
+    P5-5: the bot settings are read here, at room assignment (not when a warm bot
+    starts), so the call gets what was saved when it came in and keeps it."""
+    if settings is not None and req.settings is None:
+        req = dataclasses.replace(req, settings=await settings.for_call(req.session_id))
     try:
         await launcher.launch(req)
     except Exception:

@@ -7,7 +7,8 @@ Warm (P5-2):     `python -m agent_assist_bot --warm` (preload, then the call arr
 
 Both run the same build_worker and greeting; dial-in only adds the transport's
 dialin_settings. The meeting token comes from the DAILY_ROOM_TOKEN env var so it
-stays off argv.
+stays off argv. The call's bot settings (P5-5, agent_assist_bot.call_settings) come
+with the warm assignment, or as JSON in AGENT_ASSIST_BOT_SETTINGS for a cold start.
 """
 
 from __future__ import annotations
@@ -17,7 +18,8 @@ import asyncio
 import os
 import sys
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
 
 from agent_assist_bot import warm
 from agent_assist_bot.bot import (
@@ -27,6 +29,7 @@ from agent_assist_bot.bot import (
     require_keys,
     run_bot,
 )
+from agent_assist_bot.call_settings import CallSettings
 from agent_assist_bot.timing import log_timing
 
 TOKEN_ENV = "DAILY_ROOM_TOKEN"
@@ -40,6 +43,8 @@ class DialinArgs:
     call_id: str | None = None
     call_domain: str | None = None
     session_id: str = ""
+    # P5-5: from the warm assignment; None means read the env (cold) or defaults.
+    settings: dict[str, Any] | None = field(default=None, compare=False)
 
     def dialin_config(self, daily_api_key: str, api_url: str) -> DialinConfig | None:
         """Dial-in settings, or None for a browser caller (no call_id/call_domain)."""
@@ -51,6 +56,11 @@ class DialinArgs:
             api_key=daily_api_key,
             api_url=api_url,
         )
+
+    def call_settings(self) -> CallSettings:
+        if self.settings is not None:
+            return CallSettings.from_mapping(self.settings)
+        return CallSettings.from_env()
 
 
 def parse_args(argv: list[str] | None = None, env: dict[str, str] | None = None) -> DialinArgs:
@@ -92,7 +102,10 @@ def run_call(args: DialinArgs, keys: dict[str, str]) -> int:
     api_url = os.environ.get("DAILY_API_URL", DEFAULT_DAILY_API_URL)
     dialin = args.dialin_config(keys["DAILY_API_KEY"], api_url)
     session_id = args.session_id or str(uuid.uuid4())
-    asyncio.run(run_bot(args.room_url, args.token, dialin, session_id=session_id))
+    settings = args.call_settings()
+    asyncio.run(
+        run_bot(args.room_url, args.token, dialin, session_id=session_id, settings=settings)
+    )
     return 0
 
 

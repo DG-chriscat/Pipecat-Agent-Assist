@@ -10,6 +10,7 @@ import {
   setStatusRest,
   type QueueSocket,
 } from "../api/queueClient";
+import { settingsApi } from "../api/settingsClient";
 import type { Agent, AgentState, ServerMessage, WrapUpInfo } from "../api/types";
 import type { CreateMedia } from "../call/media";
 import { useCall } from "../hooks/useCall";
@@ -19,7 +20,8 @@ import type { Theme } from "../state/theme";
 import { InCall } from "./InCall";
 import { IncomingCall } from "./IncomingCall";
 import type { PhiFieldName } from "./PhiField";
-import { Shell, type ShellAgent } from "./Shell";
+import { Settings } from "./Settings";
+import { Shell, type Page, type ShellAgent } from "./Shell";
 import { StatusToggle } from "./StatusToggle";
 import { WrapUp } from "./WrapUp";
 
@@ -73,6 +75,7 @@ export function Home({ agent: signedIn, theme, onTheme, createSocket, createMedi
   const [wrapAttempt, setWrapAttempt] = useState(0);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [page, setPage] = useState<Page>("calls");
   const { call, start, prepare, discard, setDetails, leave, toggleMute, toggleHold, assistAction } =
     useCall(createMedia);
 
@@ -210,6 +213,13 @@ export function Home({ agent: signedIn, theme, onTheme, createSocket, createMedi
 
   const live = status === "open" && state.synced && !!agent;
   const available = agentState === "available";
+  // P5-5: the Settings page. A ringing, live, or wrap up call always shows Calls, and
+  // moves the rail back to Calls so the agent lands there after the call too.
+  const busyWithCall = !!call || !!offer || !!wrapSession;
+  useEffect(() => {
+    if (busyWithCall) setPage("calls");
+  }, [busyWithCall]);
+  const onSettings = page === "settings" && !busyWithCall;
 
   function toggle() {
     const target: AgentState = available ? "offline" : "available";
@@ -311,6 +321,8 @@ export function Home({ agent: signedIn, theme, onTheme, createSocket, createMedi
     theme,
     onTheme,
     onSignOut: signOut,
+    page: onSettings ? "settings" : "calls",
+    onPage: setPage,
   };
 
   if (call) {
@@ -389,8 +401,10 @@ export function Home({ agent: signedIn, theme, onTheme, createSocket, createMedi
         </>
       }
     >
-      <main className="center-stage">
-        {wrapSession ? (
+      <main className={`center-stage${onSettings ? " is-settings" : ""}`}>
+        {onSettings ? (
+          <Settings api={settingsApi} agentName={signedIn.name} />
+        ) : wrapSession ? (
           <WrapUp
             key={wrapSession}
             info={wrapView?.info ?? null}

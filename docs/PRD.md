@@ -158,6 +158,7 @@ A use case pack bundles everything one kind of call needs: intake questions, tri
 | DC-7 | Assist limits itself to a set number of new cards per minute, so the feed stays readable. | Should |
 | DC-8 | An Interactions connector returns a member's past calls (date, duration, queue, outcome, notes) for caller history and repeat caller detection. | Must |
 | DC-9 | Next best step actions in v1 are simulated: accepting logs the action on the call record and ticks the call plan. Nothing writes back to source systems. | Must |
+| DC-11 | The LLM for each job (intake, assist and Ask, wrap up) is selectable in Settings: Claude Haiku, Deepgram phoneLLM mini, or Deepgram Think-Fast. Deepgram LLMs are Early Access (not for production traffic). phoneLLM mini with MIP opt out becomes the default for a job where it matches Claude on the scripted tests; Think-Fast is always stored for Deepgram model training. | Should |
 | DC-10 | Each pack defines its next best step rules: trigger phrases, required facts, script template, and action. | Must |
 
 ### Guardrails

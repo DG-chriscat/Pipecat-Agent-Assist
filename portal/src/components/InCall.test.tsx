@@ -88,7 +88,7 @@ describe("InCall shell (AP-4)", () => {
     const caller = screen.getByRole("complementary", { name: /caller/i });
     expect(within(caller).getByText("Maria Lopez", { exact: false })).toBeInTheDocument();
     // AP-17: masked in the panel.
-    expect(within(caller).getByTestId("phi-member_id")).toHaveTextContent("••••31");
+    expect(within(caller).getByTestId("phi-member_id")).toHaveTextContent("••••02");
     expect(within(caller).queryByText("418302")).not.toBeInTheDocument();
     expect(within(caller).getByText("MRI claim from Oct 28 was denied")).toBeInTheDocument();
     const assist = screen.getByRole("region", { name: /assist/i });

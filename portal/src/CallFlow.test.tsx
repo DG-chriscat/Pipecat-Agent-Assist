@@ -182,7 +182,7 @@ describe("incoming call and in-call shell (AP-3, AP-4, QH-6, QH-7)", () => {
     const caller = screen.getByRole("complementary", { name: /caller/i });
     expect(caller).toHaveTextContent("Maria Lopez");
     // AP-17: masked until Reveal.
-    expect(caller).toHaveTextContent("••••31");
+    expect(caller).toHaveTextContent("••••02");
     expect(caller).not.toHaveTextContent("418302");
     expect(caller).toHaveTextContent("MRI claim from Oct 28 was denied");
     expect(screen.getByRole("group", { name: /call/i })).toHaveTextContent(/connecting/i);
@@ -340,7 +340,7 @@ describe("incoming call and in-call shell (AP-3, AP-4, QH-6, QH-7)", () => {
     send({ type: "transcript", role: "agent", text: "Let me check", is_final: false, ts: 3, line_id: "agent-1" });
     send({ type: "card", text: "not a transcript" });
     const rows = within(col).getAllByRole("listitem");
-    expect(rows.map((r) => r.textContent)).toEqual(["MAI already called.", "YouLet me check"]);
+    expect(rows.map((r) => r.textContent)).toEqual(["MLI already called.", "YouLet me check"]);
     expect(within(col).getByText("I already called.")).not.toHaveClass("typing");
   });
 
@@ -647,7 +647,7 @@ describe("incoming call and in-call shell (AP-3, AP-4, QH-6, QH-7)", () => {
       ),
     );
     // P5-3: plan on its own line, the masked ID with Reveal under it.
-    expect(within(panel).getByTestId("caller-id")).toHaveTextContent(/^Evergreen HMO Silver••••31Reveal$/);
+    expect(within(panel).getByTestId("caller-id")).toHaveTextContent(/^Evergreen HMO Silver••••02Reveal$/);
     expect(panel).toHaveTextContent("••/••/1984");
     expect(panel).not.toHaveTextContent("Mar 12, 1984");
     expect(within(panel).getByText("Repeat caller")).toBeInTheDocument();

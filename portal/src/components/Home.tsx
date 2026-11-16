@@ -21,6 +21,7 @@ import { offerFor, type Offer } from "../state/offer";
 import { pageFromPath, pathForPage } from "../state/route";
 import type { Theme } from "../state/theme";
 import { Architecture } from "./Architecture";
+import { Demos } from "./Demos";
 import { InCall } from "./InCall";
 import { IncomingCall } from "./IncomingCall";
 import type { PhiFieldName } from "./PhiField";
@@ -237,6 +238,7 @@ export function Home({ agent: signedIn, theme, onTheme, createSocket, createMedi
   }, [busyWithCall, setPage]);
   const onSettings = page === "settings" && !busyWithCall;
   const onArchitecture = page === "architecture" && !busyWithCall;
+  const onDemos = page === "demos" && !busyWithCall;
 
   function toggle() {
     const target: AgentState = available ? "offline" : "available";
@@ -356,13 +358,15 @@ export function Home({ agent: signedIn, theme, onTheme, createSocket, createMedi
     theme,
     onTheme,
     onSignOut: signOut,
-    page: onSettings ? "settings" : onArchitecture ? "architecture" : "calls",
+    page: onSettings ? "settings" : onArchitecture ? "architecture" : onDemos ? "demos" : "calls",
     onPage: setPage,
   };
 
   // AP-21: the Architecture page has its own header (view toggle, walk, export, present).
   // Home stays mounted, so the queue socket keeps running and a ring still comes through.
   if (onArchitecture) return <Architecture shell={shellAgent} />;
+  // P5-10: the Demos page, same rule (the queue socket keeps running behind it).
+  if (onDemos) return <Demos shell={shellAgent} />;
 
   if (call) {
     return (

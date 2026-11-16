@@ -71,7 +71,7 @@ CALLER_TRIGGER = "So why did my MRI claim get denied?"
 INTAKE_LINES = dict(
     SCRIPT,
     identity=(
-        "Sure. My name is Maria Lopez, that's A L V A R E Z. My date of birth is March "
+        "Sure. My name is Maria Lopez, that's L O P E Z. My date of birth is March "
         "twelfth, nineteen eighty four. And my member ID is four one eight, three zero two."
     ),
 )

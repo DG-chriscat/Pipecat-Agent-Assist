@@ -1,5 +1,10 @@
 # Deepgram LLMs per job (card t_dd6ffd58, P5-9, PRD DC-11)
 
+> Note (Nov 16, P5-10): demo IDs and names changed after this was written. Member IDs
+> are now 6 digits (Maria Alvarez EVM100231 is now Maria Lopez 418302) and claim
+> numbers 5 digits (CLM-900001 is now 70412); see docs/db.md. The results below are
+> kept as measured, with the old IDs.
+
 Result in one line: **phoneLLM mini is the intake default** (identity 10 of 10, same as
 Claude Haiku, and it answers the caller 0.43 s sooner at the median); **Claude Haiku
 stays the default for assist and wrap up**, where phoneLLM mini did not do the job

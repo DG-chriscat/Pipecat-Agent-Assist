@@ -1,0 +1,270 @@
+# Demo personas for the portal's Demos page (P5-10, docs/demos.md). Mock data only.
+#
+# Source of truth for the Demos page and the browser caller's script panel
+# (/caller?persona=<key>). server/tests/test_demo_personas.py fails if a persona's
+# name, DOB, member ID, plan, or claim does not match server/agent_assist_server/db/seed.py.
+# `in_seed: false` marks the one caller who is deliberately not a member.
+#
+# Per persona: what to say to start (`start_line`), what the audience should see
+# (`audience_sees`), the feature chips (`features`, vocabulary in demo_personas.py),
+# and the step by step `script`: lines to say to the bot (intake answers) first, then
+# lines to say to the agent to trigger the cards.
+
+phone_line:
+  number: "+1 (612) 746-7133"
+  password_hint: ask Chris
+
+personas:
+  - key: maria_lopez
+    name: Maria Lopez
+    dob: "1984-03-12"
+    dob_said: March twelfth, nineteen eighty four
+    member_id: "418302"
+    plan_id: PLN-HMO-SILVER
+    claim_id: "70412"
+    in_seed: true
+    hero: true
+    pack: claims_status
+    case: MRI claim 70412 denied, missing prior authorization
+    start_line: My MRI claim was denied and I don't know why.
+    audience_sees:
+      headline: Start a retro authorization review for 70412.
+      cards: [Denied claim 70412 (CO-197), Call plan, Repeat caller badge, KB-CL-002 article]
+    features: [identity_verified, repeat_caller, wrap_up]
+    kb_articles: [KB-CL-002, KB-CL-009]
+    script:
+      - {to: bot, say: "My name is Maria Lopez. My date of birth is March twelfth, nineteen eighty four. My member ID is four one eight, three zero two."}
+      - {to: bot, say: "Yes, that's right."}
+      - {to: bot, say: "My MRI claim was denied and I don't know why."}
+      - {to: bot, say: "Yes, the claim number is seven zero, four one two."}
+      - {to: bot, say: "About a month ago, at Riverside Imaging Center."}
+      - {to: bot, say: "It was denied. The letter said something about no prior authorization."}
+      - {to: bot, say: "Yes, that's right."}
+      - {to: agent, say: "Hi, my MRI claim was denied. They said there was no prior authorization.", note: The hero appears with the retro review.}
+      - {to: agent, say: "So what do I do now?", note: "Agent presses Enter to accept, then End: the wrap up draft names 70412."}
+
+  - key: james_carter
+    name: James Carter
+    dob: "1979-07-04"
+    dob_said: July fourth, nineteen seventy nine
+    member_id: "527194"
+    plan_id: PLN-PPO-GOLD
+    in_seed: true
+    pack: account_payments
+    case: Premium drafted twice this month, refund the duplicate
+    start_line: I was charged twice for this month's premium.
+    audience_sees:
+      headline: Refund the duplicate premium draft.
+      cards: [Possible duplicate premium charge alert, Payment history, KB-BL-001 article]
+    features: [identity_verified, duplicate_charge, wrap_up]
+    kb_articles: [KB-BL-001]
+    script:
+      - {to: bot, say: "My name is James Carter. My date of birth is July fourth, nineteen seventy nine. My member ID is five two seven, one nine four."}
+      - {to: bot, say: "Yes, that's right."}
+      - {to: bot, say: "I was charged twice for this month's premium."}
+      - {to: bot, say: "No, I don't have a claim number. It's my premium payment."}
+      - {to: bot, say: "On the first of this month."}
+      - {to: bot, say: "The premium was taken out of my bank account twice."}
+      - {to: bot, say: "Yes, that's right."}
+      - {to: agent, say: "Hi, I was charged twice for my premium this month.", note: The duplicate charge alert and the refund hero appear.}
+      - {to: agent, say: "Can I get a refund for the second one?"}
+
+  - key: sarah_miller
+    name: Sarah Miller
+    dob: "1988-06-15"
+    dob_said: June fifteenth, nineteen eighty eight
+    member_id: "639251"
+    plan_id: PLN-HMO-GOLD
+    claim_id: "31845"
+    in_seed: true
+    pack: claims_status
+    case: Stress test claim 31845 pending for weeks, third call, frustrated
+    start_line: My claim has been pending for weeks and this is my third call.
+    audience_sees:
+      headline: Contact Northgate Cardiology for the missing information.
+      cards: [Tone tip when the caller gets upset, Repeat caller badge, Claims, KB-CL-007 article]
+    features: [identity_verified, repeat_caller, tone_tip]
+    kb_articles: [KB-CL-007]
+    script:
+      - {to: bot, say: "My name is Sarah Miller. My date of birth is June fifteenth, nineteen eighty eight. My member ID is six three nine, two five one."}
+      - {to: bot, say: "Yes, that's right."}
+      - {to: bot, say: "I'm checking on a claim for my cardiac stress test. It's been pending forever."}
+      - {to: bot, say: "Yes, the claim number is three one, eight four five."}
+      - {to: bot, say: "About five weeks ago, at Northgate Cardiology."}
+      - {to: bot, say: "It's still pending. It's been about three weeks."}
+      - {to: bot, say: "Yes, that's right."}
+      - {to: agent, say: "Hi. My stress test claim is still pending."}
+      - {to: agent, say: "This is the third time I've called about this and nobody has fixed it. I'm really fed up.", note: Said with frustration; the tone tip appears.}
+      - {to: agent, say: "Why is it taking so long?", note: The provider follow up hero appears.}
+
+  - key: linda_nguyen
+    name: Linda Nguyen
+    dob: "1958-04-22"
+    dob_said: April twenty second, nineteen fifty eight
+    member_id: "741526"
+    plan_id: PLN-MA-PLUS
+    claim_id: "52976"
+    in_seed: true
+    pack: claims_status
+    case: Dermatology claim 52976 denied out of network; hard last name
+    start_line: My dermatology visit was denied and I want to know how to appeal.
+    audience_sees:
+      headline: Confirm who you're speaking with.
+      cards: [Verify caller hero (heard vs on file), Locked records until Mark verified, then denied claim 52976 and the appeal step]
+    features: [close_match, kb_article, wrap_up]
+    kb_articles: [KB-CL-003, KB-CL-008]
+    script:
+      - {to: bot, say: "My name is Linda Nguyen. My date of birth is April twenty second, nineteen fifty eight. My member ID is seven four one, five two six.", note: Say the last name naturally; the bot often hears it as Yuen or Win.}
+      - {to: bot, say: "No, my name is Linda, L I N D A, Nguyen.", note: Only if the read back gets the name wrong. One fix, then intake moves on.}
+      - {to: bot, say: "My dermatology visit was denied and I want to know how to appeal."}
+      - {to: bot, say: "Yes, the claim number is five two, nine seven six."}
+      - {to: bot, say: "About six weeks ago, at Bayview Dermatology."}
+      - {to: bot, say: "It was denied. They said the doctor was out of network."}
+      - {to: bot, say: "Yes, that's right."}
+      - {to: agent, say: "Hi, I'm calling about my dermatology claim.", note: "Agent checks the name and presses Mark verified: the records unlock."}
+      - {to: agent, say: "They said it was out of network. Can I appeal?", note: The appeal step appears.}
+
+  - key: mark_hill
+    name: Mark Hill
+    dob: "1975-10-06"
+    dob_said: October sixth, nineteen seventy five
+    member_id: "285916"
+    plan_id: PLN-HMO-GOLD
+    claim_id: "46183"
+    in_seed: true
+    pack: claims_status
+    case: Urgent care claim 46183 in review; two members named Mark Hill
+    start_line: I'm calling to check on a claim for an urgent care visit.
+    audience_sees:
+      headline: The right Mark Hill, picked by date of birth.
+      cards: [Identity 3 of 3, Claims (46183 in review), Call plan]
+    features: [identity_verified, name_collision]
+    script:
+      - {to: bot, say: "My name is Mark Hill. My date of birth is October sixth, nineteen seventy five. My member ID is two eight five, nine one six."}
+      - {to: bot, say: "Yes, that's right."}
+      - {to: bot, say: "I'm calling to check on a claim for an urgent care visit."}
+      - {to: bot, say: "Yes, the claim number is four six, one eight three."}
+      - {to: bot, say: "About two weeks ago, at Cedar Urgent Care."}
+      - {to: bot, say: "It still says in review and I want to know when it will be paid."}
+      - {to: bot, say: "Yes, that's right."}
+      - {to: agent, say: "Hi, what's the status of my urgent care claim?", note: "The other Mark Hill (born 1986) has a different plan: point out that his records never show."}
+
+  - key: aisha_patel
+    name: Aisha Patel
+    dob: "1995-08-09"
+    dob_said: August ninth, nineteen ninety five
+    member_id: "174839"
+    plan_id: PLN-HMO-SILVER
+    claim_id: "19374"
+    in_seed: true
+    pack: general_question
+    case: Asks what an explanation of benefits is for claim 19374; hard first name
+    start_line: I got an explanation of benefits and I don't understand it.
+    audience_sees:
+      headline: Knowledge base answer on reading an EOB.
+      cards: [KB-CL-010 article, Verify caller hero if heard as Ayesha]
+    features: [close_match, kb_article]
+    kb_articles: [KB-CL-010]
+    script:
+      - {to: bot, say: "My name is Aisha Patel. My date of birth is August ninth, nineteen ninety five. My member ID is one seven four, eight three nine."}
+      - {to: bot, say: "Yes, that's right."}
+      - {to: bot, say: "I got an explanation of benefits in the mail and I don't understand it."}
+      - {to: bot, say: "Yes, the claim number is one nine, three seven four."}
+      - {to: bot, say: "It was a specialist visit last month at Lakeside Family Medicine."}
+      - {to: bot, say: "I don't know if it's a bill or what I owe."}
+      - {to: bot, say: "Yes, that's right."}
+      - {to: agent, say: "Hi. What is an explanation of benefits? Is it a bill?", note: The EOB article card appears.}
+
+  - key: david_brooks
+    name: David Brooks
+    dob: "1971-09-25"
+    dob_said: September twenty fifth, nineteen seventy one
+    member_id: "263048"
+    plan_id: PLN-HDHP-HSA
+    in_seed: true
+    pack: general_question
+    case: How the deductible and out of pocket maximum work on his HSA plan
+    start_line: I have a question about my deductible.
+    audience_sees:
+      headline: Knowledge base answer on copays, deductibles, and the out of pocket maximum.
+      cards: [KB-BL-005 article, Call plan]
+    features: [identity_verified, kb_article, wrap_up]
+    kb_articles: [KB-BL-005]
+    script:
+      - {to: bot, say: "My name is David Brooks. My date of birth is September twenty fifth, nineteen seventy one. My member ID is two six three, zero four eight."}
+      - {to: bot, say: "Yes, that's right."}
+      - {to: bot, say: "I have a question about my deductible."}
+      - {to: bot, say: "No, I don't have a claim number. It's a general question."}
+      - {to: bot, say: "It's not about a visit."}
+      - {to: bot, say: "I want to know how much I pay before the plan pays."}
+      - {to: bot, say: "Yes, that's right."}
+      - {to: agent, say: "Hi. How does my deductible work, and what's the out of pocket maximum?", note: The article card appears.}
+
+  - key: ben_cole
+    name: Ben Cole
+    dob: "1990-05-17"
+    dob_said: May seventh, nineteen ninety
+    member_id: "852617"
+    plan_id: PLN-EPO-BRONZE
+    in_seed: true
+    pack: claims_status
+    case: Gives the wrong date of birth; knee surgery prior auth PA-500101 pending
+    start_line: I want to check on the prior authorization for my knee surgery.
+    audience_sees:
+      headline: Confirm who you're speaking with.
+      cards: [Verify caller hero (date of birth did not match), Locked records, then the prior auth step after Mark verified]
+    features: [not_verified]
+    script:
+      - {to: bot, say: "My name is Ben Cole. My date of birth is May seventh, nineteen ninety. My member ID is eight five two, six one seven.", note: "On purpose: the real DOB is May 17."}
+      - {to: bot, say: "Yes, that's right."}
+      - {to: bot, say: "I want to check the status of the prior authorization for my knee surgery."}
+      - {to: bot, say: "I don't have a claim number. It's a prior authorization."}
+      - {to: bot, say: "The surgery is planned for next month at Pine Hill Orthopedics."}
+      - {to: bot, say: "It's still pending and I need to schedule the surgery."}
+      - {to: bot, say: "Yes, that's right."}
+      - {to: agent, say: "Sorry, my birthday is May seventeenth, not the seventh.", note: Agent marks verified; the prior auth step appears.}
+      - {to: agent, say: "Is my surgery authorization approved yet?"}
+
+  - key: tom_reed
+    name: Tom Reed
+    dob: "1980-01-20"
+    dob_said: January twentieth, nineteen eighty
+    member_id: "592614"
+    plan_id: ""
+    in_seed: false
+    pack: claims_status
+    case: Not a member; the record gate stays locked
+    start_line: I'm calling about a claim.
+    audience_sees:
+      headline: Confirm who you're speaking with (no member found).
+      cards: [Verify caller hero in clay, Locked records that stay locked]
+    features: [not_found]
+    script:
+      - {to: bot, say: "My name is Tom Reed. My date of birth is January twentieth, nineteen eighty. My member ID is five nine two, six one four."}
+      - {to: bot, say: "Yes, that's right."}
+      - {to: bot, say: "I'm calling about a claim for a doctor's visit."}
+      - {to: bot, say: "No, I don't have the number."}
+      - {to: bot, say: "Last month, at Lakeside Family Medicine."}
+      - {to: bot, say: "I got a bill I didn't expect."}
+      - {to: bot, say: "Yes, that's right."}
+      - {to: agent, say: "Hi, can you look up my claim?", note: "Agent presses Could not verify: no records ever show."}
+
+  - key: emily_stone
+    name: Emily Stone
+    dob: "1983-02-14"
+    dob_said: February fourteenth, nineteen eighty three
+    member_id: "307495"
+    plan_id: PLN-PPO-GOLD
+    in_seed: true
+    pack: claims_status
+    case: Describes chest pain during intake; the bot gives the 911 line
+    start_line: Actually, I'm having chest pain right now.
+    warning: Do not use in a customer demo without warning. It shows the emergency guardrail.
+    audience_sees:
+      headline: "\"If this is a medical emergency, please hang up now and call 911.\""
+      cards: [Emergency flag on the call, Intake ends and the call is handed off]
+    features: [emergency]
+    script:
+      - {to: bot, say: "My name is Emily Stone. My date of birth is February fourteenth, nineteen eighty three. My member ID is three zero seven, four nine five."}
+      - {to: bot, say: "Yes, that's right."}
+      - {to: bot, say: "Actually, I'm having chest pain right now and it's hard to breathe.", note: The bot gives the 911 line and flags the call.}

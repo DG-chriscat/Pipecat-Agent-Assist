@@ -41,7 +41,7 @@ describe("TranscriptColumn (P3-4)", () => {
     const rows = screen.getAllByRole("listitem");
     expect(rows).toHaveLength(2);
     expect(rows[0]).toHaveClass("tr", "tr-caller");
-    const ma = within(rows[0]).getByText("MA");
+    const ma = within(rows[0]).getByText("ML");
     expect(ma).toHaveClass("who", "av", "av-caller");
     expect(ma).toHaveAttribute("title", "Caller");
     expect(rows[1]).toHaveClass("tr", "tr-agent");

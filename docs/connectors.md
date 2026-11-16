@@ -77,7 +77,7 @@ label for the card footer.
 
 ```json
 {"tool": "claims_search", "source": "Claims system", "count": 1,
- "items": [{"claim_id": "CLM-900001", "service_date": "2026-10-12", "status": "denied",
+ "items": [{"claim_id": "70412", "service_date": "2026-10-12", "status": "denied",
             "denial_code": "CO-197", "billed_amount": 1850.0, "...": "..."}]}
 
 {"tool": "claims_get", "source": "Claims system", "found": true, "item": {"...": "..."}}
@@ -111,7 +111,7 @@ The current caller's member record with plan.
   denied), `denial_code` (e.g. CO-197, case insensitive), `service_from`,
   `service_to` (dates), `provider` (part of the name, case insensitive), `limit`.
   Newest service date first.
-- `claims_get`: `claim_id`, e.g. `CLM-900001`.
+- `claims_get`: `claim_id`, e.g. `70412`.
 - Search fields: `claim_id`, `service_date`, `provider`, `service`,
   `billed_amount`, `status`, `denial_code`, `denial_reason`, `received_on`,
   `processed_on`.
@@ -172,11 +172,11 @@ into one timeline, which is a different shape from a connector. Both read the sa
 
 | Persona | Call | Result |
 | --- | --- | --- |
-| Maria Alvarez, EVM100231 | `claims_search {"status": "denied"}` | CLM-900001, MRI, CO-197 |
-| Maria Alvarez | `prior_authorizations_search {}` | none on file |
-| Maria Alvarez | `kb_articles_search {"query": "retro authorization"}` | KB-CL-009 first |
-| James Chen, EVM100232 | `payments_search {"kind": "premium", "paid_from": "<1st of month>"}` | two 610.00 autopay drafts, 2 minutes apart |
-| Daniel Okafor, EVM100235 | `prior_authorizations_search {"status": "pending"}` | PA-500101 knee surgery |
+| Maria Lopez, 418302 | `claims_search {"status": "denied"}` | 70412, MRI, CO-197 |
+| Maria Lopez | `prior_authorizations_search {}` | none on file |
+| Maria Lopez | `kb_articles_search {"query": "retro authorization"}` | KB-CL-009 first |
+| James Carter, 527194 | `payments_search {"kind": "premium", "paid_from": "<1st of month>"}` | two 610.00 autopay drafts, 2 minutes apart |
+| Ben Cole, 852617 | `prior_authorizations_search {"status": "pending"}` | PA-500101 knee surgery |
 
 ## Tests
 

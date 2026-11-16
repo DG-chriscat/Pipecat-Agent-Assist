@@ -264,7 +264,7 @@ export const NODES: ArchNode[] = [
     },
     why: [
       "Picked per side in Settings: Nova-3 by default, Flux one click away.",
-      "Keyterms for plan names and the member ID prefix.",
+      "Keyterms for plan and provider names; member IDs are digits only.",
       "Same vendor for listening and speaking, one bill and one support team.",
     ],
     stats: [N.memberIds, N.identityChecks, N.intakeTime],
@@ -289,7 +289,7 @@ export const NODES: ArchNode[] = [
       lead: "One Nova-3 stream per person, fed from that person's Daily track, so labels come from the track and not from diarization. Every pack's keyterms are boosted, and each agent can pick Nova-3 Medical or Flux.",
     },
     why: [
-      "Accurate on health plan terms, boosted with keyterms like plan names and member ID prefixes.",
+      "Accurate on health plan terms, boosted with keyterms like plan and provider names.",
       "Fast enough for live help on screen.",
       "Labels are exact by construction, even when people talk over each other.",
     ],
@@ -646,7 +646,7 @@ export const FAQ: Faq[] = [
   },
   {
     q: "How accurate is it on medical and plan terms?",
-    a: "Deepgram keyterms boost plan names, provider names, denial codes, and the member ID prefix, and numerals keep IDs as digits. With read back, member IDs were heard right in 10 of 10 test calls, and the voice read every ID, date, and amount right in 80 of 80 checks.",
+    a: "Deepgram keyterms boost plan names, provider names, and denial codes, and member IDs are 6 digits said in two groups of three. With read back, member IDs were heard right in 10 of 10 test calls, and the voice read every ID, date, and amount right in 80 of 80 checks.",
     links: [L.dgKeyterm, L.dgNumerals],
   },
   {

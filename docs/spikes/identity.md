@@ -1,5 +1,10 @@
 # Identity capture fix (card t_91d9e7ea)
 
+> Note (Nov 16, P5-10): demo IDs and names changed after this was written. Member IDs
+> are now 6 digits (Maria Alvarez EVM100231 is now Maria Lopez 418302) and claim
+> numbers 5 digits (CLM-900001 is now 70412); see docs/db.md. The results below are
+> kept as measured, with the old IDs.
+
 Date: 2026-11-16. Pipecat 1.15.0, Deepgram nova-3 STT and aura-2 TTS, Anthropic (default
 `create_llm` model), Daily `dg-chriscat`, Supabase Postgres (throwaway schema per run,
 migrated and seeded). Host: 2 CPU, other cards' work running at the same time (load

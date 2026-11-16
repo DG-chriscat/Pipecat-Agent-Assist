@@ -1,4 +1,4 @@
-/** "Maria Lopez" -> "MA", "Ana" -> "AN" (avatars in the rail, caller panel, conversation). */
+/** "Maria Lopez" -> "ML", "Ana" -> "AN" (avatars in the rail, caller panel, conversation). */
 export function initials(name: string): string {
   const words = name.trim().split(/\s+/).filter(Boolean);
   if (words.length === 0) return "?";

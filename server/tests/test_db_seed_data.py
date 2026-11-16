@@ -137,6 +137,17 @@ def test_seed_counts_are_stable():
     assert len(data.referrals) == 6
 
 
+def test_docs_db_md_row_counts_match_the_seed():
+    import pathlib
+
+    doc = (pathlib.Path(__file__).parents[2] / "docs" / "db.md").read_text()
+    data = seed.build_seed(AS_OF)
+    for table in ("claims", "payments", "interactions", "members"):
+        assert f"{table} {len(getattr(data, table))}" in doc, table
+    for p in seed.DEMO_PERSONAS:
+        assert f"| {p.first_name} {p.last_name} | {p.dob.isoformat()} | {p.member_id} |" in doc
+
+
 def test_all_phones_use_fictional_555_01xx_range():
     data = seed.build_seed(AS_OF)
     for m in data.members:

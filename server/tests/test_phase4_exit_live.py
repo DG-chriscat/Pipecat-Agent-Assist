@@ -139,7 +139,7 @@ SCENARIOS = [
     Scenario(
         key="claims",
         who=MARIA,
-        lines=dict(MARIA.lines, identity=_spelled_identity(MARIA, "A L V A R E Z")),
+        lines=dict(MARIA.lines, identity=_spelled_identity(MARIA, "L O P E Z")),
         pack="claims_status",
         trigger="So why did my MRI claim get denied?",
         trigger_word="denied",
@@ -149,7 +149,7 @@ SCENARIOS = [
     Scenario(
         key="payments",
         who=JAMES,
-        lines=dict(JAMES.lines, identity=_spelled_identity(JAMES, "C H E N")),
+        lines=dict(JAMES.lines, identity=_spelled_identity(JAMES, "C A R T E R")),
         pack="account_payments",
         trigger="I looked at my bank account and I was charged twice for my premium.",
         trigger_word="twice",

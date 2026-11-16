@@ -51,27 +51,45 @@ Call records (written by bot and server):
 ## Seed contents
 
 Row counts for any `as_of` date: plans 6, members 25, prior_authorizations 5,
-claims 49, payments 66, referrals 6, interactions 68, kb_articles 15, calls 0,
+claims 43, payments 69, referrals 6, interactions 67, kb_articles 15, calls 0,
 transcript_lines 0.
 
+P5-10 (Chris, Nov 16): the data is set up for speech to text in demos.
+
+- Member IDs are 6 digits, read in two groups of three (418 302): no leading 0, no
+  digit twice in a row, and no group of three shared by two members. Claim numbers are
+  5 digits, read as two and three (70 412), and never part of a member ID. Payment,
+  referral, auth, and interaction IDs stay internal (PAY-, REF-, PA-, INT-).
+- Names are short and common, except two deliberately hard names for the identity
+  verification demo: Linda Nguyen and Aisha Patel. Filler member IDs are generated
+  (seeded RNG) under the same rules, so the seed stays deterministic.
 - 25 members across all 6 plans. Phones use the fictional 555-0100 to 555-0199 range.
-- Claims include 9 denials with codes CO-16, CO-18, CO-50, CO-197, CO-242.
+- Claims include 7 denials with codes CO-16, CO-18, CO-50, CO-197, CO-242.
 - Every member has 1 to 5 past interactions. Four members called 2+ times in
-  the last 30 days (repeat callers): EVM100231, EVM100233, EVM100305, EVM100312.
-- Two members are named James Chen (different DOB and member ID), so identity
-  needs name + DOB + member ID, not name alone.
+  the last 30 days (repeat callers): 418302 (Maria Lopez), 639251 (Sarah Miller),
+  165435, 413709.
+- Two members are named Mark Hill (285916, born 1975-10-06, and 396127, born
+  1986-02-09), so identity needs name + DOB + member ID, not name alone.
 
 ## Demo personas
 
-The 5 scripted demo callers (`seed.DEMO_PERSONAS`):
+The scripted demo callers in the seed (`seed.DEMO_PERSONAS`). The Demos page
+(docs/demos.md) adds scripts, chips, and a caller who is not a member.
 
 | Name | DOB | Member ID | Plan | Why they call |
 | --- | --- | --- | --- | --- |
-| Maria Alvarez | 1984-03-12 | EVM100231 | Evergreen HMO Silver | MRI claim CLM-900001 denied, CO-197 (no prior authorization). Repeat caller (2 calls in the last 30 days). Next best step: retro authorization review. |
-| James Chen | 1979-07-04 | EVM100232 | Summit PPO Gold | Charged twice for this month's premium (duplicate autopay draft). Account and payments pack. A second James Chen (1986-02-09, EVM100236) exists. |
-| Aisha Patel | 1992-11-28 | EVM100233 | Evergreen HMO Gold | Cardiac stress test claim CLM-900003 stuck in pending_info for about 3 weeks; provider has not sent the itemized bill. Repeat caller. |
-| Linda Nguyen | 1958-01-30 | EVM100234 | Evergreen Medicare Advantage Plus | Dermatology claim CLM-900005 denied CO-242 (out of network, referral expired). Asks what an EOB is and how to appeal (KB articles). |
-| Daniel Okafor | 1990-05-17 | EVM100235 | Harbor EPO Bronze | Status of knee surgery prior auth PA-500101 (pending). Scripted to give a wrong DOB first, so identity returns not_verified and the call is flagged. |
+| Maria Lopez | 1984-03-12 | 418302 | Evergreen HMO Silver | MRI claim 70412 denied, CO-197 (no prior authorization). Repeat caller (2 calls in the last 30 days). Next best step: retro authorization review. |
+| James Carter | 1979-07-04 | 527194 | Summit PPO Gold | Charged twice for this month's premium (duplicate autopay draft). Account and payments pack. |
+| Sarah Miller | 1988-06-15 | 639251 | Evergreen HMO Gold | Cardiac stress test claim 31845 stuck in pending_info for about 3 weeks; provider has not sent the itemized bill. Frustrated repeat caller (tone tip). |
+| Linda Nguyen | 1958-04-22 | 741526 | Evergreen Medicare Advantage Plus | Hard name. Dermatology claim 52976 denied CO-242 (out of network, referral expired); how to appeal. STT often mishears the last name: close match, verification hero. |
+| Aisha Patel | 1995-08-09 | 174839 | Evergreen HMO Silver | Hard name. Asks what an EOB is for claim 19374 (KB-CL-010). Often heard as Ayesha: close match. |
+| Ben Cole | 1990-05-17 | 852617 | Harbor EPO Bronze | Status of knee surgery prior auth PA-500101 (pending). Scripted to give a wrong DOB (May 7) first, so identity returns not_verified and the call is flagged. |
+| David Brooks | 1971-09-25 | 263048 | Summit HDHP with HSA | How the deductible and out of pocket maximum work (KB-BL-005). |
+| Emily Stone | 1983-02-14 | 307495 | Summit PPO Gold | Emergency guardrail: describes chest pain at intake, gets the 911 line. |
+| Mark Hill | 1975-10-06 | 285916 | Evergreen HMO Gold | Urgent care claim 46183 in review. The other Mark Hill (1986-02-09, 396127) is on Summit HDHP with HSA. |
+
+After this change, reseed the demo database (`python -m agent_assist_server.db seed`);
+the deploy release step only migrates.
 
 ## Tests
 

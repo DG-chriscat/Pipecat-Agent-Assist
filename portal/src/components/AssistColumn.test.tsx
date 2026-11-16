@@ -593,7 +593,7 @@ describe("AssistColumn locked tiles (IN-13)", () => {
     expect(tile).toHaveAttribute("data-locked", "true");
     expect(within(tile).getByText("Verify the caller to see records")).toBeInTheDocument();
     expect(within(tile).getByTestId("tile-lock")).toBeInTheDocument();
-    expect(tile.textContent).not.toMatch(/CLM-|MRI|\$/);
+    expect(tile.textContent).not.toMatch(/70412|MRI|\$/);
     // No pin, thumbs, or dismiss on a tile the agent cannot read.
     expect(within(tile).queryByRole("button")).not.toBeInTheDocument();
   });
@@ -606,7 +606,7 @@ describe("AssistColumn locked tiles (IN-13)", () => {
     const tile = within(region).getByTestId("tile-ask:ask-1");
     expect(within(tile).getByText("Verify the caller to see records")).toBeInTheDocument();
     expect(within(tile).getByText("You asked “Show the last 3 claims”")).toBeInTheDocument();
-    expect(tile.textContent).not.toMatch(/CLM-/);
+    expect(tile.textContent).not.toMatch(/70412/);
   });
 
   it("the empty records slot says records wait for verification; articles and the plan still show", () => {

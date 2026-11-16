@@ -1,5 +1,10 @@
 # Phase 3 exit: ring to wrap up (P3-5)
 
+> Note (Nov 16, P5-10): demo IDs and names changed after this was written. Member IDs
+> are now 6 digits (Maria Alvarez EVM100231 is now Maria Lopez 418302) and claim
+> numbers 5 digits (CLM-900001 is now 70412); see docs/db.md. The results below are
+> kept as measured, with the old IDs.
+
 Date: 2026-11-16. Card t_f66342b1. Pipecat 1.15.0, Deepgram nova-3 STT + aura TTS,
 Anthropic, Daily `dg-chriscat`, local Postgres 16 (throwaway schema per run), headless
 Chromium 1600x1000.

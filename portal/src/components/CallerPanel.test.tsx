@@ -127,7 +127,7 @@ describe("CallerPanel (AP-5, AP-13, AP-17, AP-18, DESIGN.md caller panel)", () =
   it("fills from the accept summary at once, before the history arrives", () => {
     const { panel } = setup();
     expect(within(panel).getByRole("heading", { name: "Maria Lopez" })).toBeInTheDocument();
-    expect(within(panel).getByTestId("phi-member_id")).toHaveTextContent("••••31");
+    expect(within(panel).getByTestId("phi-member_id")).toHaveTextContent("••••02");
     const quote = within(panel).getByTestId("why");
     expect(quote).toHaveTextContent("In their words");
     expect(quote).toHaveTextContent("MRI claim denied");
@@ -139,11 +139,11 @@ describe("CallerPanel (AP-5, AP-13, AP-17, AP-18, DESIGN.md caller panel)", () =
   it("verified (Maria): copper avatar inside the phosphor ring, plan, masked ID and DOB", () => {
     const { panel } = setup({ details: mariaDetails, detailsState: "ready" });
     const avatar = within(panel).getByTestId("caller-avatar");
-    expect(avatar).toHaveTextContent("MA");
+    expect(avatar).toHaveTextContent("ML");
     expect(avatar).toHaveClass("is-verified");
     const id = within(panel).getByTestId("caller-id");
     expect(id).toHaveTextContent("Evergreen HMO Silver");
-    expect(id).toHaveTextContent("••••31");
+    expect(id).toHaveTextContent("••••02");
     expect(id).not.toHaveTextContent("418302");
     expect(row(panel, "Born")).toHaveTextContent("••/••/1984");
     expect(row(panel, "Born")).not.toHaveTextContent("Mar 12");
@@ -229,12 +229,12 @@ describe("CallerPanel (AP-5, AP-13, AP-17, AP-18, DESIGN.md caller panel)", () =
     expect(history).toHaveTextContent(/no past calls, claims, or referrals/i);
   });
 
-  it("not verified (Daniel): intake data only, a warning, no member record or history", () => {
+  it("not verified (Ben): intake data only, a warning, no member record or history", () => {
     const { panel } = setup(daniel);
     expect(within(panel).getByRole("heading", { name: "Ben Cole" })).toBeInTheDocument();
     expect(within(panel).getByTestId("caller-id")).toHaveTextContent("Not verified");
     expect(within(panel).getByTestId("caller-id")).not.toHaveTextContent("Harbor");
-    expect(within(panel).getByTestId("phi-member_id")).toHaveTextContent("••••35");
+    expect(within(panel).getByTestId("phi-member_id")).toHaveTextContent("••••17");
     expect(within(panel).getByRole("note")).toHaveTextContent(/identity is not verified/i);
     // What the caller said, labeled as such, still masked.
     expect(row(panel, "Born, said")).toHaveTextContent("••/••/1990");

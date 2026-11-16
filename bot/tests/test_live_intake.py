@@ -47,7 +47,7 @@ from agent_assist_bot.bot import BOT_NAME
 from agent_assist_bot.call_settings import SETTINGS_ENV
 from agent_assist_bot.calls import PostgresCallStore
 from harness.audio import trailing_silence
-from harness.intake_script import PERSONAS, Persona, next_line
+from harness.intake_script import PERSONAS, Persona, claim_heard_right, next_line
 from harness.participant import SAMPLE_RATE, HarnessParticipant
 from harness.tts import synthesize
 from harness.turns import audio_slice as _slice
@@ -250,6 +250,15 @@ async def test_live_intake(schema, who: Persona, run: int):
         "heard_name": intake.get("full_name"),
         "heard_member_id": intake.get("member_id"),
         "heard_dob": intake.get("dob"),
+        # P5-10: member ID heard right (6 digits as saved) and the claim number heard
+        # right (5 digits in the saved answer); None when the persona has no claim.
+        "member_id_heard_right": intake.get("member_id") == who.member_id,
+        "heard_claim_number": intake.get("claim_number"),
+        "claim_heard_right": (
+            claim_heard_right(intake.get("claim_number") or "", who.claim_number)
+            if who.claim_number
+            else None
+        ),
         "caller_lines": lines_said,
         "flags": row and row["flags"],
         "intake_seconds": round(intake_secs, 1),

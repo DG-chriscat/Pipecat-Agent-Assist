@@ -71,7 +71,7 @@ YUEN = Persona(
     dict(
         LINDA.lines,
         identity=(
-            "Sure. My name is Linda Yuen. My date of birth is January thirtieth, nineteen "
+            "Sure. My name is Linda Yuen. My date of birth is April twenty second, nineteen "
             "fifty eight. And my member ID is seven four one, five two six."
         ),
         fix_name="No, my name is Linda Yuen.",

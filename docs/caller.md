@@ -23,6 +23,14 @@ just without dial-in settings.
 The room is not deleted when the call ends; it expires after an hour. The phone path is
 unchanged: `/daily/dialin` still passes `--call-id`/`--call-domain` to the same bot CLI.
 
+## Demo persona script (P5-10)
+
+`/caller?persona=<key>` (opened in a new tab by **Start browser call** on the portal's
+Demos page, docs/demos.md) loads the persona from `GET /demo/personas` and shows who to
+be, the DOB and member ID to give (member ID in two groups of three), and the script:
+lines for the intake bot first, then lines for the agent. Without `persona` the page
+is unchanged. Member IDs are 6 digits and claim numbers 5 digits (docs/db.md).
+
 ## Run it manually
 
 Needs `DAILY_API_KEY`, `DEEPGRAM_API_KEY`, `ANTHROPIC_API_KEY` in the environment (see

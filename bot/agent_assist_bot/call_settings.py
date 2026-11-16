@@ -60,6 +60,12 @@ DEFAULT_TTS_EXPRESSIVITY = 0
 DEFAULT_READBACK_SPEED = 0.9
 FLUX_SPEED_RANGE = (0.5, 1.5)
 READBACK_SPEED_RANGE = (0.8, 1.0)
+# LLM per job (P5-9, DC-11). Same list and defaults as agent_assist_server.bot_settings
+# (decided in docs/spikes/llm-deepgram.md). llm.create_llm picks the provider by model.
+LLM_MODELS = ("claude-haiku-5-5", "phonellm-mini-alpha-2-fp8", "think-fast")
+DEFAULT_LLM_INTAKE = "phonellm-mini-alpha-2-fp8"
+DEFAULT_LLM_ASSIST = "claude-haiku-5-5"
+DEFAULT_LLM_WRAPUP = "claude-haiku-5-5"
 
 
 def _number_in(v: Any, low: float, high: float) -> bool:
@@ -86,6 +92,10 @@ class CallSettings:
     tts_expressivity: int = DEFAULT_TTS_EXPRESSIVITY
     slow_readback: bool = True
     readback_speed: float = DEFAULT_READBACK_SPEED
+    # LLM per job (P5-9, DC-11); the Ask bar uses the assist LLM.
+    llm_intake: str = DEFAULT_LLM_INTAKE
+    llm_assist: str = DEFAULT_LLM_ASSIST
+    llm_wrapup: str = DEFAULT_LLM_WRAPUP
 
     @classmethod
     def defaults(cls, env: Mapping[str, str] | None = None) -> CallSettings:
@@ -142,6 +152,8 @@ class CallSettings:
         )
         take("slow_readback", lambda v: isinstance(v, bool))
         take("readback_speed", lambda v: _number_in(v, *READBACK_SPEED_RANGE))
+        for key in ("llm_intake", "llm_assist", "llm_wrapup"):
+            take(key, lambda v: v in LLM_MODELS)
         for key in ("tts_speed", "readback_speed"):
             out[key] = round(float(out[key]), 2)
         if bad:
@@ -180,7 +192,9 @@ class CallSettings:
             f"tts={self.tts_model}/{self.tts_voice} {flux}pack={self.intake_pack} "
             f"read_back={'on' if self.identity_read_back else 'off'} "
             f"hold_every={self.hold_update_secs}s "
-            f"stt_intake={self.stt_intake_model} stt_assist={self.stt_assist_model}"
+            f"stt_intake={self.stt_intake_model} stt_assist={self.stt_assist_model} "
+            f"llm_intake={self.llm_intake} llm_assist={self.llm_assist} "
+            f"llm_wrapup={self.llm_wrapup}"
         )
 
 

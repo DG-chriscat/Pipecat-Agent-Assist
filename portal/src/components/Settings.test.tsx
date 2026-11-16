@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   SettingsInvalid,
   disclosure,
+  type LlmOption,
   type SettingsApi,
   type SettingsResponse,
   type SettingsValues,
@@ -24,7 +25,22 @@ const DEFAULTS: SettingsValues = {
   tts_expressivity: 0,
   slow_readback: true,
   readback_speed: 0.9,
+  llm_intake: "phonellm-mini-alpha-2-fp8",
+  llm_assist: "claude-haiku-5-5",
+  llm_wrapup: "claude-haiku-5-5",
 };
+
+const LLM_MODELS: LlmOption[] = [
+  { id: "claude-haiku-5-5", name: "Claude Haiku", provider: "anthropic", early_access: false, note: null },
+  { id: "phonellm-mini-alpha-2-fp8", name: "Deepgram phoneLLM mini", provider: "deepgram", early_access: true, note: null },
+  {
+    id: "think-fast",
+    name: "Deepgram Think-Fast",
+    provider: "deepgram",
+    early_access: true,
+    note: "Always stored for Deepgram model training (no opt out)",
+  },
+];
 
 const CONTROLS = { tts_speed: 1.0, tts_expressivity: 0, slow_readback: true, readback_speed: 0.9 };
 
@@ -57,6 +73,7 @@ function response(values: Partial<SettingsValues> = {}, isDefault = true): Setti
       intake: ["nova-3-general", "flux-general-en"],
       assist: ["nova-3-general", "nova-3-medical", "flux-general-en"],
     },
+    llm_models: LLM_MODELS,
   };
 }
 
@@ -390,5 +407,89 @@ describe("disclosure (IN-2)", () => {
     expect(disclosure(DEFAULTS.greeting_text)).toEqual({ ai: true, person: true });
     expect(disclosure("Hello there.")).toEqual({ ai: false, person: false });
     expect(disclosure("I said a person will join.")).toEqual({ ai: false, person: true });
+  });
+});
+
+describe("Settings Thinking group: LLM per job (P5-9, DC-11)", () => {
+  const job = (name: RegExp) => screen.getByRole("radiogroup", { name });
+  const picked = (group: HTMLElement) =>
+    within(group)
+      .getAllByRole("radio")
+      .filter((r) => r.getAttribute("aria-checked") === "true")
+      .map((r) => r.getAttribute("data-model"));
+
+  it("has a picker per job with every LLM and shows the saved picks", async () => {
+    await setup();
+    const thinking = screen.getByRole("group", { name: /thinking/i });
+    expect(within(thinking).getByText(/llm for each job/i)).toBeInTheDocument();
+    const want: [RegExp, string][] = [
+      [/^intake llm$/i, "phonellm-mini-alpha-2-fp8"],
+      [/^assist and ask llm$/i, "claude-haiku-5-5"],
+      [/^wrap up llm$/i, "claude-haiku-5-5"],
+    ];
+    for (const [name, model] of want) {
+      const group = job(name);
+      expect(within(group).getAllByRole("radio").map((r) => r.getAttribute("data-model"))).toEqual([
+        "claude-haiku-5-5",
+        "phonellm-mini-alpha-2-fp8",
+        "think-fast",
+      ]);
+      expect(picked(group)).toEqual([model]);
+    }
+  });
+
+  it("marks each Deepgram LLM Early Access and Claude not", async () => {
+    await setup();
+    const group = job(/^intake llm$/i);
+    const radio = (id: string) => within(group).getAllByRole("radio").find((r) => r.getAttribute("data-model") === id)!;
+    expect(within(radio("claude-haiku-5-5")).queryByText("Early Access")).toBeNull();
+    expect(within(radio("phonellm-mini-alpha-2-fp8")).getByText("Early Access")).toBeInTheDocument();
+    expect(within(radio("think-fast")).getByText("Early Access")).toBeInTheDocument();
+    expect(radio("phonellm-mini-alpha-2-fp8")).toHaveTextContent(/phoneLLM mini/);
+    expect(radio("think-fast")).toHaveTextContent(/Think-Fast/);
+  });
+
+  it("shows the Think-Fast training note in the picker", async () => {
+    await setup();
+    const notes = screen.getAllByText(/always stored for deepgram model training \(no opt out\)/i);
+    expect(notes.length).toBe(3);
+  });
+
+  it("flags the note when Think-Fast is picked", async () => {
+    await setup();
+    const group = job(/^wrap up llm$/i);
+    const think = within(group).getAllByRole("radio").find((r) => r.getAttribute("data-model") === "think-fast")!;
+    fireEvent.click(think);
+    const row = group.closest(".settings-row") as HTMLElement;
+    expect(within(row).getByText(/always stored/i).closest("p")).toHaveClass("is-warn");
+  });
+
+  it("saves the picked LLM for each job", async () => {
+    const { api } = await setup();
+    const pick = (name: RegExp, id: string) =>
+      fireEvent.click(within(job(name)).getAllByRole("radio").find((r) => r.getAttribute("data-model") === id)!);
+    pick(/^intake llm$/i, "claude-haiku-5-5");
+    pick(/^assist and ask llm$/i, "think-fast");
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: /^save$/i })));
+    expect(api.save).toHaveBeenCalledWith(
+      { ...DEFAULTS, llm_intake: "claude-haiku-5-5", llm_assist: "think-fast" },
+      "Ana Ruiz",
+    );
+  });
+
+  it("links the Deepgram LLM docs in a new tab", async () => {
+    await setup();
+    const link = screen.getByRole("link", { name: /deepgram llm docs/i });
+    expect(link).toHaveAttribute("href", "https://developers.deepgram.com/docs/llm");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", expect.stringContaining("noopener"));
+  });
+
+  it("hides the group when the server lists no LLMs", async () => {
+    const api = fakeApi({
+      get: vi.fn(async (): Promise<SettingsResponse> => ({ ...response(), llm_models: undefined })),
+    });
+    await setup(api);
+    expect(screen.queryByRole("group", { name: /thinking/i })).toBeNull();
   });
 });

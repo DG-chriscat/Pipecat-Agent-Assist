@@ -34,7 +34,31 @@ const VERIFIED = new Set([
   "https://docs.fly.io",
   "https://platform.claude.com/docs/en/models/overview",
   "https://github.com/pipecat-ai/pipecat",
+  // P5-9 (DC-11), checked 200 on Nov 16.
+  "https://developers.deepgram.com/docs/llm",
 ]);
+
+describe("architecture content: LLM per step (P5-9, DC-11)", () => {
+  const node = (id: string) => NODES.find((n) => n.id === id)!;
+
+  it("names the default LLM on intake (phoneLLM mini), assist (Claude), and wrap up (Claude)", () => {
+    expect(node("flows").technical.title).toBe("Pipecat Flows + phoneLLM mini");
+    expect(node("flows").technical.lead).toMatch(/Deepgram phoneLLM mini/);
+    expect(node("assist").technical.title).toBe("Assist engine + Claude");
+    const wrap = WALK.find((s) => s.title === "Wrap up")!;
+    expect(wrap.text).toMatch(/Claude/);
+  });
+
+  it("says the Deepgram LLMs are Early Access and selectable per job, with the docs link", () => {
+    const flows = node("flows");
+    expect(flows.why.join(" ")).toMatch(/Early Access/);
+    expect(flows.why.join(" ")).toMatch(/Settings/);
+    expect(flows.links.map((l) => l.href)).toContain("https://developers.deepgram.com/docs/llm");
+    const faq = FAQ.find((f) => /LLM/.test(f.q))!;
+    expect(faq.a).toMatch(/Early Access/);
+    expect(faq.links!.map((l) => l.href)).toContain("https://developers.deepgram.com/docs/llm");
+  });
+});
 
 describe("architecture content (AP-21)", () => {
   it("has the diagram's nodes, with the STT split into intake (Nova-3, Flux selectable) and assist (Nova-3)", () => {

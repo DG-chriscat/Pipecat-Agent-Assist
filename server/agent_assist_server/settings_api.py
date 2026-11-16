@@ -1,7 +1,8 @@
 """Settings page API (P5-5, PRD AP-20, IN-11). Behind the shared login like every route.
 
     GET  /settings          -> {values, defaults, is_default, updated_at, packs, limits,
-                                stt_models: {intake: [...], assist: [...]}}
+                                stt_models: {intake: [...], assist: [...]},
+                                llm_models: [{id, name, provider, early_access, note}]}
     PUT  /settings          {values: {...}, agent?: name}  -> same shape; 422 with
                             {detail: {errors: {field: message}}} when a field is wrong
     POST /settings/reset    {agent?: name}  -> defaults
@@ -136,6 +137,7 @@ def _body(settings: bs.Settings) -> dict[str, Any]:
             "intake": list(bs.STT_INTAKE_MODELS),
             "assist": list(bs.STT_ASSIST_MODELS),
         },
+        "llm_models": bs.llm_catalog(),
     }
 
 

@@ -832,12 +832,12 @@ async def test_participant_left_tells_queue_call_ended():
 
 def test_pipeline_has_gate_before_llm(api_keys):
     from agent_assist_bot.hold import BotGate
-    from pipecat.services.anthropic.llm import AnthropicLLMService
+    from pipecat.services.llm_service import LLMService
 
     worker, _ = bot.build_worker(ROOM, "tok")
     inner = next(p for p in worker._pipeline.processors if type(p).__name__ == "Pipeline")
     procs = inner.processors
-    llm_at = next(i for i, p in enumerate(procs) if isinstance(p, AnthropicLLMService))
+    llm_at = next(i for i, p in enumerate(procs) if isinstance(p, LLMService))
     assert isinstance(procs[llm_at - 1], BotGate)
 
 
@@ -1187,3 +1187,76 @@ def test_flow_manager_uses_the_uninterruptible_tts_say(api_keys, monkeypatch):
     bot.build_worker(ROOM, "tok", store=MemoryCallStore())
     handlers = seen["fm"]._action_manager._action_handlers
     assert handlers["tts_say"] is intake_mod.uninterruptible_tts_say
+
+
+# ---- P5-9 (DC-11): the LLM for each job comes from the call's settings ------------------
+
+
+def test_default_intake_llm_is_phonellm_on_deepgram(api_keys):
+    """P5-9: phoneLLM mini is the intake default (docs/spikes/llm-deepgram.md)."""
+    from agent_assist_bot.llm_deepgram import DeepgramLLMService
+
+    worker, _ = bot.build_worker(ROOM, "tok", store=MemoryCallStore())
+    inner = next(p for p in worker._pipeline.processors if type(p).__name__ == "Pipeline")
+    llm = next(p for p in inner.processors if isinstance(p, DeepgramLLMService))
+    assert llm._settings.model == "phonellm-mini-alpha-2-fp8"
+
+
+def test_intake_llm_follows_the_settings(api_keys, monkeypatch):
+    from agent_assist_bot.call_settings import CallSettings
+    from agent_assist_bot.llm_deepgram import DeepgramLLMService
+
+    monkeypatch.setenv("DEEPGRAM_API_KEY", "dg")
+    s = CallSettings.from_mapping({"llm_intake": "phonellm-mini-alpha-2-fp8"}, env={})
+    worker, _ = bot.build_worker(ROOM, "tok", store=MemoryCallStore(), settings=s)
+    inner = next(p for p in worker._pipeline.processors if type(p).__name__ == "Pipeline")
+    llm = next(p for p in inner.processors if isinstance(p, DeepgramLLMService))
+    assert llm._settings.model == "phonellm-mini-alpha-2-fp8"
+
+
+def test_intake_llm_claude(api_keys):
+    from agent_assist_bot.call_settings import CallSettings
+    from pipecat.services.anthropic.llm import AnthropicLLMService
+
+    s = CallSettings.from_mapping({"llm_intake": "claude-haiku-5-5"}, env={})
+    worker, _ = bot.build_worker(ROOM, "tok", store=MemoryCallStore(), settings=s)
+    inner = next(p for p in worker._pipeline.processors if type(p).__name__ == "Pipeline")
+    llm = next(p for p in inner.processors if isinstance(p, AnthropicLLMService))
+    assert llm._settings.model == "claude-haiku-5-5"
+
+
+def test_assist_and_wrap_up_llms_follow_the_settings(api_keys, monkeypatch):
+    """The assist proposer (and so the Ask bar, which uses it) and the wrap up drafter
+    are built with the call's llm_assist and llm_wrapup."""
+    from agent_assist_bot import assist_llm, wrap_up
+    from agent_assist_bot.call_settings import CallSettings
+
+    made = []
+
+    def fake_create_llm(**kw):
+        made.append(kw.get("model"))
+        return object()
+
+    monkeypatch.setattr(assist_llm, "create_llm", fake_create_llm)
+    monkeypatch.setattr("agent_assist_bot.llm.create_llm", fake_create_llm)
+    seen = {}
+    real_assist = bot.AssistSession
+    real_reporter = bot.WrapUpReporter
+
+    def spy_assist(**kw):
+        seen["assist"] = kw["llm_factory"]
+        return real_assist(**kw)
+
+    def spy_reporter(factory, post):
+        seen["wrap_up"] = factory
+        return real_reporter(factory, post)
+
+    monkeypatch.setattr(bot, "AssistSession", spy_assist)
+    monkeypatch.setattr(bot, "WrapUpReporter", spy_reporter)
+    s = CallSettings.from_mapping(
+        {"llm_assist": "think-fast", "llm_wrapup": "phonellm-mini-alpha-2-fp8"}, env={}
+    )
+    bot.build_worker(ROOM, "tok", store=MemoryCallStore(), settings=s)
+    assert isinstance(seen["assist"](), assist_llm.LLMProposer)
+    assert isinstance(seen["wrap_up"](), wrap_up.WrapUpDrafter)
+    assert made == ["think-fast", "phonellm-mini-alpha-2-fp8"]

@@ -133,7 +133,7 @@ export const MEASURED = {
   coldGreeting: stat("12.8 s", "the same without a warm bot (cold start)", "docs/warm-bot.md", "cold cold 0.82s 12.36s 12.81s"),
   roomAndToken: stat("~0.7 s", "room and token created at Daily", "docs/warm-bot.md", "The ~0.7 s before `bot_launched` is room and token creation at Daily"),
   toneLoad: stat("1.3 to 2.5 s", "tone model load, done before the call on a warm bot", "docs/warm-bot.md", "| 1.3 to 2.5 |"),
-  llmFirstToken: stat("1.0 s", "Claude first token on an intake reply", "docs/spikes/S1.md", "| LLM TTFB (claude-haiku-5-5) | 0.985 s | 1.034 s |"),
+  phonellmReply: stat("0.31 s", "phoneLLM mini first byte on an intake reply (median)", "docs/spikes/llm-deepgram.md", "| LLM first byte, median | **0.310 s** (n=175)"),
   cards: stat("0.88 to 1.61 s", "trigger word to card on screen, 3 packs", "docs/spikes/phase4.md", "0.88 to 1.61 s after the trigger word"),
   ask: stat("0.3 s", "Ask bar answer, Enter to card (0.27 to 0.33 s)", "docs/spikes/phase4.md", ["0.33 s after Enter", "| **0.27** |"]),
   botSend: stat("366 to 397 ms", "inside the bot, final line to card sent", "docs/spikes/phase4.md", "366 to 397 ms"),
@@ -176,6 +176,7 @@ const L = {
   pg: { label: "Connecting to Postgres", href: "https://supabase.com/docs/guides/database/connecting-to-postgres" },
   fly: { label: "Fly.io docs", href: "https://docs.fly.io" },
   claude: { label: "Claude models", href: "https://platform.claude.com/docs/en/models/overview" },
+  dgLlm: { label: "Deepgram LLMs (Early Access)", href: "https://developers.deepgram.com/docs/llm" },
 } satisfies Record<string, DocLink>;
 
 // ---- map layout (1100 x 620, mockup coordinates) ----
@@ -335,17 +336,17 @@ export const NODES: ArchNode[] = [
       lead: "Greets the caller, checks who they are, and asks why they are calling. It reads the details back so the caller can fix anything before the agent sees it.",
     },
     technical: {
-      title: "Pipecat Flows + Claude",
+      title: "Pipecat Flows + phoneLLM mini",
       sub: "Function calls to the database",
-      lead: "Pipecat Flows runs intake as fixed steps, and Claude fills each step through function calls. Identity is checked against the member database by a function, not by the model.",
+      lead: "Pipecat Flows runs intake as fixed steps, and Deepgram phoneLLM mini fills each step through function calls. Identity is checked against the member database by a function, not by the model.",
     },
     why: [
       "Fixed steps keep intake on script and easy to change per use case.",
       "The model talks naturally but never decides identity on its own.",
-      "Any LLM can sit behind it: one swap point in the code.",
+      "The LLM is picked per job in Settings: phoneLLM mini, Think-Fast (both Deepgram, Early Access), or Claude Haiku.",
     ],
-    stats: [N.identityChecks, N.intakeTime, N.llmFirstToken],
-    links: [L.pcFlows, L.claude],
+    stats: [N.identityChecks, N.intakeTime, N.phonellmReply],
+    links: [L.pcFlows, L.dgLlm, L.claude],
   },
   {
     id: "assist",
@@ -567,7 +568,7 @@ export const WALK: WalkStep[] = [
     text: "The bot asks why they are calling, with the questions from the use case pack, and reads a short summary back. The tone reader notes how the caller feels from the start.",
     nodes: ["daily", "intake-stt", "tone", "flows", "tts"],
     edges: ["daily-bot"],
-    stats: [N.intakeTime, N.llmFirstToken],
+    stats: [N.intakeTime, N.phonellmReply],
   },
   {
     id: "queue",
@@ -596,7 +597,7 @@ export const WALK: WalkStep[] = [
   {
     id: "wrap-up",
     title: "Wrap up",
-    text: "When the call ends the bot drafts a short summary and suggests a reason code. The agent edits, picks the code, and saves; the record keeps the transcript and what the assist showed.",
+    text: "When the call ends the bot drafts a short summary with Claude Haiku and suggests a reason code. The agent edits, picks the code, and saves; the record keeps the transcript and what the assist showed.",
     nodes: ["assist", "server", "portal", "db"],
     edges: ["assist-portal", "server-db"],
     stats: [N.wrapView, N.savedToAvailable],
@@ -665,8 +666,8 @@ export const FAQ: Faq[] = [
   },
   {
     q: "Can we swap the LLM or the phone carrier?",
-    a: "Yes. The LLM sits behind one function in the bot, so Claude can be replaced by another provider. Phone calls can come from your own carrier over SIP into Daily, or through another transport Pipecat supports.",
-    links: [L.claude, L.daily],
+    a: "Yes. The LLM is picked per job in Settings: Deepgram phoneLLM mini runs intake by default, Claude Haiku the assist and wrap up, and Deepgram Think-Fast is a third choice. The Deepgram LLMs are Early Access, not for production traffic yet. Phone calls can come from your own carrier over SIP into Daily, or through another transport Pipecat supports.",
+    links: [L.dgLlm, L.claude, L.daily],
   },
   {
     q: "What is Pipecat Cloud?",

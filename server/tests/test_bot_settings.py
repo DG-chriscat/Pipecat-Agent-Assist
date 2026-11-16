@@ -290,3 +290,53 @@ async def test_flux_controls_are_still_checked_but_ignored_with_aura_2():
     aura = good(tts_model="aura-2", tts_voice="aura-2-thalia-en", tts_speed=1.1)
     assert await check(aura) == {}
     assert set(await check({**aura, "tts_speed": 2.0})) == {"tts_speed"}
+
+
+# ---- LLM per job (P5-9, DC-11) --------------------------------------------------------
+
+LLM_FIELDS = ("llm_intake", "llm_assist", "llm_wrapup")
+
+
+def test_llm_models_are_claude_phonellm_and_think_fast():
+    assert bs.LLM_MODELS == ("claude-haiku-5-5", "phonellm-mini-alpha-2-fp8", "think-fast")
+
+
+def test_llm_defaults_come_from_the_measure():
+    # docs/spikes/llm-deepgram.md decides each job's default: phoneLLM mini matched
+    # Claude on intake (identity 10 of 10 both, faster replies); assist and wrap up stay
+    # on Claude (phoneLLM proposed no assist cards, and its wrap up JSON was not usable).
+    d = bs.defaults({})
+    assert (
+        {k: d[k] for k in LLM_FIELDS}
+        == bs.DEFAULT_LLMS
+        == {
+            "llm_intake": "phonellm-mini-alpha-2-fp8",
+            "llm_assist": "claude-haiku-5-5",
+            "llm_wrapup": "claude-haiku-5-5",
+        }
+    )
+
+
+@pytest.mark.parametrize("field", LLM_FIELDS)
+@pytest.mark.parametrize("model", ["claude-haiku-5-5", "phonellm-mini-alpha-2-fp8", "think-fast"])
+async def test_each_job_takes_each_llm(field, model):
+    assert await check(good(**{field: model})) == {}
+
+
+@pytest.mark.parametrize("field", LLM_FIELDS)
+@pytest.mark.parametrize("model", ["gpt-4o", "", None, 3, "claude-sonnet-5"])
+async def test_an_llm_outside_the_list_is_rejected(field, model):
+    errors = await check(good(**{field: model}))
+    assert set(errors) == {field}
+
+
+def test_llm_catalog_marks_deepgram_models_early_access_and_think_fast_training():
+    by_id = {m["id"]: m for m in bs.llm_catalog()}
+    assert list(by_id) == list(bs.LLM_MODELS)
+    assert by_id["claude-haiku-5-5"]["early_access"] is False
+    assert by_id["claude-haiku-5-5"]["note"] is None
+    assert by_id["phonellm-mini-alpha-2-fp8"]["early_access"] is True
+    assert by_id["phonellm-mini-alpha-2-fp8"]["note"] is None
+    assert by_id["think-fast"]["early_access"] is True
+    assert by_id["think-fast"]["note"] == "Always stored for Deepgram model training (no opt out)"
+    assert {m["provider"] for m in by_id.values()} == {"anthropic", "deepgram"}

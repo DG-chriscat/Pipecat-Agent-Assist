@@ -93,7 +93,7 @@ write-through (`QUEUE_PERSIST=1`) fills all four.
 
 | Env | Default | |
 | --- | --- | --- |
-| `WRAP_UP_LLM_MODEL` | `ASSIST_LLM_MODEL`, then `LLM_MODEL`, then the factory default | wrap up model |
+| `WRAP_UP_LLM_MODEL` | `ASSIST_LLM_MODEL`, then `LLM_MODEL`, then the factory default | wrap up model outside a call only; a call uses its `llm_wrapup` setting (P5-9) |
 
 ## Tests
 

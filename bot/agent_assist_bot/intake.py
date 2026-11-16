@@ -75,6 +75,8 @@ EMERGENCY_LINE = (
     "I'm flagging this call, and if you stay on the line a person will join."
 )
 HANDOFF_LINE = "Thanks. I'm passing you to a person now. Please stay on the line."
+# Said when the LLM calls say_to_caller with no text twice outside the read back (P5-9).
+REPEAT_LINE = "Sorry, could you say that again?"
 # Identity read back before the check (identity card). Fixed text so the member ID is
 # always said in groups and the date of birth is never read back.
 READBACK_LINE = "Thanks. I have {name}, member ID {member_id}. Is that right?"
@@ -507,6 +509,19 @@ class IntakeSession:
 
     async def _on_say(self, args: FlowArgs, flow_manager: FlowManager):
         text = str(args.get("text") or "").strip()
+        if not text:
+            # P5-9: an empty say_to_caller would end the turn in silence. Ask the LLM once
+            # more; the second time the code speaks a fixed line so the caller can answer.
+            self._refused_lines += 1
+            logger.warning(f"[flow] {self.node}: say_to_caller without text")
+            if self._refused_lines > 1:
+                text = self._fixed_line()
+                logger.warning(f"[flow] {self.node}: speaking the fixed line instead")
+            else:
+                return {
+                    "error": "Nothing was said: call say_to_caller with the text, or call the "
+                    "step's function."
+                }, None
         if _HANDOFF_PROMISE.search(text):
             self._refused_lines += 1
             logger.warning(f"[flow] {self.node}: refused a line that promises a transfer")
@@ -527,6 +542,22 @@ class IntakeSession:
             await worker.queue_frames([speak])
         # Spoken directly: no further LLM turn until the caller answers.
         return {"said": True}, NO_RESPONSE
+
+    def _fixed_line(self) -> str:
+        """What the code says when the LLM gave say_to_caller no text twice (P5-9): the
+        summary read back in the readback step (name, reason, the pack's answers; never
+        the DOB, member ID, or claim number), else a request to repeat."""
+        if self.node != "readback":
+            return REPEAT_LINE
+        name = self.intake.get("full_name") or "calling"
+        hidden = {"full_name", "dob", "member_id", "claim_number"}
+        parts = [
+            str(self.intake[k]).rstrip(".")
+            for k in self._editable_fields()
+            if k not in hidden and self.intake.get(k) and str(self.intake[k]) != "unknown"
+        ]
+        about = f", about {'; '.join(parts)}" if parts else ""
+        return f"Just to confirm, I have {name}{about}. Is that right?"
 
     def _spawn(self, coro) -> None:
         task = asyncio.create_task(coro)

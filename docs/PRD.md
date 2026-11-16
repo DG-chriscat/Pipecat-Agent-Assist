@@ -158,7 +158,7 @@ A use case pack bundles everything one kind of call needs: intake questions, tri
 | DC-7 | Assist limits itself to a set number of new cards per minute, so the feed stays readable. | Should |
 | DC-8 | An Interactions connector returns a member's past calls (date, duration, queue, outcome, notes) for caller history and repeat caller detection. | Must |
 | DC-9 | Next best step actions in v1 are simulated: accepting logs the action on the call record and ticks the call plan. Nothing writes back to source systems. | Must |
-| DC-11 | The LLM for each job (intake, assist and Ask, wrap up) is selectable in Settings: Claude Haiku, Deepgram phoneLLM mini, or Deepgram Think-Fast. Deepgram LLMs are Early Access (not for production traffic). phoneLLM mini with MIP opt out becomes the default for a job where it matches Claude on the scripted tests; Think-Fast is always stored for Deepgram model training. | Should |
+| DC-11 | The LLM for each job (intake, assist and Ask, wrap up) is selectable in Settings: Claude Haiku, Deepgram phoneLLM mini, or Deepgram Think-Fast. Deepgram LLMs are Early Access (not for production traffic). phoneLLM mini with MIP opt out becomes the default for a job where it matches Claude on the scripted tests; Think-Fast is always stored for Deepgram model training. Result (docs/spikes/llm-deepgram.md): phoneLLM mini is the intake default; Claude Haiku stays the assist and wrap up default. | Should |
 | DC-10 | Each pack defines its next best step rules: trigger phrases, required facts, script template, and action. | Must |
 
 ### Guardrails
@@ -178,7 +178,7 @@ One bot per call does intake, then switches to listen only assist in the same ro
 | Framework | Pipecat 1.15, pinned | Flows is built in; expressive conversation is alpha |
 | Phone and media | Daily phone number and Daily rooms | Daily numbers are US and Canada only |
 | Speech | Deepgram speech to text and text to speech | STT per side (IN-14): Nova-3 by default, Flux selectable for intake, Nova-3 Medical or Flux for assist; swap points stay open |
-| LLM | Any Pipecat supported model | Picked in the spike |
+| LLM | Per job in Settings (DC-11): Deepgram phoneLLM mini, Deepgram Think-Fast, or Claude Haiku | phoneLLM mini runs intake, Claude Haiku the assist and wrap up; Deepgram LLMs are Early Access |
 | Tone | Pipecat Tone reader | Feeds tone badges and alerts |
 | Portal | React with the Pipecat client SDK | Audio over WebRTC, cards over RTVI |
 | Queue | In house service with Redis or Postgres | Pushes state over a websocket |

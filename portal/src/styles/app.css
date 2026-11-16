@@ -1200,3 +1200,9 @@
   .arch-main { grid-template-columns: minmax(0, 1fr) 360px; }
   .arch-title h1 { font-size: 26px; }
 }
+/* LLM per job (P5-9, DC-11): Thinking pickers with an Early Access chip per Deepgram LLM. */
+.settings-llm { flex-wrap: wrap; }
+.settings-llm .segment { display: inline-flex; align-items: center; gap: 8px; }
+.settings-llm .chip { padding: 2px 7px; font-size: 9px; }
+.settings-llm-note.is-warn { color: var(--warn); }
+.settings-subgroup a { color: var(--ai); }

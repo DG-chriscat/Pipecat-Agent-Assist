@@ -23,6 +23,8 @@ Validation (`validate`):
   tts_expressivity a whole number from -2 to 2, slow_readback on or off, and
   readback_speed from 0.8 to 1.0 in steps of 0.05. They are checked with Aura-2 too
   (kept for when Flux is picked again) and the bot ignores them on Aura-2.
+- LLM per job (P5-9, DC-11): llm_intake, llm_assist (also the Ask bar), and llm_wrapup
+  are each one of LLM_MODELS.
 """
 
 from __future__ import annotations
@@ -76,6 +78,31 @@ MAX_EXPRESSIVITY = 2
 DEFAULT_TTS_SPEED = 1.0
 DEFAULT_TTS_EXPRESSIVITY = 0
 DEFAULT_READBACK_SPEED = 0.9
+# P5-9 (DC-11): the LLM for each job. Deepgram's phoneLLM mini and Think-Fast are Early
+# Access (developers.deepgram.com/docs/llm). A job defaults to phoneLLM mini only where
+# it matched Claude on the scripted tests (docs/spikes/llm-deepgram.md). Same values as
+# agent_assist_bot.call_settings.
+CLAUDE_HAIKU = "claude-haiku-5-5"
+PHONELLM = "phonellm-mini-alpha-2-fp8"
+THINK_FAST = "think-fast"
+LLM_MODELS = (CLAUDE_HAIKU, PHONELLM, THINK_FAST)
+DEFAULT_LLMS = {"llm_intake": PHONELLM, "llm_assist": CLAUDE_HAIKU, "llm_wrapup": CLAUDE_HAIKU}
+THINK_FAST_NOTE = "Always stored for Deepgram model training (no opt out)"
+_LLM_INFO = {
+    CLAUDE_HAIKU: ("Claude Haiku", "anthropic", False, None),
+    PHONELLM: ("Deepgram phoneLLM mini", "deepgram", True, None),
+    THINK_FAST: ("Deepgram Think-Fast", "deepgram", True, THINK_FAST_NOTE),
+}
+
+
+def llm_catalog() -> list[dict[str, Any]]:
+    """The LLM choices for the Settings page: name, provider, Early Access, a note."""
+    return [
+        {"id": m, "name": n, "provider": p, "early_access": ea, "note": note}
+        for m, (n, p, ea, note) in _LLM_INFO.items()
+    ]
+
+
 # PRD IN-2, same text as agent_assist_bot.intake.GREETING (test_bot_settings_bot.py).
 DEFAULT_GREETING = (
     "Hi, thanks for calling. You're speaking with Deepgram Vitals, an AI assistant. "
@@ -105,6 +132,9 @@ FIELDS = (
     "tts_expressivity",
     "slow_readback",
     "readback_speed",
+    "llm_intake",
+    "llm_assist",
+    "llm_wrapup",
 )
 
 NEEDS_AI = "Say that the caller is talking to an AI assistant."
@@ -156,6 +186,7 @@ def defaults(env: Mapping[str, str] | None = None) -> dict[str, Any]:
         "tts_expressivity": DEFAULT_TTS_EXPRESSIVITY,
         "slow_readback": True,
         "readback_speed": DEFAULT_READBACK_SPEED,
+        **DEFAULT_LLMS,
     }
 
 
@@ -297,6 +328,9 @@ async def validate(
     for key, allowed in (
         ("stt_intake_model", STT_INTAKE_MODELS),
         ("stt_assist_model", STT_ASSIST_MODELS),
+        ("llm_intake", LLM_MODELS),
+        ("llm_assist", LLM_MODELS),
+        ("llm_wrapup", LLM_MODELS),
     ):
         if key in values and values.get(key) not in allowed:
             errors[key] = f"Pick one of {', '.join(allowed)}."

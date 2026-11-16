@@ -47,8 +47,9 @@ max 100), since the pack is not known when they open.
    [{"template_id", "ids"}]}`. The engine re-reads every named record itself, checks
    `rule.applies`, requires that one of the rule's trigger phrases was heard in the
    window, and renders the pack's templates. Nothing the model writes reaches the
-   screen. Up to 3 rounds per pass. Model: `ASSIST_LLM_MODEL`, else `LLM_MODEL`, else
-   the factory default.
+   screen. Up to 3 rounds per pass. Model: the call's `llm_assist` setting (P5-9,
+   docs/settings.md), else `ASSIST_LLM_MODEL`, else `LLM_MODEL`, else the factory
+   default.
 3. **Pack switching.** A line whose triggers match another non fallback pack more
    than the active one switches packs (new `plan_update`).
 
@@ -274,7 +275,7 @@ RLS is enabled with no policies (same lock as 0002); `seed` truncates it.
 | Env | Default | |
 | --- | --- | --- |
 | `ASSIST_MAX_CARDS_PER_MIN` | 4 | DC-7 |
-| `ASSIST_LLM_MODEL` | `LLM_MODEL`, then the factory default | assist model |
+| `ASSIST_LLM_MODEL` | `LLM_MODEL`, then the factory default | assist model outside a call only; a call uses its `llm_assist` setting (P5-9) |
 | `DATABASE_URL` / `DATABASE_SCHEMA` | | connectors and `assist_events`; without a database the assist does not start |
 
 At call end the accepted actions, plan ticks, and the call's final lines feed the

@@ -402,3 +402,26 @@ def test_browser_call_launches_with_the_saved_settings(app, monkeypatch):
     (req,) = launcher.launched
     assert req.settings["greeting_text"].startswith("Hello. You're talking to an AI")
     assert settings_api.get_call_settings(app).for_session(sid) == req.settings
+
+
+def test_get_lists_the_llm_choices_with_early_access_and_notes(client):
+    body = client.get("/settings").json()
+    ids = [m["id"] for m in body["llm_models"]]
+    assert ids == ["claude-haiku-5-5", "phonellm-mini-alpha-2-fp8", "think-fast"]
+    think = body["llm_models"][2]
+    assert think["early_access"] is True and "no opt out" in think["note"]
+
+
+def test_put_saves_an_llm_per_job_and_rejects_an_unknown_one(client):
+    new = {
+        **values(client),
+        "llm_intake": "phonellm-mini-alpha-2-fp8",
+        "llm_assist": "think-fast",
+        "llm_wrapup": "claude-haiku-5-5",
+    }
+    r = client.put("/settings", json={"values": new})
+    assert r.status_code == 200, r.text
+    assert values(client)["llm_assist"] == "think-fast"
+    r = client.put("/settings", json={"values": {**new, "llm_wrapup": "gpt-4o"}})
+    assert r.status_code == 422
+    assert set(r.json()["detail"]["errors"]) == {"llm_wrapup"}

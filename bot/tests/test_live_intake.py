@@ -24,6 +24,12 @@ the right member ID, a reason, and the intake took under 2 minutes (PRD target).
 P5-7: INTAKE_STT_MODEL=nova-3-general|flux-general-en picks the intake STT (unset: the
 bot's default, Flux). Each result line also has `response_gaps`: seconds from the end
 of each caller line's voice to the bot's first audio after it.
+
+P5-9: LLM_INTAKE=claude-haiku-5-5|phonellm-mini-alpha-2-fp8|think-fast picks the intake
+LLM (unset: the Settings default). Result lines also carry what the bot said
+(`bot_lines`, transcribed) and the intake function calls (`functions`, names only).
+Think-Fast and phoneLLM need DEEPGRAM_API_KEY only; ANTHROPIC_API_KEY stays required
+for the other jobs' defaults.
 """
 
 from __future__ import annotations
@@ -100,9 +106,18 @@ async def _call_row(store: PostgresCallStore, session_id: str) -> dict | None:
 async def _start_bot(room_url: str, token: str, schema: str, session_id: str):
     env = dict(os.environ, DAILY_ROOM_TOKEN=token, DATABASE_SCHEMA=schema)
     # P5-7: INTAKE_STT_MODEL picks the intake STT (the Settings value, as a cold bot
-    # gets it); unset runs the bot's default (Flux).
-    if model := os.getenv("INTAKE_STT_MODEL"):
-        env[SETTINGS_ENV] = json.dumps({"stt_intake_model": model})
+    # gets it); unset runs the bot's default (Flux). P5-9: LLM_INTAKE picks the intake
+    # LLM (claude-haiku-5-5, phonellm-mini-alpha-2-fp8, think-fast) the same way.
+    overrides = {
+        k: v
+        for k, v in (
+            ("stt_intake_model", os.getenv("INTAKE_STT_MODEL")),
+            ("llm_intake", os.getenv("LLM_INTAKE")),
+        )
+        if v
+    }
+    if overrides:
+        env[SETTINGS_ENV] = json.dumps(overrides)
     proc = await asyncio.create_subprocess_exec(
         sys.executable,
         "-m",
@@ -153,6 +168,7 @@ async def test_live_intake(schema, who: Persona, run: int):
     proc, bot_log = await _start_bot(room.url, bot_token, schema, session_id)
     transcript: list[tuple[str, tuple]] = []
     lines_said: list[str] = []
+    bot_lines: list[str] = []
     # P5-7: caller stop (end of the caller's audio, minus its trailing silence) to the
     # bot's first audio after it, one per caller line the bot answered.
     response_gaps: list[float] = []
@@ -196,6 +212,7 @@ async def test_live_intake(schema, who: Persona, run: int):
             for who_said, item in transcript:
                 if who_said == "bot":
                     said = await _transcribe(_slice(rec, *item))
+                    bot_lines.append(said)
                     print(f"[{item[0] - t_start:6.1f}s] bot:    {said}")
                 else:
                     print(f"[{item[0] - t_start:6.1f}s] caller: {item[1]}")
@@ -237,7 +254,15 @@ async def test_live_intake(schema, who: Persona, run: int):
         "flags": row and row["flags"],
         "intake_seconds": round(intake_secs, 1),
         "stt_intake_model": os.getenv("INTAKE_STT_MODEL") or "default",
+        "llm_intake": os.getenv("LLM_INTAKE") or "default",
         "response_gaps": [round(g, 3) for g in response_gaps],
+        # P5-9: what the bot said, for spoken artifacts (reasoning text, markdown).
+        "bot_lines": bot_lines,
+        "functions": [
+            line.split("[flow] ", 1)[1]
+            for line in bot_log
+            if "[flow]" in line and ": function " in line
+        ],
     }
     print("INTAKE RESULT " + json.dumps(result, indent=2, default=str))
     if out := os.getenv("INTAKE_RESULTS"):

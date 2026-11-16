@@ -141,3 +141,26 @@ async def test_the_row_rejects_bad_flux_controls(schema, field, value):
     async with await connect(schema=schema) as conn:
         with pytest.raises(psycopg.errors.CheckViolation):
             await conn.execute(bs.UPSERT_SQL, {**good(**{field: value}), "session_id": "x"})
+
+
+async def test_llm_per_job_persists(schema):
+    s = store(schema)
+    values = good(
+        llm_intake="phonellm-mini-alpha-2-fp8", llm_assist="think-fast", llm_wrapup="think-fast"
+    )
+    await s.save(values, session_id="sess", agent="Ana")
+    fresh = (await store(schema).get()).values
+    assert (fresh["llm_intake"], fresh["llm_assist"], fresh["llm_wrapup"]) == (
+        "phonellm-mini-alpha-2-fp8",
+        "think-fast",
+        "think-fast",
+    )
+
+
+@pytest.mark.parametrize("field", ["llm_intake", "llm_assist", "llm_wrapup"])
+async def test_the_row_rejects_a_bad_llm(schema, field):
+    import psycopg
+
+    async with await connect(schema=schema) as conn:
+        with pytest.raises(psycopg.errors.CheckViolation):
+            await conn.execute(bs.UPSERT_SQL, {**good(**{field: "gpt-4o"}), "session_id": "x"})

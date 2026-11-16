@@ -67,6 +67,9 @@ def test_bot_and_server_defaults_agree():
         "tts_expressivity": bot.tts_expressivity,
         "slow_readback": bot.slow_readback,
         "readback_speed": bot.readback_speed,
+        "llm_intake": bot.llm_intake,
+        "llm_assist": bot.llm_assist,
+        "llm_wrapup": bot.llm_wrapup,
     }
 
 
@@ -238,3 +241,44 @@ async def test_hold_controller_speaks_the_configured_hold_line():
     await asyncio.sleep(0.07)
     ctl.stop()
     assert spoken and spoken[0] == "Still with us. You're number 2 in line."
+
+
+# ---- LLM per job (P5-9, DC-11) --------------------------------------------------------
+
+
+def test_bot_and_server_llm_lists_and_defaults_agree():
+    from agent_assist_server import bot_settings as server
+
+    assert server.LLM_MODELS == cs.LLM_MODELS
+    d = cs.CallSettings.defaults({})
+    assert server.DEFAULT_LLMS == {
+        "llm_intake": d.llm_intake,
+        "llm_assist": d.llm_assist,
+        "llm_wrapup": d.llm_wrapup,
+    }
+
+
+def test_llm_per_job_is_taken_from_the_server():
+    s = cs.CallSettings.from_mapping(
+        {
+            **FLUX,
+            "llm_intake": "phonellm-mini-alpha-2-fp8",
+            "llm_assist": "think-fast",
+            "llm_wrapup": "claude-haiku-5-5",
+        },
+        env={},
+    )
+    assert (s.llm_intake, s.llm_assist, s.llm_wrapup) == (
+        "phonellm-mini-alpha-2-fp8",
+        "think-fast",
+        "claude-haiku-5-5",
+    )
+    line = s.describe()
+    assert "llm_intake=phonellm-mini-alpha-2-fp8" in line
+    assert "llm_assist=think-fast" in line and "llm_wrapup=claude-haiku-5-5" in line
+
+
+@pytest.mark.parametrize("key", ["llm_intake", "llm_assist", "llm_wrapup"])
+def test_an_unusable_llm_falls_back_to_its_default(key):
+    s = cs.CallSettings.from_mapping({**FLUX, key: "gpt-4o"}, env={})
+    assert getattr(s, key) == getattr(cs.CallSettings.defaults({}), key)

@@ -214,10 +214,65 @@ ignores app messages from anyone else):
 ```
 
 While queued the bot says a short update every 60 s ("Thanks for waiting. You're next
-in line..."). No hold music yet; the update is the hold audio. On `agent_accepted` it
-says "Connecting you now." and a gate in front of the LLM drops caller turns, so the
-bot stays quiet while the agent talks. It then goes listen only and streams the live
-transcript to the agent's portal (P3-4, see docs/transcript.md).
+in line..."), with hold music under it (see "Hold music" below). On `agent_accepted`
+the music stops, the bot says "Connecting you now.", and a gate in front of the LLM
+drops caller turns, so the bot stays quiet while the agent talks. It then goes listen
+only and streams the live transcript to the agent's portal (P3-4, see
+docs/transcript.md).
+
+## Hold music (QH-5)
+
+Code: `bot/agent_assist_bot/hold_music.py` (mixer, config), `hold.py` (when it plays),
+`hold_music_gen.py` (the track). The caller hears a calm loop while waiting for a
+person, on both phone dial-in and the browser caller page (same bot, same transport).
+
+How it plays: `HoldMusicMixer` is the Daily output transport's audio mixer
+(`DailyParams.audio_out_mixer`, Pipecat 1.15). Pipecat calls it for every 40 ms output
+chunk, passing the bot's TTS audio or silence, so the music keeps going between bot
+lines. The hold controller turns it on and off; the mixer handles the levels itself:
+
+| Moment | Music |
+| --- | --- |
+| Intake | off (the mixer is wired in from the start but silent) |
+| `queued` | on: waits for the handoff line to finish, then fades in over 1.5 s |
+| Hold update (every 60 s) | ducks 12 dB while the bot speaks, back up 0.4 s after |
+| `agent_accepted` | off before "Connecting you now." is queued; ramps to zero in one 40 ms chunk |
+| `requeued` (QH-9) | on again after the requeue line |
+| `call_ended`, caller hangs up | off |
+
+Ducking keys off the audio itself (any bot speech in the chunk), so a short LLM reply
+to a caller who talks while on hold is ducked too.
+
+Live check (`server/tests/test_hold_music_live.py`, Nov 16): during a 15 s wait the
+longest gap was 0.5 s (between the handoff line and the fade in), Deepgram transcribed
+the hold update over the music word for word, and the music stopped 160 ms after the
+`agent_accepted` app message reached the room, 200 ms before "Connecting you now.".
+
+### The track
+
+`bot/agent_assist_bot/assets/hold_music.wav` is our own: an ambient pad (Dmaj7, Bm7,
+Gmaj7, A6, 10 s each, no drums, no melody, no vocals), 40 s, 16 kHz mono 16-bit,
+normalized to -20 LUFS, looping without a seam. It is rendered by a deterministic
+script, so there is no licensing question:
+
+```
+uv run python -m agent_assist_bot.hold_music_gen            # rewrites the bundled WAV
+uv run python -m agent_assist_bot.hold_music_gen /tmp/x.wav  # or somewhere else
+```
+
+A unit test re-renders it and compares with the committed file.
+
+### Using a licensed track instead
+
+Set `HOLD_MUSIC_PATH` on the bot (it inherits the server's environment, so on Fly set
+it as an app env var) to a file the bot can read: WAV, FLAC, or OGG, mono or stereo,
+any sample rate (mixed down to mono and resampled to the output rate at call start).
+For it to sit under speech like the bundled loop, master it around -20 LUFS, make it
+loop cleanly (the mixer wraps to the start with no crossfade), and keep it short (it
+is held in memory per call; 30 to 60 s is plenty). In the Docker image, put the file
+in the image (for example under `bot/agent_assist_bot/assets/`) or on a mounted
+volume. A path that does not exist turns hold music off with a warning; the call goes
+on with updates only.
 
 ## Config
 
@@ -225,10 +280,13 @@ transcript to the agent's portal (P3-4, see docs/transcript.md).
 | --- | --- | --- |
 | `AGENT_ASSIST_SERVER_URL` | bot (inherited from server) | Base URL of the server's queue API, e.g. `http://127.0.0.1:8000`. Unset: the handoff is a no-op. |
 | `QUEUE_PERSIST` | server | `1` turns on the Postgres write-through (needs `DATABASE_URL`). |
+| `HOLD_MUSIC` | bot | `on` (default) or `off`. Off: no mixer; the 60 s updates are the only hold audio. |
+| `HOLD_MUSIC_VOLUME` | bot | Music gain under the bot, 0 to 1 (default `0.35`). Out of range is clamped. |
+| `HOLD_MUSIC_PATH` | bot | Optional track that replaces the bundled loop (see "Using a licensed track instead"). |
+| `HOLD_UPDATE_SECS` | bot | Seconds between hold updates (default 60). The live test uses 8. |
 
 ## Not yet
 
 - QH-8 callback offer after 5 minutes (Should, later card).
 - AP-9 summary draft and suggested reason code at wrap up (Phase 4).
-- Hold music.
 - Server side hold (the portal's hold only mutes the agent mic in v1).

@@ -126,6 +126,8 @@ async def test_live_voice_intake_to_queue_to_agent(schema, monkeypatch):
     base = f"http://127.0.0.1:{port}"
     # Inherited by the bot subprocess the server launches.
     monkeypatch.setenv(SERVER_URL_ENV, base)
+    # Hold music (QH-5) would read as bot speech to the RMS turn detection.
+    monkeypatch.setenv("HOLD_MUSIC", "off")
     monkeypatch.setenv(DATABASE_SCHEMA_ENV, schema)
     monkeypatch.delenv("QUEUE_PERSIST", raising=False)  # queue state in memory only
     audio = {k: await synthesize(v, sample_rate=SAMPLE_RATE) for k, v in SCRIPT.items()}

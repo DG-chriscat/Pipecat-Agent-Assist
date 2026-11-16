@@ -17,15 +17,21 @@ the line, and hold updates resume until the next agent accepts. On `call_ended` 
 agent pressed End) it says goodbye. Messages from anyone other than the REST API
 (e.g. a participant's browser) are ignored.
 
-Hold music is not played; the periodic update is the hold audio for now.
+Hold music (`hold_music.py`) plays under all of that while the caller waits: `music`
+is the output transport's mixer. It is turned on by `queued` and `requeued` (it waits
+for the handoff or requeue line to finish, then fades in, and ducks about 12 dB under
+each hold update) and off on `agent_accepted` before "Connecting you now." is queued,
+on `call_ended`, and when the controller stops (the caller hung up). It never plays
+during intake. HOLD_MUSIC=off builds no mixer and the updates alone are the hold audio.
 """
 
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable
+import os
+from collections.abc import Awaitable, Callable, Mapping
 from enum import StrEnum
-from typing import Any
+from typing import Any, Protocol
 
 from loguru import logger
 from pipecat.frames.frames import Frame, LLMContextFrame, TTSSpeakFrame
@@ -34,6 +40,7 @@ from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 MESSAGE_TYPE = "agent_assist.queue"
 SERVER_SENDER = "api"
 HOLD_INTERVAL_SECS = 60
+HOLD_INTERVAL_ENV = "HOLD_UPDATE_SECS"  # optional override (live tests use a short one)
 CONNECTING_LINE = "Connecting you now."
 # QH-9: the agent dropped off; the caller is back at the front of the queue.
 REQUEUED_LINE = (
@@ -44,6 +51,24 @@ REQUEUED_LINE = (
 GOODBYE_LINE = "Thanks for calling. Goodbye."
 
 QueueFrames = Callable[[list[Frame]], Awaitable[None]]
+
+
+class HoldMusic(Protocol):
+    """What the controller needs from the mixer (HoldMusicMixer)."""
+
+    def enable(self) -> None: ...
+
+    def disable(self) -> None: ...
+
+
+def hold_interval_from_env(env: Mapping[str, str] | None = None) -> float:
+    """Seconds between hold updates: HOLD_UPDATE_SECS when a positive number, else 60."""
+    raw = (os.environ if env is None else env).get(HOLD_INTERVAL_ENV)
+    try:
+        secs = float(raw) if raw else HOLD_INTERVAL_SECS
+    except ValueError:
+        secs = HOLD_INTERVAL_SECS
+    return float(secs if secs > 0 else HOLD_INTERVAL_SECS)
 
 
 def hold_line(position: int | None) -> str:
@@ -110,10 +135,12 @@ class HoldController:
         *,
         gate: BotGate | None = None,
         interval: float = HOLD_INTERVAL_SECS,
+        music: HoldMusic | None = None,
     ):
         self._queue_frames = queue_frames
         self.gate = gate or BotGate()
         self._interval = interval
+        self.music = music
         self.state = HoldState.INTAKE
         self.position: int | None = None
         self.agent_name: str | None = None
@@ -136,7 +163,7 @@ class HoldController:
         elif event == "agent_accepted" and self.state is not HoldState.WITH_AGENT:
             self.state = HoldState.WITH_AGENT
             self.agent_name = message.get("agent_name")
-            self.stop()
+            self.stop()  # music off before the connecting line is queued
             self.gate.close()
             logger.info(f"[hold] agent {message.get('agent_name')!r} accepted; going quiet")
             await self._queue_frames([TTSSpeakFrame(CONNECTING_LINE)])
@@ -157,8 +184,10 @@ class HoldController:
             await self._queue_frames([_must_say(GOODBYE_LINE)])
 
     def _start_loop(self) -> None:
-        self.stop()
+        self._cancel_updates()
         self._task = asyncio.create_task(self._hold_loop())
+        if self.music is not None:
+            self.music.enable()
 
     async def _hold_loop(self) -> None:
         while self.state is HoldState.QUEUED:
@@ -166,7 +195,13 @@ class HoldController:
             if self.state is HoldState.QUEUED:
                 await self._queue_frames([TTSSpeakFrame(hold_line(self.position))])
 
-    def stop(self) -> None:
+    def _cancel_updates(self) -> None:
         if self._task is not None:
             self._task.cancel()
             self._task = None
+
+    def stop(self) -> None:
+        """Stop hold updates and hold music."""
+        self._cancel_updates()
+        if self.music is not None:
+            self.music.disable()

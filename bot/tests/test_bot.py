@@ -397,6 +397,47 @@ def test_build_worker_with_dialin(api_keys):
     assert transport._params.dialin_settings is None
 
 
+def test_transport_carries_the_hold_music_mixer(api_keys, monkeypatch):
+    # QH-5: dial-in and browser calls build the same transport, so both get music.
+    from agent_assist_bot.hold_music import DEFAULT_TRACK, HoldMusicMixer
+
+    monkeypatch.delenv("HOLD_MUSIC", raising=False)
+    for dialin in (DIALIN, None):
+        _, transport = bot.build_worker(ROOM, "tok", dialin)
+        mixer = transport._params.audio_out_mixer
+        assert isinstance(mixer, HoldMusicMixer)
+        assert mixer.path == DEFAULT_TRACK
+        assert not mixer.enabled  # silent through intake
+
+
+def test_hold_music_off_builds_no_mixer(api_keys, monkeypatch):
+    monkeypatch.setenv("HOLD_MUSIC", "off")
+    _, transport = bot.build_worker(ROOM, "tok")
+    assert transport._params.audio_out_mixer is None
+
+
+@pytest.mark.parametrize(("raw", "secs"), [(None, 60.0), ("8", 8.0), ("x", 60.0), ("0", 60.0)])
+def test_hold_update_interval_from_env(raw, secs):
+    env = {} if raw is None else {"HOLD_UPDATE_SECS": raw}
+    assert hold.hold_interval_from_env(env) == secs
+
+
+async def test_queued_message_turns_on_the_transport_mixer(api_keys, monkeypatch):
+    # The HoldController built by build_worker drives the transport's own mixer.
+    monkeypatch.delenv("HOLD_MUSIC", raising=False)
+    _, transport = bot.build_worker(ROOM, "tok")
+    mixer = transport._params.audio_out_mixer
+    handlers = transport._event_handlers["on_app_message"].handlers
+    queued = {"type": hold.MESSAGE_TYPE, "event": "queued", "position": 1}
+    for h in handlers:
+        await h(transport, queued, "api")
+    assert mixer.enabled
+    accepted = {"type": hold.MESSAGE_TYPE, "event": "agent_accepted", "agent_name": "Ana"}
+    for h in handlers:
+        await h(transport, accepted, "api")
+    assert not mixer.enabled
+
+
 def test_pipeline_times_first_audio_just_before_output(api_keys):
     worker, _ = bot.build_worker(ROOM, "tok")
     inner = next(p for p in worker._pipeline.processors if type(p).__name__ == "Pipeline")

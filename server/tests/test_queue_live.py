@@ -116,6 +116,8 @@ async def test_live_browser_call_queue_offer_accept_join(keys_present, monkeypat
     port = free_port()
     base = f"http://127.0.0.1:{port}"
     monkeypatch.setenv(SERVER_URL_ENV, base)  # inherited by the bot subprocess
+    # Hold music (QH-5) would read as bot speech to the RMS checks below.
+    monkeypatch.setenv("HOLD_MUSIC", "off")
     # The bot runs the real intake Flow; keep its calls row in memory, off the shared DB.
     monkeypatch.delenv("DATABASE_URL", raising=False)
     launcher = BotLauncher()

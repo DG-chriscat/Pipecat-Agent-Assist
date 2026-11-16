@@ -17,7 +17,7 @@ the rest of intake keeps its fast turn taking. The Deepgram settings change is a
 transcript branches keep theirs; Pipecat reconnects the Deepgram stream between
 turns and buffers audio meanwhile.
 
-Fixed keyterms from the active pack (`stt_keyterms`) are set on the intake STT for the
+Fixed keyterms from the active pack (`keyterms`, P4-2) are set on the intake STT for the
 whole call (Nova 3 keyterm prompting).
 """
 

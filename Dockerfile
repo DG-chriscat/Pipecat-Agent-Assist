@@ -38,6 +38,11 @@ COPY db db
 RUN uv sync --frozen --no-dev --all-packages \
  && python -c "import agent_assist_server.app, agent_assist_bot.bot"
 
+# Bake the Pipecat Tone reader model (Realtime Context Standard perception) into the image
+# so call start never waits on a Hugging Face download (ADR 0005 / P4-5).
+ENV HF_HOME=/app/.hf
+RUN python -m agent_assist_bot.tone_prefetch
+
 # Served at /agent by agent_assist_server.portal (default path <repo>/portal/dist).
 COPY --from=portal /portal/dist portal/dist
 ENV PORTAL_DIST=/app/portal/dist

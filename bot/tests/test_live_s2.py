@@ -1,7 +1,9 @@
 """Live S2 test: one listen only bot transcribes caller and agent on separate tracks.
 
 Run: uv run pytest -m live bot/tests/test_live_s2.py -s
-Needs DAILY_API_KEY and DEEPGRAM_API_KEY. Set S2_RESULT=/path.json to keep the results.
+Needs DAILY_API_KEY and DEEPGRAM_API_KEY. Set S2_RESULT=/path.json to keep the results,
+S2_STT_MODEL to pick the assist STT model (P5-7; default nova-3-general), and
+S2_SCRIPT=claims for the clinical claims script (medical terms scored).
 """
 
 from __future__ import annotations
@@ -10,6 +12,7 @@ import asyncio
 import json
 import os
 import re
+import statistics
 import sys
 import time
 from dataclasses import dataclass
@@ -46,6 +49,69 @@ SCRIPT: list[tuple[str, str, bool]] = [
     ("caller", "Monday is perfect, thank you so much.", False),
 ]
 
+# P5-7 (S2_SCRIPT=claims): a claims call with clinical terms, to compare Nova-3 Medical
+# with Nova-3 general on the assist side. Mock content only. MEDICAL_TERMS lists the
+# terms scored per run (docs/spikes/stt-flux-intake.md).
+CLAIMS_SCRIPT: list[tuple[str, str, bool]] = [
+    (
+        "caller",
+        "Hi, my claim for an MRI of the lumbar spine was denied. My doctor ordered it "
+        "for radiculopathy after the epidural steroid injection did not help.",
+        False,
+    ),
+    (
+        "agent",
+        "I see it. The denial code is CO-197, no prior authorization. Was the MRI "
+        "with and without gadolinium contrast?",
+        False,
+    ),
+    (
+        "caller",
+        "Yes, with contrast. They also mentioned a herniated disc at L4-L5 and spinal stenosis.",
+        False,
+    ),
+    (
+        "agent",
+        "Thank you. I can request a retro authorization review. Did your neurologist "
+        "also prescribe gabapentin or a methylprednisolone dose pack?",
+        False,
+    ),
+    (
+        "caller",
+        "Gabapentin, three hundred milligrams. And I had physical therapy for the "
+        "sciatica before that.",
+        False,
+    ),
+    (
+        "agent",
+        "Got it. I will note the conservative treatment and the electromyography "
+        "results with the review.",
+        False,
+    ),
+]
+MEDICAL_TERMS = [
+    "MRI",
+    "lumbar",
+    "radiculopathy",
+    "epidural",
+    "steroid",
+    "gadolinium",
+    "contrast",
+    "herniated",
+    "L4",
+    "L5",
+    "stenosis",
+    "neurologist",
+    "gabapentin",
+    "methylprednisolone",
+    "milligrams",
+    "physical therapy",
+    "sciatica",
+    "electromyography",
+]
+if os.getenv("S2_SCRIPT") == "claims":
+    SCRIPT = CLAIMS_SCRIPT
+
 
 @dataclass
 class Spoken:
@@ -80,12 +146,15 @@ def _require_env():
 
 
 async def _start_bot(room_url: str):
+    # P5-7: S2_STT_MODEL picks the assist STT (nova-3-general, nova-3-medical, flux-general-en).
+    model = ["--stt-model", m] if (m := os.getenv("S2_STT_MODEL")) else []
     proc = await asyncio.create_subprocess_exec(
         sys.executable,
         "-m",
         "agent_assist_bot.spike_s2",
         "--room-url",
         room_url,
+        *model,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
     )
@@ -246,6 +315,26 @@ async def test_per_participant_transcription(tmp_path: Path):
     print("\nLatency, end of speech -> final transcript:")
     for lat in latencies:
         print(f"  {lat['latency_s']:6.3f}s {lat['role']:6} lines={lat['lines']} {lat['text']!r}")
+    if latencies:
+        values = sorted(lat["latency_s"] for lat in latencies)
+        print(f"  median {statistics.median(values):.3f}s (n={len(values)})")
+    labels_ok = sum(
+        1
+        for line, src in attributed
+        if src is not None
+        and src.role == line["speaker_role"]
+        and line["speaker_role"]
+        == ("caller" if line["participant_id"] == ids["caller"] else "agent")
+    )
+    print(f"  labels correct: {labels_ok} of {len(attributed)} final lines")
+    heard_terms = None
+    if SCRIPT is CLAIMS_SCRIPT:
+        heard = " ".join(line["text"] for line, _ in attributed).lower()
+        heard_terms = {t: t.lower() in heard for t in MEDICAL_TERMS}
+        print(
+            f"  medical terms heard: {sum(heard_terms.values())} of {len(MEDICAL_TERMS)}; "
+            f"missed: {[t for t, ok in heard_terms.items() if not ok]}"
+        )
 
     idle = sampler.summary(idle_start, idle_end)
     talking = sampler.summary(talk_start, talk_end)
@@ -269,6 +358,9 @@ async def test_per_participant_transcription(tmp_path: Path):
             for s in spoken
         ],
         "latencies": latencies,
+        "labels_correct": labels_ok,
+        "medical_terms": heard_terms,
+        "stt_model": os.getenv("S2_STT_MODEL") or "nova-3-general",
         "proc_idle": idle,
         "proc_talking": talking,
         "participant_ids": ids,
@@ -293,6 +385,6 @@ async def test_per_participant_transcription(tmp_path: Path):
     assert not missing, f"never transcribed: {missing}"
 
     # 3. Overlap: both the interrupted agent turn and the caller's cut-in got their own lines.
-    ov = next(i for i, s in enumerate(spoken) if s.overlap)
-    for s in (spoken[ov - 1], spoken[ov]):
+    ov = next((i for i, s in enumerate(spoken) if s.overlap), None)
+    for s in (spoken[ov - 1], spoken[ov]) if ov is not None else ():
         assert any(src is s and ln["speaker_role"] == s.role for ln, src in attributed), s

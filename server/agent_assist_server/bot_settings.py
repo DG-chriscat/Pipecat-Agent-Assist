@@ -1,7 +1,8 @@
 """Bot settings (P5-5, PRD AP-20, IN-11): what the bot says and how it sounds.
 
 One settings row: TTS model and voice, greeting, intake pack, identity read back, hold
-message and interval. Defaults live here in code; no row means defaults, and Reset
+message and interval, and the STT model for intake and for assist (P5-7, IN-14).
+Defaults live here in code; no row means defaults, and Reset
 deletes the row. Every save and reset is logged on `settings_events` with the login
 session that made it and the fields that changed (from and to).
 
@@ -16,6 +17,7 @@ Validation (`validate`):
   that a person will join (`disclosure_problems`).
 - Text lengths and the hold interval are bounded; the hold message may use one
   placeholder, {place}, filled with the caller's place in line.
+- stt_intake_model is in STT_INTAKE_MODELS and stt_assist_model in STT_ASSIST_MODELS.
 """
 
 from __future__ import annotations
@@ -45,6 +47,15 @@ TTS_MODELS = ("aura-2", "flux")
 # (docs/spikes/tts-flux-vs-aura.md). Aura-2 stays selectable.
 DEFAULT_TTS_MODEL = "flux"
 DEFAULT_TTS_VOICE = "flux-alexis-en"
+# IN-14: speech to text per side. Intake (the voice bot): Nova-3 general by default,
+# Flux selectable (Flux owns turn detection). Nova-3 stays the default because Flux
+# intake regressed identity on the hard name (docs/spikes/stt-flux-intake.md). Assist
+# (listen only, per person track): Nova-3 general by default; Nova-3 Medical or Flux
+# selectable. No Flux medical model. Same lists as agent_assist_bot.stt.
+STT_INTAKE_MODELS = ("nova-3-general", "flux-general-en")
+STT_ASSIST_MODELS = ("nova-3-general", "nova-3-medical", "flux-general-en")
+DEFAULT_STT_INTAKE_MODEL = "nova-3-general"
+DEFAULT_STT_ASSIST_MODEL = "nova-3-general"
 DEFAULT_PACK = "claims_status"
 # PRD IN-2, same text as agent_assist_bot.intake.GREETING (test_bot_settings_bot.py).
 DEFAULT_GREETING = (
@@ -69,6 +80,8 @@ FIELDS = (
     "identity_read_back",
     "hold_update_text",
     "hold_update_secs",
+    "stt_intake_model",
+    "stt_assist_model",
 )
 
 NEEDS_AI = "Say that the caller is talking to an AI assistant."
@@ -114,6 +127,8 @@ def defaults(env: Mapping[str, str] | None = None) -> dict[str, Any]:
         "identity_read_back": True,
         "hold_update_text": DEFAULT_HOLD_TEXT,
         "hold_update_secs": _env_hold_secs(env),
+        "stt_intake_model": DEFAULT_STT_INTAKE_MODEL,
+        "stt_assist_model": DEFAULT_STT_ASSIST_MODEL,
     }
 
 
@@ -225,6 +240,12 @@ async def validate(
         errors["intake_pack"] = "Pick a pack from the list."
     if "identity_read_back" in values and not isinstance(values.get("identity_read_back"), bool):
         errors["identity_read_back"] = "On or off."
+    for key, allowed in (
+        ("stt_intake_model", STT_INTAKE_MODELS),
+        ("stt_assist_model", STT_ASSIST_MODELS),
+    ):
+        if key in values and values.get(key) not in allowed:
+            errors[key] = f"Pick one of {', '.join(allowed)}."
     return errors
 
 

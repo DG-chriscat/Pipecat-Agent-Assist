@@ -197,6 +197,37 @@ async def test_defaults_are_read_when_asked_not_frozen_at_start():
     assert (await store.get()).values["hold_update_secs"] == 9
 
 
+def test_stt_defaults_are_nova_3_on_both_sides_after_the_flux_identity_test():
+    # docs/spikes/stt-flux-intake.md: Flux intake missed Linda Nguyen's name 5 of 5
+    # (identity 8 of 10 vs Nova-3 10 of 10), so Nova-3 stays the intake default.
+    d = bs.defaults({})
+    assert d["stt_intake_model"] == "nova-3-general"
+    assert d["stt_assist_model"] == "nova-3-general"
+
+
+@pytest.mark.parametrize("model", ["flux-general-en", "nova-3-general"])
+async def test_intake_stt_model_choices_are_valid(model):
+    assert await check(good(stt_intake_model=model)) == {}
+
+
+@pytest.mark.parametrize("model", ["nova-3-general", "nova-3-medical", "flux-general-en"])
+async def test_assist_stt_model_choices_are_valid(model):
+    assert await check(good(stt_assist_model=model)) == {}
+
+
+@pytest.mark.parametrize("model", ["nova-3-medical", "nova-2", "", None, 3])
+async def test_intake_stt_model_outside_its_list_is_rejected(model):
+    # No Flux medical model, and intake turn taking needs Flux or Nova-3 general.
+    errors = await check(good(stt_intake_model=model))
+    assert set(errors) == {"stt_intake_model"}
+
+
+@pytest.mark.parametrize("model", ["flux-general-multi", "nova-2", "", None])
+async def test_assist_stt_model_outside_its_list_is_rejected(model):
+    errors = await check(good(stt_assist_model=model))
+    assert set(errors) == {"stt_assist_model"}
+
+
 async def test_a_saved_row_missing_a_newer_field_gets_its_default():
     store = bs.MemorySettingsStore(defaults=lambda: good())
     partial = good()

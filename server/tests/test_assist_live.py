@@ -43,6 +43,7 @@ from agent_assist_bot.assist_contract import FEEDBACK_TYPE
 from agent_assist_bot.bot import BOT_NAME
 from agent_assist_bot.calls import DATABASE_SCHEMA_ENV, PostgresCallStore
 from agent_assist_bot.handoff import SERVER_URL_ENV
+from agent_assist_server import bot_settings
 from agent_assist_server.app import app
 from agent_assist_server.bot_launcher import BotLauncher
 from agent_assist_server.daily import DailyRestClient
@@ -143,6 +144,17 @@ def assist_data(messages) -> list[tuple[float, dict]]:
     return out
 
 
+def transcript_data(messages) -> list[tuple[float, dict]]:
+    """Final transcript lines the agent's client got (P3-4), for the label check."""
+    out = []
+    for t, _sender, m in messages:
+        if isinstance(m, dict) and m.get("type") == "server-message":
+            d = m.get("data") or {}
+            if d.get("type") == "transcript" and d.get("is_final"):
+                out.append((t, d))
+    return out
+
+
 async def queued_call(http: httpx.AsyncClient, session_id: str) -> dict | None:
     for c in (await http.get("/queue")).json()["queue"]:
         if c["session_id"] == session_id:
@@ -200,6 +212,19 @@ async def test_live_trigger_to_hero_on_the_agent_screen(schema, monkeypatch):
     trigger_offset = await word_end(trigger_pcm, TRIGGER_WORD)
     launcher = BotLauncher()
     app.state.bot_launcher = launcher
+    # P5-7: ASSIST_STT_MODEL (and INTAKE_STT_MODEL) set the call's Settings, as saved
+    # on the Settings page; unset runs the defaults (Flux intake, Nova-3 assist).
+    stt = {
+        k: v
+        for k, v in (
+            ("stt_assist_model", os.getenv("ASSIST_STT_MODEL")),
+            ("stt_intake_model", os.getenv("INTAKE_STT_MODEL")),
+        )
+        if v
+    }
+    app.state.settings_store = bot_settings.MemorySettingsStore(
+        defaults=lambda: {**bot_settings.defaults(), **stt}
+    )
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
     serve_task = asyncio.create_task(server.serve())
     daily = DailyRestClient.from_env()
@@ -331,6 +356,7 @@ async def test_live_trigger_to_hero_on_the_agent_screen(schema, monkeypatch):
                         quiet_from = line[1] + 0.5
                         spoke = rec.first_speech_after(quiet_from, threshold=SPEECH_RMS)
                         agent_events = assist_data(agent_client.app_messages)
+                        agent_transcript = transcript_data(agent_client.app_messages)
                         caller_events = assist_data(caller.app_messages)
                         caller_all = list(caller.app_messages)
 
@@ -360,7 +386,7 @@ async def test_live_trigger_to_hero_on_the_agent_screen(schema, monkeypatch):
         if room_name:
             await daily.delete_room(room_name)
             log(t0, f"room {room_name} deleted")
-        for attr in ("bot_launcher", "queue_service"):
+        for attr in ("bot_launcher", "queue_service", "settings_store", "call_settings"):
             if hasattr(app.state, attr):
                 delattr(app.state, attr)
 
@@ -389,6 +415,11 @@ async def test_live_trigger_to_hero_on_the_agent_screen(schema, monkeypatch):
         f"caller app messages: {len(caller_all)}; assist messages to caller: {len(caller_events)}"
     )
     print("TIMINGS " + json.dumps({k: round(v, 3) for k, v in timings.items()}))
+    print(f"STT {json.dumps(stt) if stt else 'defaults'}")
+    transcript_lines = [d for _, d in agent_transcript]
+    print("transcript lines on the agent client (final):")
+    for d in transcript_lines:
+        print(f"  [{d['role']:6}] {d['text']!r}")
 
     # ---- assertions -----------------------------------------------------------------
     assert card["rule_id"] == "retro_auth_review"
@@ -414,6 +445,12 @@ async def test_live_trigger_to_hero_on_the_agent_screen(schema, monkeypatch):
         )
     ]
     assert claim_status == "denied"  # DC-9: nothing written back
+    # Lines are labeled by the track they were heard on, whichever assist STT ran.
+    agent_lines = [d["text"].lower() for d in transcript_lines if d["role"] == "agent"]
+    caller_lines = [d["text"].lower() for d in transcript_lines if d["role"] == "caller"]
+    assert any("claim" in t for t in agent_lines), transcript_lines
+    assert any("denied" in t or "mri" in t for t in caller_lines), transcript_lines
+    assert not any("denied" in t for t in agent_lines), transcript_lines
     final_plan = [d for _, d in agent_events if d["event"] == "plan_update"][-1]
     done = {s["id"]: s["by"] for s in final_plan["steps"] if s["done"]}
     assert done.get("take_next_step") == "action"

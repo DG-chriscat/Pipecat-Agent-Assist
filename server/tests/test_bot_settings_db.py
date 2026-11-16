@@ -98,3 +98,23 @@ async def test_the_row_rejects_a_bad_model(schema):
     async with await connect(schema=schema) as conn:
         with pytest.raises(psycopg.errors.CheckViolation):
             await conn.execute(bs.UPSERT_SQL, {**good(tts_model="aura-1"), "session_id": "x"})
+
+
+async def test_stt_models_persist(schema):
+    s = store(schema)
+    values = good(stt_intake_model="nova-3-general", stt_assist_model="nova-3-medical")
+    await s.save(values, session_id="sess", agent="Ana")
+    fresh = await store(schema).get()
+    assert fresh.values["stt_intake_model"] == "nova-3-general"
+    assert fresh.values["stt_assist_model"] == "nova-3-medical"
+
+
+@pytest.mark.parametrize(
+    "field, value", [("stt_intake_model", "nova-3-medical"), ("stt_assist_model", "nova-2")]
+)
+async def test_the_row_rejects_a_bad_stt_model(schema, field, value):
+    import psycopg
+
+    async with await connect(schema=schema) as conn:
+        with pytest.raises(psycopg.errors.CheckViolation):
+            await conn.execute(bs.UPSERT_SQL, {**good(**{field: value}), "session_id": "x"})

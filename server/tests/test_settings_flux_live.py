@@ -197,7 +197,11 @@ async def test_settings_page_flux_then_a_call_uses_it(schema, monkeypatch, tmp_p
             )
             log(t0, "screenshot settings-dark-disclosure-check.png")
 
-            await region.get_by_role("radio", name="Flux").click()
+            await (
+                region.get_by_role("radiogroup", name="Model", exact=True)
+                .get_by_role("radio", name="Flux")
+                .click()
+            )
             await region.get_by_label("Voice", exact=True).select_option(FLUX_VOICE)
             await greeting.fill(GREETING)
             await region.get_by_label("Hold message").fill(HOLD_TEXT)

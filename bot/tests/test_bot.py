@@ -5,16 +5,23 @@ import asyncio
 import pytest
 from agent_assist_bot import __main__ as cli
 from agent_assist_bot import bot, hold
+from agent_assist_bot.call_settings import CallSettings
 from agent_assist_bot.calls import MemoryCallStore, PostgresCallStore
 from agent_assist_bot.intake import IntakeSession
 from agent_assist_bot.packs import load_pack, load_packs
+from agent_assist_bot.stt_tuning import FluxIdentitySTTTuning, IdentitySTTTuning
 from agent_assist_bot.transcript import CallRoles, TranscriptRelay
+from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.frames.frames import EndFrame
 from pipecat.pipeline.parallel_pipeline import ParallelPipeline
 from pipecat.pipeline.worker import PipelineWorker
 from pipecat.processors.frameworks.rtvi import RTVIObserver
+from pipecat.services.deepgram.flux.stt import DeepgramFluxSTTService as FluxSTT
+from pipecat.services.stt_service import STTService
+from pipecat.turns.user_turn_strategies import ExternalUserTurnStrategies
 
 LISTEN_STAGES = ("AudioRoute", "VADProcessor", "DeepgramSTTService", "TranscriptRelay")
+FLUX_LISTEN_STAGES = ("AudioRoute", "ChunkedFluxSTTService", "TranscriptRelay")
 
 KEYS = {
     "DAILY_API_KEY": "fake-daily",
@@ -336,8 +343,7 @@ async def test_call_end_without_an_accepted_agent_drafts_nothing():
 
 def test_listen_branches_boost_pack_keyterms(api_keys):
     worker, _ = bot.build_worker(ROOM, "tok", store=MemoryCallStore())
-    inner = next(p for p in worker._pipeline.processors if type(p).__name__ == "Pipeline")
-    par = next(p for p in inner.processors if isinstance(p, ParallelPipeline))
+    par = _parallel(worker)
     stts = [
         x
         for b in par._pipelines[1:]
@@ -346,9 +352,98 @@ def test_listen_branches_boost_pack_keyterms(api_keys):
     ]
     assert len(stts) == 2
     for stt in stts:
+        assert stt._settings.model == "nova-3-general"  # IN-14 assist default
         terms = stt._settings.keyterm
         assert "CO-197" in terms and "charged twice" in terms and "EOB" in terms
         assert len(terms) == len(set(terms)) <= 100
+
+
+def _parallel(worker) -> ParallelPipeline:
+    inner = next(p for p in worker._pipeline.processors if type(p).__name__ == "Pipeline")
+    return next(p for p in inner.processors if isinstance(p, ParallelPipeline))
+
+
+def _user_aggregator(worker):
+    inner = next(p for p in worker._pipeline.processors if type(p).__name__ == "Pipeline")
+    return next(p for p in inner.processors if type(p).__name__ == "LLMUserAggregator")
+
+
+def _settings(**over) -> CallSettings:
+    return CallSettings.from_mapping(over, env={})
+
+
+def _spy_session(monkeypatch) -> dict:
+    seen = {}
+    real_session = bot.IntakeSession
+
+    def spy(**kwargs):
+        seen["session"] = real_session(**kwargs)
+        return seen["session"]
+
+    monkeypatch.setattr(bot, "IntakeSession", spy)
+    return seen
+
+
+def test_flux_intake_owns_turns_without_vad_or_smart_turn(api_keys, monkeypatch):
+    seen = _spy_session(monkeypatch)
+    settings = _settings(stt_intake_model="flux-general-en")
+    worker, _ = bot.build_worker(ROOM, "tok", store=MemoryCallStore(), settings=settings)
+    intake = [type(x).__name__ for x in _parallel(worker)._pipelines[0].processors]
+    assert "ChunkedFluxSTTService" in intake
+    assert "VADProcessor" not in intake and "DeepgramSTTService" not in intake
+    params = _user_aggregator(worker)._params
+    assert params.vad_analyzer is None
+    assert isinstance(params.user_turn_strategies, ExternalUserTurnStrategies)
+    assert params.user_turn_strategies.enable_interruptions is True
+    stt = next(x for x in _parallel(worker)._pipelines[0].processors if isinstance(x, FluxSTT))
+    assert stt._should_interrupt is True
+    assert isinstance(seen["session"].identity_tuning, FluxIdentitySTTTuning)
+
+
+def test_nova_intake_by_default_keeps_silero_vad_and_smart_turn(api_keys, monkeypatch):
+    seen = _spy_session(monkeypatch)
+    worker, _ = bot.build_worker(ROOM, "tok", store=MemoryCallStore())
+    intake = [type(x).__name__ for x in _parallel(worker)._pipelines[0].processors]
+    assert "DeepgramSTTService" in intake and "ChunkedFluxSTTService" not in intake
+    params = _user_aggregator(worker)._params
+    assert isinstance(params.vad_analyzer, SileroVADAnalyzer)
+    assert params.user_turn_strategies is None  # Pipecat default: VAD + smart turn
+    assert isinstance(seen["session"].identity_tuning, IdentitySTTTuning)
+
+
+def test_flux_assist_branches_never_interrupt_and_need_no_vad(api_keys):
+    settings = _settings(stt_assist_model="flux-general-en")
+    worker, _ = bot.build_worker(ROOM, "tok", store=MemoryCallStore(), settings=settings)
+    par = _parallel(worker)
+    for b in par._pipelines[1:]:
+        names = [type(x).__name__ for x in b.processors]
+        assert [n for n in names if n in FLUX_LISTEN_STAGES] == list(FLUX_LISTEN_STAGES)
+        stt = next(x for x in b.processors if isinstance(x, FluxSTT))
+        assert stt._should_interrupt is False
+    relays = [x for b in par._pipelines for x in b.processors if isinstance(x, TranscriptRelay)]
+    assert sorted(r._role for r in relays) == ["agent", "caller"]
+    # The listen branches stay invisible to RTVI, Flux or not.
+    observer = next(o for o in worker._observer._observers if isinstance(o, RTVIObserver))
+    listen = [
+        x
+        for b in par._pipelines[1:]
+        for x in b.processors
+        if type(x).__name__ in FLUX_LISTEN_STAGES
+    ]
+    assert len(listen) == 6
+    assert set(listen) <= observer._ignored_sources
+
+
+def test_medical_assist_branches_run_nova_3_medical(api_keys):
+    settings = _settings(stt_assist_model="nova-3-medical")
+    worker, _ = bot.build_worker(ROOM, "tok", store=MemoryCallStore(), settings=settings)
+    stts = [
+        x
+        for b in _parallel(worker)._pipelines[1:]
+        for x in b.processors
+        if type(x).__name__ == "DeepgramSTTService"
+    ]
+    assert [s._settings.model for s in stts] == ["nova-3-medical", "nova-3-medical"]
 
 
 def test_keyterms_are_deduped_across_packs():
@@ -390,16 +485,18 @@ def test_pipeline_has_intake_and_two_listen_branches(api_keys):
     assert set(listen) <= observer._ignored_sources
 
 
-def test_intake_stt_uses_the_active_pack_keyterms(api_keys):
+@pytest.mark.parametrize("model", ["flux-general-en", "nova-3-general"])
+def test_intake_stt_uses_the_active_pack_keyterms(api_keys, model):
     # Identity card: fixed keyterms from the active pack (P4-2 `keyterms`) on the
-    # intake STT; the identity step's numerals/endpointing go to this STT only.
+    # intake STT; the identity step's tuning goes to this STT only.
     pack = load_pack("claims_status")
-    worker, _ = bot.build_worker(ROOM, "tok", pack=pack, store=MemoryCallStore())
-    inner = next(p for p in worker._pipeline.processors if type(p).__name__ == "Pipeline")
-    par = next(p for p in inner.processors if isinstance(p, ParallelPipeline))
-    intake_stt = next(
-        x for x in par._pipelines[0].processors if type(x).__name__ == "DeepgramSTTService"
+    worker, _ = bot.build_worker(
+        ROOM, "tok", pack=pack, store=MemoryCallStore(), settings=_settings(stt_intake_model=model)
     )
+    intake_stt = next(
+        x for x in _parallel(worker)._pipelines[0].processors if isinstance(x, STTService)
+    )
+    assert intake_stt._settings.model == model
     assert intake_stt._settings.keyterm == pack.keyterms
     assert "EVM" in intake_stt._settings.keyterm
 

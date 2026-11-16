@@ -7,10 +7,10 @@
  * the repo doc it came from and `evidence` is the exact text in that doc;
  * content.test.ts fails if the doc does not contain it. No number here is estimated.
  *
- * Speech to text follows P5-7 (Dutch, Nov 16): intake listens with Deepgram Flux STT
- * (flux-general-en, /v2/listen, built in turn detection) and the assist listens with
- * Nova-3 per person. The intake numbers below were measured before that change, on
- * Nova-3; their labels say so.
+ * Speech to text follows P5-7 (IN-14): both sides are picked in Settings. Intake runs
+ * Nova-3 by default (Flux selectable; Flux missed a hard last name in testing, see
+ * docs/spikes/stt-flux-intake.md) and the assist listens with Nova-3 per person. The
+ * intake numbers below were measured on Nova-3; their labels say so.
  *
  * Links: only doc pages verified on Nov 16 (card t_c23e60a2); scripts/check_links.py
  * re-checks them. They render through ExternalLink, so they open in a new tab.
@@ -257,12 +257,12 @@ export const NODES: ArchNode[] = [
       lead: "Turns what the caller says to the bot into text while they speak. It also knows when the caller has finished talking, so the bot answers at the right moment.",
     },
     technical: {
-      title: "Deepgram Flux STT",
-      sub: "flux-general-en, /v2/listen, turn detection",
-      lead: "Deepgram Flux streams the caller's audio during intake and detects the end of each turn itself. During identity questions numerals and keyterms keep member IDs and plan names exact.",
+      title: "Deepgram STT, Nova-3 or Flux",
+      sub: "nova-3-general by default, flux-general-en in Settings",
+      lead: "Nova-3 by default, with VAD and smart turn deciding when the caller has finished; Flux, picked in Settings, detects the end of each turn itself and answers a little sooner, but heard a hard last name less well in testing. During identity questions numerals and keyterms keep member IDs and plan names exact.",
     },
     why: [
-      "Built in turn detection: fewer cut offs and faster replies.",
+      "Picked per side in Settings: Nova-3 by default, Flux one click away.",
       "Keyterms for plan names and the member ID prefix.",
       "Same vendor for listening and speaking, one bill and one support team.",
     ],

@@ -4,6 +4,7 @@ only while the identity node is active, and fixed keyterms from the active pack.
 import pytest
 from agent_assist_bot import stt_tuning
 from agent_assist_bot.packs import load_pack
+from agent_assist_bot.stt import build_intake_stt
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
 from pipecat.frames.frames import STTUpdateSettingsFrame
@@ -20,7 +21,7 @@ class Queue:
 
 @pytest.fixture
 def stt():
-    return stt_tuning.build_intake_stt("fake-key", "nova-3-general", keyterms=["EVM"])
+    return build_intake_stt("fake-key", "nova-3-general", keyterms=["EVM"])
 
 
 @pytest.fixture
@@ -79,9 +80,9 @@ def test_intake_stt_has_fixed_keyterms_and_defaults(stt):
 
 
 def test_intake_stt_without_keyterms_sends_none():
-    s = stt_tuning.build_intake_stt("k", "nova-3-general", keyterms=[])._settings
+    s = build_intake_stt("k", "nova-3-general", keyterms=[])._settings
     assert s.keyterm is None
-    assert isinstance(stt_tuning.build_intake_stt("k", "nova-3-general"), DeepgramSTTService)
+    assert isinstance(build_intake_stt("k", "nova-3-general"), DeepgramSTTService)
 
 
 def test_claims_pack_keyterms_include_member_id_prefix_and_plan_names():

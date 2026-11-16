@@ -6,6 +6,7 @@ import {
   type SettingsApi,
   type SettingsResponse,
   type SettingsValues,
+  type SttModel,
   type TtsModel,
   type VoiceCatalog,
 } from "../api/settingsClient";
@@ -22,6 +23,33 @@ const MODELS: { id: TtsModel; label: string }[] = [
   { id: "flux", label: "Flux" },
 ];
 
+/** STT model labels (P5-7, IN-14); the order and the choices per side come from the server. */
+const STT_LABELS: Record<SttModel, string> = {
+  "flux-general-en": "Flux",
+  "nova-3-general": "Nova-3",
+  "nova-3-medical": "Nova-3 Medical",
+};
+
+const STT_SIDES: {
+  key: "stt_intake_model" | "stt_assist_model";
+  side: "intake" | "assist";
+  label: string;
+  help: string;
+}[] = [
+  {
+    key: "stt_intake_model",
+    side: "intake",
+    label: "Intake bot",
+    help: "Nova-3 ends the turn on a pause. Flux decides when the caller is done, but missed some names.",
+  },
+  {
+    key: "stt_assist_model",
+    side: "assist",
+    label: "Live assist",
+    help: "Transcribes the caller and the agent after a person joins. Nova-3 Medical knows more clinical terms.",
+  },
+];
+
 async function playBlob(audio: Blob): Promise<void> {
   const url = URL.createObjectURL(audio);
   const el = new Audio(url);
@@ -34,7 +62,8 @@ const errorText = (e: unknown, fallback: string) => (e instanceof Error && e.mes
 
 /**
  * Settings (P5-5, PRD AP-20, DESIGN.md "Settings"): what the bot says and how it sounds.
- * Voice (model, voice, preview), greeting (with the IN-2 disclosure check), intake (pack,
+ * Voice (model, voice, preview, and Listening: the STT model for intake and for live
+ * assist, P5-7, IN-14), greeting (with the IN-2 disclosure check), intake (pack,
  * its questions read only, identity read back), and hold (message, interval). Saved
  * settings apply to the next call; a call in progress keeps what it started with.
  */
@@ -229,6 +258,35 @@ export function Settings({ api, agentName, play = playBlob }: Props) {
             </button>
           </div>
           {fieldError("tts_voice")}
+        </div>
+        <div className="settings-subgroup" role="group" aria-labelledby="listening-label">
+          <div className="settings-subgroup-head">
+            <h3 id="listening-label">Listening</h3>
+            <span className="label">Deepgram speech to text</span>
+          </div>
+          {STT_SIDES.map(({ key, side, label, help }) => (
+            <div className="settings-row" key={key}>
+              <div className="label" id={`${key}-label`}>
+                {label}
+              </div>
+              <div className="segmented" role="radiogroup" aria-labelledby={`${key}-label`}>
+                {(loaded.stt_models?.[side] ?? []).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    role="radio"
+                    aria-checked={draft[key] === m}
+                    className={`segment${draft[key] === m ? " is-on" : ""}`}
+                    onClick={() => update({ [key]: m })}
+                  >
+                    {STT_LABELS[m] ?? m}
+                  </button>
+                ))}
+              </div>
+              <p className="muted-note">{help}</p>
+              {fieldError(key)}
+            </div>
+          ))}
         </div>
       </div>
 

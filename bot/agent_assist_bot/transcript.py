@@ -2,7 +2,8 @@
 
 One bot per call. Until an agent accepts, the caller's audio feeds intake (STT -> LLM
 -> TTS). On accept the bot goes listen only: intake hears nothing more, and two
-listen branches, one per role, each with its own Silero VAD and Deepgram stream,
+listen branches, one per role, each with its own Deepgram stream (Nova-3 with a Silero
+VAD, or Flux, which detects turns itself; the assist STT model is a setting, P5-7),
 transcribe the caller and the agent on their own Daily tracks
 (`audio_in_user_tracks`, docs/spikes/S2.md). No diarization: a line's role is the
 track it was heard on.
@@ -40,6 +41,9 @@ from loguru import logger
 from pipecat.frames.frames import (
     Frame,
     InterimTranscriptionFrame,
+    ProposedUserStartedSpeakingFrame,
+    ProposedUserStoppedSpeakingFrame,
+    STTMetadataFrame,
     TranscriptionFrame,
     UserAudioRawFrame,
     UserSpeakingFrame,
@@ -177,12 +181,17 @@ class AudioRoute(FrameProcessor):
 
 
 # Frames a listen branch must not let out: its audio and VAD would otherwise reach the
-# intake user aggregator downstream and start (or interrupt) bot turns.
+# intake user aggregator downstream and start (or interrupt) bot turns. A Flux listen
+# STT (P5-7) proposes turns itself and recommends its turn strategies in an
+# STTMetadataFrame; those must not reach the intake aggregator either.
 _LISTEN_ONLY = (
     UserAudioRawFrame,
     VADUserStartedSpeakingFrame,
     VADUserStoppedSpeakingFrame,
     UserSpeakingFrame,
+    ProposedUserStartedSpeakingFrame,
+    ProposedUserStoppedSpeakingFrame,
+    STTMetadataFrame,
 )
 
 

@@ -7,9 +7,10 @@ a call keeps its settings even if someone saves new ones mid call.
 
 The server validates on save (agent_assist_server.bot_settings); this side only
 guards against a value it cannot use (a bad one falls back to its default, logged),
-so a call never fails over settings. No settings at all means today's behaviour:
-Aura-2 Thalia, the fixed greeting, INTAKE_PACK, read back on, the hold line every
-HOLD_UPDATE_SECS (default 60).
+so a call never fails over settings. No settings at all means the defaults:
+Flux TTS Alexis, the fixed greeting, INTAKE_PACK, read back on, the hold line every
+HOLD_UPDATE_SECS (default 60), Nova-3 STT for intake and for assist (P5-7, IN-14;
+the STT services are built in stt.py).
 
 `build_tts` is the TTS factory: DeepgramTTSService (/v1/speak) for Aura-2 and
 DeepgramFluxTTSService (/v2/speak) for Flux. Flux voice ids fail on /v1/speak
@@ -30,6 +31,12 @@ from loguru import logger
 from agent_assist_bot.hold import HOLD_INTERVAL_ENV, hold_interval_from_env, place_line
 from agent_assist_bot.intake import GREETING
 from agent_assist_bot.packs import DEFAULT_PACK, PACKS_DIR
+from agent_assist_bot.stt import (
+    ASSIST_MODELS,
+    DEFAULT_ASSIST_MODEL,
+    DEFAULT_INTAKE_MODEL,
+    INTAKE_MODELS,
+)
 
 SETTINGS_ENV = "AGENT_ASSIST_BOT_SETTINGS"
 PACK_ENV = "INTAKE_PACK"
@@ -60,6 +67,8 @@ class CallSettings:
     identity_read_back: bool
     hold_update_text: str
     hold_update_secs: int
+    stt_intake_model: str = DEFAULT_INTAKE_MODEL
+    stt_assist_model: str = DEFAULT_ASSIST_MODEL
 
     @classmethod
     def defaults(cls, env: Mapping[str, str] | None = None) -> CallSettings:
@@ -107,6 +116,8 @@ class CallSettings:
             "hold_update_secs",
             lambda v: isinstance(v, int) and not isinstance(v, bool) and 0 < v <= 3600,
         )
+        take("stt_intake_model", lambda v: v in INTAKE_MODELS)
+        take("stt_assist_model", lambda v: v in ASSIST_MODELS)
         if bad:
             logger.warning(f"[settings] unusable values for {sorted(bad)}; using defaults")
         return cls(**out)
@@ -135,7 +146,8 @@ class CallSettings:
         return (
             f"tts={self.tts_model}/{self.tts_voice} pack={self.intake_pack} "
             f"read_back={'on' if self.identity_read_back else 'off'} "
-            f"hold_every={self.hold_update_secs}s"
+            f"hold_every={self.hold_update_secs}s "
+            f"stt_intake={self.stt_intake_model} stt_assist={self.stt_assist_model}"
         )
 
 

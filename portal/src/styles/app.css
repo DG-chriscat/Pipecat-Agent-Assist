@@ -978,6 +978,11 @@
 .settings-group { display: flex; flex-direction: column; gap: 14px; padding-top: 18px; border-top: 1px solid var(--hair); }
 .settings-group-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .settings-group-head h2 { font-size: 16px; font-weight: 500; letter-spacing: -.01em; }
+/* P5-7: the Listening group inside Voice (STT model per side). */
+.settings-subgroup { display: flex; flex-direction: column; gap: 14px; padding-top: 14px; border-top: 1px dashed var(--hair); }
+.settings-subgroup-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.settings-subgroup-head h3 { font-size: 14px; font-weight: 500; letter-spacing: -.005em; }
+.settings-subgroup .muted-note { margin: 0; }
 .settings-row { display: flex; flex-direction: column; gap: 8px; }
 .settings-inline { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .settings-inline .btn { padding: 11px 16px; }

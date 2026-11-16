@@ -43,14 +43,14 @@ describe("Architecture page (AP-21)", () => {
       expect(node(/^Intake listening/)).toBeInTheDocument();
       expect(node(/^Assist listening/)).toBeInTheDocument();
       expect(screen.queryByText("SIP / WebRTC")).not.toBeInTheDocument();
-      expect(screen.queryByText("Deepgram Flux STT")).not.toBeInTheDocument();
+      expect(screen.queryByText("Deepgram STT, Nova-3 or Flux")).not.toBeInTheDocument();
     });
 
     it("Technical shows services, models, and edge labels", async () => {
       const { user } = setup();
       await user.click(screen.getByRole("radio", { name: "Technical" }));
       expect(screen.getByRole("radio", { name: "Technical" })).toBeChecked();
-      expect(node(/^Deepgram Flux STT/)).toBeInTheDocument();
+      expect(node(/^Deepgram STT, Nova-3 or Flux/)).toBeInTheDocument();
       expect(node(/^Deepgram Nova-3 STT/)).toBeInTheDocument();
       expect(node(/^Deepgram Flux TTS/)).toBeInTheDocument();
       expect(screen.getByText("SIP / WebRTC")).toBeInTheDocument();

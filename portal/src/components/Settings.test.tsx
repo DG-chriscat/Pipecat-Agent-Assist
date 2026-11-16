@@ -18,6 +18,8 @@ const DEFAULTS: SettingsValues = {
   identity_read_back: true,
   hold_update_text: "Thanks for waiting. {place} A person will be with you shortly.",
   hold_update_secs: 60,
+  stt_intake_model: "nova-3-general",
+  stt_assist_model: "nova-3-general",
 };
 
 function response(values: Partial<SettingsValues> = {}, isDefault = true): SettingsResponse {
@@ -38,6 +40,10 @@ function response(values: Partial<SettingsValues> = {}, isDefault = true): Setti
       { id: "account_payments", name: "Account and payments", questions: [{ key: "x", ask: "Which bill?" }] },
     ],
     limits: { greeting_text: 400, hold_update_text: 300, hold_update_secs: [5, 600] },
+    stt_models: {
+      intake: ["nova-3-general", "flux-general-en"],
+      assist: ["nova-3-general", "nova-3-medical", "flux-general-en"],
+    },
   };
 }
 
@@ -67,6 +73,10 @@ async function setup(api = fakeApi(), play = vi.fn(async () => {})) {
   return { api, play };
 }
 
+/** The TTS model's Flux (the Listening group has STT Flux radios too). */
+const ttsFlux = () =>
+  within(screen.getByRole("radiogroup", { name: /^model$/i })).getByRole("radio", { name: "Flux" });
+
 describe("Settings page (P5-5, AP-20)", () => {
   it("loads the saved settings and says changes apply to the next call", async () => {
     await setup();
@@ -92,7 +102,7 @@ describe("Settings page (P5-5, AP-20)", () => {
 
   it("switching to Flux lists Flux voices and picks the first", async () => {
     await setup();
-    fireEvent.click(screen.getByRole("radio", { name: "Flux" }));
+    fireEvent.click(ttsFlux());
     const voice = screen.getByLabelText(/^voice$/i);
     expect(voice).toHaveValue("flux-hannah-en");
     expect(within(voice).getAllByRole("option").map((o) => o.getAttribute("value"))).toEqual([
@@ -105,7 +115,7 @@ describe("Settings page (P5-5, AP-20)", () => {
     const { api } = await setup();
     const save = screen.getByRole("button", { name: /^save$/i });
     expect(save).toBeDisabled();
-    fireEvent.click(screen.getByRole("radio", { name: "Flux" }));
+    fireEvent.click(ttsFlux());
     fireEvent.change(screen.getByLabelText(/^voice$/i), { target: { value: "flux-alexis-en" } });
     fireEvent.click(screen.getByRole("switch", { name: /read back/i }));
     fireEvent.change(screen.getByLabelText(/every/i), { target: { value: "30" } });
@@ -157,7 +167,7 @@ describe("Settings page (P5-5, AP-20)", () => {
   it("Reset to defaults asks the server and shows the defaults", async () => {
     const api = fakeApi({ get: vi.fn(async () => response({ tts_model: "flux", tts_voice: "flux-hannah-en" }, false)) });
     await setup(api);
-    expect(screen.getByRole("radio", { name: "Flux" })).toHaveAttribute("aria-checked", "true");
+    expect(ttsFlux()).toHaveAttribute("aria-checked", "true");
     await act(async () => fireEvent.click(screen.getByRole("button", { name: /reset to defaults/i })));
     expect(api.reset).toHaveBeenCalledWith("Ana Ruiz");
     await waitFor(() => expect(screen.getByRole("radio", { name: "Aura-2" })).toHaveAttribute("aria-checked", "true"));
@@ -166,7 +176,7 @@ describe("Settings page (P5-5, AP-20)", () => {
 
   it("Preview plays a sample line in the picked voice through the server", async () => {
     const { api, play } = await setup();
-    fireEvent.click(screen.getByRole("radio", { name: "Flux" }));
+    fireEvent.click(ttsFlux());
     await act(async () => fireEvent.click(screen.getByRole("button", { name: /preview/i })));
     expect(api.preview).toHaveBeenCalledWith("flux", "flux-hannah-en", undefined);
     expect(play).toHaveBeenCalledTimes(1);
@@ -197,6 +207,71 @@ describe("Settings page (P5-5, AP-20)", () => {
     });
     render(<Settings api={api} agentName="Ana" play={vi.fn()} />);
     expect(await screen.findByRole("alert")).toHaveTextContent("Request failed (500)");
+  });
+});
+
+describe("Settings Listening group (P5-7, IN-14)", () => {
+  const intake = () => screen.getByRole("radiogroup", { name: /intake bot/i });
+  const assist = () => screen.getByRole("radiogroup", { name: /live assist/i });
+  const picked = (group: HTMLElement) =>
+    within(group)
+      .getAllByRole("radio")
+      .filter((r) => r.getAttribute("aria-checked") === "true")
+      .map((r) => r.textContent);
+
+  it("sits in the Voice section with a picker per side and a line of help each", async () => {
+    await setup();
+    const listening = screen.getByRole("group", { name: /listening/i });
+    expect(within(listening).getByText(/speech to text/i)).toBeInTheDocument();
+    expect(within(intake()).getAllByRole("radio").map((r) => r.textContent)).toEqual(["Nova-3", "Flux"]);
+    expect(within(assist()).getAllByRole("radio").map((r) => r.textContent)).toEqual([
+      "Nova-3",
+      "Nova-3 Medical",
+      "Flux",
+    ]);
+    expect(picked(intake())).toEqual(["Nova-3"]);
+    expect(picked(assist())).toEqual(["Nova-3"]);
+    expect(screen.getByText(/flux decides when the caller is done/i)).toBeInTheDocument();
+    expect(screen.getByText(/transcribes the caller and the agent/i)).toBeInTheDocument();
+  });
+
+  it("saves the picked models", async () => {
+    const { api } = await setup();
+    fireEvent.click(within(intake()).getByRole("radio", { name: "Flux" }));
+    fireEvent.click(within(assist()).getByRole("radio", { name: "Nova-3 Medical" }));
+    expect(picked(intake())).toEqual(["Flux"]);
+    expect(picked(assist())).toEqual(["Nova-3 Medical"]);
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: /^save$/i })));
+    expect(api.save).toHaveBeenCalledWith(
+      { ...DEFAULTS, stt_intake_model: "flux-general-en", stt_assist_model: "nova-3-medical" },
+      "Ana Ruiz",
+    );
+  });
+
+  it("offers only the models the server lists for each side", async () => {
+    const api = fakeApi({
+      get: vi.fn(
+        async (): Promise<SettingsResponse> => ({
+          ...response(),
+          stt_models: { intake: ["nova-3-general"], assist: ["nova-3-general", "flux-general-en"] },
+        }),
+      ),
+    });
+    await setup(api);
+    expect(within(intake()).getAllByRole("radio").map((r) => r.textContent)).toEqual(["Nova-3"]);
+    expect(within(assist()).getAllByRole("radio").map((r) => r.textContent)).toEqual(["Nova-3", "Flux"]);
+  });
+
+  it("shows the server's error on a model it refuses", async () => {
+    const api = fakeApi({
+      save: vi.fn(async () => {
+        throw new SettingsInvalid({ stt_intake_model: "Pick one of nova-3-general, flux-general-en." });
+      }),
+    });
+    await setup(api);
+    fireEvent.click(within(intake()).getByRole("radio", { name: "Flux" }));
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: /^save$/i })));
+    expect(await screen.findByText(/pick one of nova-3-general/i)).toBeInTheDocument();
   });
 });
 

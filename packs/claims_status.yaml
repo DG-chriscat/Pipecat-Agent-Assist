@@ -1,7 +1,10 @@
-# Use case pack: claim status (PRD IN-4, pack table "Claim status").
-# The intake steps are fixed (IN-3): greeting, identity, reason, these questions,
-# read back. Edit the wording or the questions here; no code changes needed.
-# Each question's `key` is saved on calls.intake as soon as the caller answers (IN-5).
+# Use case pack: claim status (PRD IN-4, DC-10, pack table "Claim status").
+# Format: docs/packs.md. Edit wording, triggers, cards, the call plan, or the next
+# best step rules here; no code changes needed.
+#
+# Intake: the steps are fixed (IN-3): greeting, identity, reason, these questions,
+# read back. Each question's `key` is saved on calls.intake as soon as the caller
+# answers (IN-5).
 id: claims_status
 name: Claim status
 
@@ -36,6 +39,203 @@ readback:
     Read back a short summary in one or two sentences: their name, why they called,
     and the claim details you have. Then ask if that is right. If they correct
     something, fix it and confirm.
+
+# --- Assist (after handoff) ---------------------------------------------------------
+
+triggers:
+  phrases:
+    - where is my claim
+    - claim status
+    - my claim
+    - denied
+    - denial
+    - prior authorization
+    - prior auth
+    - authorization
+    - still pending
+    - appeal
+    - out of network
+    - CO-197
+    - CO-242
+
+# PRD pack table: Members, Claims, Referrals, Authorizations, Interactions. Plus the
+# knowledge base for the denial code articles the next best steps cite.
+allowed_connectors:
+  - members
+  - claims
+  - referrals
+  - prior_authorizations
+  - interactions
+  - kb_articles
+
+# Fixed Deepgram STT keyterms (never per member): plan names, provider names, the
+# member ID prefix, claim terms, and denial codes.
+keyterms:
+  - EVM
+  - CLM
+  - Evergreen HMO Silver
+  - Evergreen HMO Gold
+  - Summit PPO Gold
+  - Harbor EPO Bronze
+  - Summit HDHP
+  - Evergreen Medicare Advantage Plus
+  - Riverside Imaging Center
+  - Northgate Cardiology
+  - Bayview Dermatology
+  - Pine Hill Orthopedics
+  - Lakeside Family Medicine
+  - Cedar Urgent Care
+  - Meadow Physical Therapy
+  - Summit Lab Services
+  - CO-16
+  - CO-18
+  - CO-50
+  - CO-197
+  - CO-242
+  - prior authorization
+  - retro authorization
+  - explanation of benefits
+  - EOB
+  - itemized bill
+  - appeal
+  - denial
+
+card_templates:
+  - id: claims_table
+    type: record
+    title: Claims
+    connector: claims
+    fields: [claim_id, service_date, provider, service, billed_amount, status, denial_code]
+  - id: denied_claim
+    type: record
+    title: Denied claim
+    connector: claims
+    search: {status: denied}
+    fields: [claim_id, service_date, provider, service, denial_code, denial_reason, processed_on]
+    summary: "{claim_id} {service} denied {denial_code}: {denial_reason}"
+  - id: prior_authorizations
+    type: record
+    title: Prior authorizations
+    connector: prior_authorizations
+    fields: [auth_id, service, provider, status, requested_on, decided_on, notes]
+  - id: referrals
+    type: record
+    title: Referrals
+    connector: referrals
+    fields: [referral_id, to_provider, specialty, status, valid_to, visits_allowed]
+  - id: claims_article
+    type: article
+    title: Knowledge base
+    connector: kb_articles
+    search: {category: claims}
+    fields: [article_id, title, summary]
+
+# AP-12: steps tick themselves when an agent line contains a phrase or the agent
+# accepts one of the listed actions. The agent can tick or untick by hand.
+call_plan:
+  - id: confirm_claim
+    label: Confirm which claim the caller means
+    done_when:
+      phrases: [i can see, i see the claim, i found the claim, looking at claim, pulled up]
+  - id: explain_status
+    label: Explain the status or the denial reason in plain words
+    done_when:
+      phrases: [denied because, the reason, no authorization, waiting on, out of network]
+  - id: take_next_step
+    label: Take the next step (retro review, provider follow up, or appeal)
+    done_when:
+      actions:
+        - request_retro_auth_review
+        - contact_provider_for_info
+        - start_network_appeal
+        - request_auth_clinical_notes
+  - id: set_expectations
+    label: Tell the caller what happens next and when
+    done_when:
+      phrases: [business days, within 30 days, reprocessed, you will get a letter, you'll get a letter]
+
+# DC-10. A rule fires when a trigger phrase is heard and every required fact is known
+# (intake.<key> or <connector>.<field> from a connector result) and the `when`
+# conditions hold. The LLM only fills the {fact} placeholders from record facts.
+next_best_steps:
+  # Maria Alvarez, CLM-900001: MRI denied CO-197 (no prior authorization).
+  - id: retro_auth_review
+    priority: 10
+    triggers: [denied, denial, prior authorization, prior auth, authorization, CO-197]
+    required_facts:
+      - claims.claim_id
+      - claims.service
+      - claims.provider
+      - claims.denial_code
+    when: {claims.denial_code: CO-197}
+    headline: Start a retro authorization review for {claims.claim_id}
+    why: >-
+      {claims.claim_id} ({claims.service}) was denied {claims.denial_code} because no
+      prior authorization was on file. A retro review within 60 days of the denial
+      can get it reprocessed without an appeal.
+    script: >-
+      I see why this happened. Your {claims.service} needed a prior authorization and
+      we did not have one on file. I can open a retro authorization review today and
+      ask {claims.provider} to send the clinical notes. If it is approved, the claim is
+      reprocessed automatically and you do not need to file an appeal.
+    action: {id: request_retro_auth_review, label: Request retro auth review}
+    source: Claims system, KB-CL-002 and KB-CL-009
+
+  # Aisha Patel, CLM-900003: stuck in pending_info, waiting on the itemized bill.
+  - id: provider_info_follow_up
+    priority: 8
+    triggers: [still pending, pending, itemized bill, waiting, taking so long]
+    required_facts: [claims.claim_id, claims.provider, claims.status]
+    when: {claims.status: pending_info}
+    headline: Contact {claims.provider} for the missing information
+    why: >-
+      {claims.claim_id} is pending information from {claims.provider}. It moves
+      again about 10 business days after the provider sends it.
+    script: >-
+      Your claim is waiting on paperwork from {claims.provider}, not on you. I will
+      reach out to their office for the itemized bill and note it on your account.
+      Once they send it, it usually takes about 10 business days.
+    action: {id: contact_provider_for_info, label: Request info from provider}
+    source: Claims system, KB-CL-007
+
+  # Linda Nguyen, CLM-900005: denied CO-242 (out of network).
+  - id: out_of_network_appeal
+    priority: 6
+    triggers: [out of network, network, CO-242, appeal, denied]
+    required_facts: [claims.claim_id, claims.provider, claims.denial_code]
+    when: {claims.denial_code: CO-242}
+    headline: Explain the network denial and offer an appeal for {claims.claim_id}
+    why: >-
+      {claims.claim_id} was denied {claims.denial_code} because {claims.provider} is
+      out of network for the caller's plan. The caller has 180 days from the denial
+      to appeal.
+    script: >-
+      This claim was denied because {claims.provider} is not in your plan's network.
+      If you believe it should be covered, I can start an appeal for you today. You
+      have 180 days from the denial, and a standard decision takes up to 30 days.
+    action: {id: start_network_appeal, label: Start an appeal}
+    source: Claims system, KB-CL-003 and KB-CL-008
+
+  # Daniel Okafor, PA-500101: knee surgery prior auth pending clinical notes.
+  - id: prior_auth_pending
+    priority: 5
+    triggers: [prior authorization, prior auth, authorization, approved yet, surgery]
+    required_facts:
+      - prior_authorizations.auth_id
+      - prior_authorizations.service
+      - prior_authorizations.provider
+      - prior_authorizations.status
+    when: {prior_authorizations.status: pending}
+    headline: Ask {prior_authorizations.provider} for clinical notes on {prior_authorizations.auth_id}
+    why: >-
+      {prior_authorizations.auth_id} ({prior_authorizations.service}) is pending
+      because clinical notes from {prior_authorizations.provider} have not arrived.
+    script: >-
+      Your authorization for the {prior_authorizations.service} is still pending. We
+      are waiting on clinical notes from {prior_authorizations.provider}. I can send
+      them a request now so the review can move forward.
+    action: {id: request_auth_clinical_notes, label: Request clinical notes}
+    source: Utilization management
 
 # Wrap up (P3-5, AP-9): the reason codes the agent picks from after the call. Saved on
 # the call record with the agent's notes.

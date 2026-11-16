@@ -1,0 +1,82 @@
+# Use case pack: general question (PRD pack table "General question").
+# The fallback pack: any line no other pack's triggers match lands here, and the
+# assist answers from the knowledge base. Format: docs/packs.md.
+id: general_question
+name: General question
+
+identity:
+  prompt: >-
+    Ask for the caller's full name, date of birth, and member ID. You may ask for
+    them together or one at a time. If something is unclear, ask them to repeat it
+    once. The member ID looks like three letters and six digits, for example EVM100231.
+
+reason:
+  prompt: >-
+    Ask, in one short question, what they are calling about today.
+
+questions:
+  - key: question_topic
+    ask: Can you tell me a little more about your question?
+    description: >-
+      The caller's question in their own words, in one sentence.
+
+readback:
+  prompt: >-
+    Read back a short summary in one or two sentences: their name and their
+    question. Then ask if that is right. If they correct something, fix it and
+    confirm.
+
+# --- Assist (after handoff) ---------------------------------------------------------
+
+triggers:
+  # No phrases: this pack takes everything the other packs do not match.
+  fallback: true
+
+allowed_connectors:
+  - kb_articles
+
+keyterms:
+  - EVM
+  - explanation of benefits
+  - EOB
+  - deductible
+  - copay
+  - out of pocket maximum
+  - grace period
+  - appeal
+  - ID card
+
+card_templates:
+  # Linda Nguyen asks what an EOB is: KB-CL-010 "Reading an Explanation of Benefits".
+  - id: kb_article
+    type: article
+    title: Knowledge base
+    connector: kb_articles
+    fields: [article_id, title, category, summary]
+    summary: "{article_id}: {title}"
+
+call_plan:
+  - id: understand_question
+    label: Restate the caller's question
+    done_when:
+      phrases: [so you want to know, so your question is, if i understand]
+  - id: answer_from_kb
+    label: Answer from the knowledge base article
+    done_when:
+      phrases: [according to, the article, here's how, here is how]
+  - id: confirm_answered
+    label: Check the question is answered
+    done_when:
+      phrases: [does that answer, anything else, does that help]
+
+# Wrap up (P3-5, AP-9): the reason codes the agent picks from after the call.
+wrap_up:
+  reason_codes:
+    - code: question_answered
+      label: Question answered
+    - code: callback_needed
+      label: Callback needed
+    - code: transferred
+      label: Transferred
+    - code: other
+      label: Other

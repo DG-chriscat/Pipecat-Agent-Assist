@@ -1,107 +1,136 @@
 # DESIGN.md: Deepgram Vitals agent portal design system
 
-Status: locked, Nov 15, 2026 (Chris chose concept 1, "Focus").
-Reference build: [design/in-call-focus.html](design/in-call-focus.html) and [design/in-call-focus.png](design/in-call-focus.png). When this file and the mockup disagree, this file wins. Open the HTML in a browser to inspect exact CSS.
+Status: locked, Nov 16, 2026. Chris chose **Studio** (variant C2 of the Care direction), light and dark themes. This supersedes the Nov 15 dark Focus styling (ADR 0005). The Focus layout principles (one next best step, show why, keyboard first) carry over.
+
+Reference builds, open in a browser to inspect exact CSS:
+- Light (default): [design/studio/in-call-studio-light.html](design/studio/in-call-studio-light.html), [PNG](design/studio/in-call-studio-light.png)
+- Dark (vinyl): [design/studio/in-call-studio-dark.html](design/studio/in-call-studio-dark.html), [PNG](design/studio/in-call-studio-dark.png)
+
+When this file and the mockups disagree, this file wins. Earlier explorations live in [design/explorations/](design/explorations/) for history only.
 
 ## Principles
-1. **One answer, not a feed.** The agent sees one next best step at a time, in large type, with the words to say and one action. Everything else is supporting detail.
-2. **Calm by default, loud only when it matters.** Fuchsia is reserved for AI suggestions and caller emphasis. Clay red only for alerts and denials.
+1. **One answer, not a feed.** One next best step at a time, in large type, with the words to say and one action. Supporting cards lead with one big answer, not a table.
+2. **Calm by default, loud only when it matters.** Fuchsia is for AI suggestions and trigger words. Clay red only for alerts, denials, and End.
 3. **Show why.** Every AI element names its trigger ("Heard 'prior authorization'") and its source record or article.
-4. **Nothing moves under the cursor.** New cards never push content the agent is reading. The hero card swaps in place with a short crossfade.
-5. **Keyboard first.** ⌘K opens Ask. Enter accepts the hero action. Esc dismisses.
+4. **Nothing moves under the cursor.** New cards never push content the agent is reading. The hero swaps in place with a short crossfade.
+5. **Keyboard first.** Cmd+K opens Ask. Enter accepts the hero action. Esc dismisses.
+6. **Privacy is visible.** PHI is masked by default, identity status is always on screen, and revealing data is a deliberate click.
+7. **No black boxes.** Surfaces are glass over material. Nothing is a solid black slab in light mode.
+8. **Progress is felt.** "Earlier this call" shows what the agent already did, so the screen rewards the work.
 
 ## Brand (Deepgram 2026 brand kit, mandatory)
 Only these fonts, colors, and materials. No other hues, no other fonts.
 
 | Token | Value | Use |
 | --- | --- | --- |
-| `--font-sans` | Work Sans 400/500/600 | All body and UI text |
+| `--font-sans` | Work Sans 300/400/500/600 | All body and UI text |
 | `--font-mono` | Azeret Mono 400/500 | Labels, chips, buttons, IDs, amounts, timers |
-| `--fuchsia` | #E042FF | AI suggestions, caller label, trigger underline, hero glow |
-| `--led` | #7F39FF | Gradient partner to fuchsia, background glow |
-| `--off-black` / `--off-white` | #1D1D1D / #FCFAF8 | Base text and surfaces |
-| `--clay` | #EB2A2E | Alerts, denied, end call, live dot |
-| `--bakelite` | #FA8100 | Frustration, warnings, repeat caller |
-| `--phosphor` | #7CD941 | Verified, paid, completed steps |
-| `--glass-blue` | #00B2FF | Record cards, informational |
+| `--fuchsia` | #E042FF | AI suggestions, trigger highlight, hero glow, primary button |
+| `--led` | #7F39FF | Gradient partner to fuchsia, aurora, agent avatar tint |
+| `--off-black` / `--off-white` | #1D1D1D / #FCFAF8 | Text and base surfaces |
+| `--clay` | #EB2A2E | Alerts, denied, End, live dot |
+| `--bakelite` | #FA8100 | Worry and frustration, warnings, repeat caller |
+| `--phosphor` | #7CD941 | Verified, paid, completed, identity ring |
+| `--glass-blue` | #00B2FF | Informational, Reveal links |
 | `--brass` | #F7F300 | Reserved, not used in v1 |
-| `--gray` | #C4C4C4 | Functional only |
 
 Perfektta (headline font) and brand Artifacts are design team only. Do not use them.
 
-Logo: [design/deepgram-d-tile.png](design/deepgram-d-tile.png) (30 px, radius 8) plus [design/deepgram-wordmark-offwhite.png](design/deepgram-wordmark-offwhite.png) (19 px tall), top left. Replace with official SVGs from the brand Dropbox when available.
+Logo: [design/deepgram-d-tile.png](design/deepgram-d-tile.png) in the left rail (36 px, radius 10) and the wordmark in the header (16 px tall; dark ink in light mode, off white in dark mode). Replace with official SVGs from the brand folder when available.
 
 Copy: sentence case everywhere, no exclamation points, Oxford comma.
 
-## Surfaces and materials
-- Page: `#0b0b0c` with two soft radial glows (LED top left at 30%, fuchsia bottom right at 22%) and a paper grain overlay (SVG fractal noise, 45% overlay).
-- Glass panel: `rgba(255,255,255,.055)` fill, `1px rgba(255,255,255,.12)` border, `backdrop-filter: blur(24px) saturate(140%)`, radius 22 px.
-- Hero card: glass plus fuchsia border `rgba(224,66,255,.45)` and glow `0 30px 80px -30px rgba(224,66,255,.45)`.
-- Text: primary #FCFAF8, muted 58%, faint 38%.
+## Themes and materials
+Two themes, same layout and components. Light is the default. The agent switches in the rail menu; the choice is saved per agent (local storage is fine for the PoC). Respect `prefers-color-scheme` on first visit.
+
+Material textures are cropped from the brand deck material palette (slide 14) and live in [design/studio/tex/](design/studio/tex/). They are PoC assets; request official files through Brand Central before any external use. Textures never sit directly under body text: always behind a glass layer of at least 50% opacity or inside a small swatch.
+
+| Layer | Light | Dark |
+| --- | --- | --- |
+| Ground | Paper tile under a 88 to 92% off white wash | Vinyl tile under a 55 to 85% near black wash (#0e0d10), darker toward the bottom |
+| Horizon (bottom third) | Stone tile, 55% | Vinyl at larger scale, brightness 0.7 |
+| Aurora | One blurred orb (fuchsia, LED, glass blue) behind the hero only, 55% | Same orb, 42% |
+| Panel | `rgba(255,255,255,.58)`, blur 36 px, saturate 170%, 1 px white border, radius 30 | `rgba(30,28,34,.52)`, same blur, 1 px `rgba(255,255,255,.08)` border |
+| Hero | `rgba(255,255,255,.72)`, blur 40 px, radius 36, LED shadow | `rgba(34,31,38,.60)`, fuchsia ring 18% and fuchsia shadow |
+| Call island | Frosted white glass pill | `rgba(255,255,255,.08)` glass pill |
+| Text | #1D1D1D, muted 62%, faint 44% | #FCFAF8, muted 66%, faint 44% |
+
+Card swatches (34 px, radius 11, icon on top): Aluminum = records and claims, Stone = call plan and articles, Bakelite = tone and mood, Copper = the caller (avatar ring fill), Clay = alerts.
+
+Chip colors are tuned per theme for contrast (see the mockup CSS variables `--ok`, `--warn`, `--bad`, `--ai`, `--info` and their `bg` pairs). Body text must meet WCAG AA in both themes.
 
 ## Type scale
 | Role | Font | Size / weight |
 | --- | --- | --- |
-| Hero headline | Work Sans | 30 / 500, tracking -0.02em |
-| Caller name | Work Sans | 24 / 500 |
-| Card title | Work Sans | 14.5 / 500 |
-| Body | Work Sans | 14 / 400 (hero body 15) |
-| Label | Azeret Mono | 10.5, uppercase, tracking 0.09em, faint |
-| Chip | Azeret Mono | 10, uppercase, pill, tinted bg at 15% of its color |
+| Hero headline | Work Sans | 40 / 500, tracking -0.03em, ends with a period |
+| Caller name | Work Sans | 24 / 500, may wrap to two lines |
+| Tile answer | Work Sans | 26 / 500 |
+| Card title | Work Sans | 14 / 500 |
+| Body | Work Sans | 14 (hero body 16, script 17, caller quote 17) |
+| Label | Azeret Mono | 10, uppercase, tracking 0.1em, faint |
+| Chip | Azeret Mono | 9.5, uppercase, pill, tinted bg |
 | Button | Azeret Mono | 11, uppercase, pill |
 
-## Layout (in call, 1440 px and up)
-Three columns, 18 px gaps, 22 px page padding:
-
+## Layout (in call, 1440 px and up; mockups at 1600 x 1000)
 ```
-[ top bar: logo | call island | controls                                  ]
-[ caller panel 270 | assist column (flex)                | transcript 340 ]
+[rail 84 | header: wordmark | Vitals | PHI masked | call island (centered) | mute hold End          ]
+[        | caller 310        | assist column (flex)                        | conversation 340      ]
 ```
+Gaps 22 px, stage padding 22 / 30 / 26 px.
 
-### Top bar
-- Left: D tile, wordmark, divider, "Vitals" (product name: Deepgram Vitals).
-- Center, the **call island** (pill, black glass): verified dot, caller name, Verified chip, live waveform (fuchsia to LED), mood chip, timer.
-- Right: mute, hold (40 px round glass), End (clay pill). Positions never change.
+### Left rail
+D tile on top, then icons: Calls (active), Queue, History. Agent avatar at the bottom with a phosphor available dot. Queue and History may be inactive in the PoC. The theme switch lives in the avatar menu.
+
+### Header
+Wordmark, divider, "Vitals", **PHI masked** chip (lock icon). Centered **call island**: phosphor dot, caller name, Verified chip, live waveform (fuchsia to LED), timer. Right: mute and hold (40 px round glass), End (clay pill). Positions never change.
 
 ### Caller panel (left)
-Top to bottom: label, name, member ID and plan (mono), **Why they called** box, key facts list (born, claim, waited, calls in 30 days with Repeat chip), **Before this call** timeline (last 3 events, colored dots), **Mood over call** sparkline pinned to the bottom (phosphor to bakelite to clay gradient, Calm to Upset axis).
+1. Portrait: copper avatar with initials inside a phosphor ring once identity is confirmed (no ring before). Name, plan, masked member ID (`••••10`) with a **Reveal** link.
+2. Badges: **Identity 3 of 3** (shield icon; shows which checks passed on hover), Repeat caller when calls in 30 days is 2 or more.
+3. **In her words**: the caller's reason as a short quote, from intake.
+4. Settings style rows: claim, waited, referral, last call (from intake and caller history).
+5. **Mood** pinned to the bottom: label chip ("Worried, easing") plus a bar chart of tone per caller turn (fuchsia to LED for calm, bakelite for worried). Tooltip: "Tone reader, words only."
 
 ### Assist column (center)
-1. **Hero: next best step.** Chip "Next best step", trigger line, 30 px headline, one or two sentence why, **Say this** script block (quote icon, 15.5 px), primary action (fuchsia gradient button), secondary "Show me why", source line.
-2. Label "Ready when you need it", then a row of three supporting cards: **record** (for example recent claims table), **call plan** (pack checklist with progress, auto ticks), **tone tip**.
-3. **Ask bar** pinned to the bottom: spark icon, placeholder, ⌘K hint.
+1. **Hero: next best step.** Chip "Next best step", trigger line, 40 px headline, one or two sentence why, **Say this** block (fuchsia to LED bar on the left), primary action (fuchsia gradient, Enter), "Show me why", "Not now" (Esc), source line.
+2. **Shelf** of three tiles, each with a material swatch, a title, one big answer, and one line of context: record (for example "$1,240", denied code), call plan ("Open request", 2 of 4), tone tip ("Lead with cost").
+3. **Earlier this call**: checked rows with a time stamp for accepted actions and plan steps done.
+4. **Ask bar** pinned to the bottom: spark icon, "Ask about Maria", Cmd+K hint.
 
-### Transcript (right)
-Live chip, lines labeled CALLER (fuchsia) and YOU (muted). Trigger words underlined in fuchsia. Current agent line shows a fuchsia caret.
+### Conversation (right)
+"Conversation" label and Live chip. Each line: 26 px avatar (caller copper gradient with initials, agent LED tint with "You"), then text. Agent lines muted. Trigger words get a fuchsia highlighter (bottom 40% of the line). The line still being spoken shows a fuchsia caret.
 
 ## Components
 | Component | States |
 | --- | --- |
-| Hero card | empty ("Listening"), suggestion, accepted (phosphor check, collapses to history), dismissed |
-| Supporting card | record, call plan, tone tip, article, alert (clay border). Each: pin, dismiss, thumbs up/down, source |
+| Hero | listening ("Listening with you"), suggestion, accepted (phosphor check, moves to Earlier this call), dismissed |
+| Shelf tile | record, call plan, tone tip, article, alert (clay swatch). Each: pin, dismiss, thumbs up/down, source on hover |
 | Call plan step | done (phosphor, struck through), next (fuchsia ring), todo |
+| Identity | not checked, partial (n of 3, bakelite), confirmed (3 of 3, phosphor ring) |
+| PHI field | masked (default), revealed (logs a reveal event on the call record, re-masks after 30 s) |
 | Chip | ok, warn, bad, ai, info, neutral |
-| Button | primary fuchsia gradient, secondary outline, white solid |
-| Call island | ringing, on call, hold, wrap-up |
+| Button | primary fuchsia gradient, secondary soft fill, End clay |
+| Call island | ringing, on call, hold, wrap up |
 
-Icons: Lucide, 1.8 stroke, round caps (closest match to the brand icon style).
+Icons: Lucide, 1.7 stroke, round caps.
 
 ## Motion
 - Hero swap: 180 ms crossfade plus 8 px rise. No layout shift.
-- Supporting cards: fade in at their slot, never reorder while hovered.
+- Tiles fade in at their slot and never reorder while hovered.
 - Waveform bars animate only while someone is speaking.
+- Theme switch: 200 ms color crossfade, no layout change.
 - Respect `prefers-reduced-motion`.
 
-## Out of scope for this file
-Sign in, queue, and incoming call screens follow the same tokens; layouts get added here before their cards are built.
+## Other screens
+Sign in, idle home, and the incoming call card use the same themes, ground, rail, and glass. Their current builds (P3-1, P3-2) are restyled to this file by the Studio restyle card.
 
 ## Wrap up (P3-5)
-After End or a caller hang up, the in-call frame closes and the center stage shows one glass card (max 600 px), same tokens as the incoming call card:
-- Head: info chip "Wrap up" (clipboard check icon) and a faint label naming who ended it ("You ended the call" or "The caller hung up").
-- Caller name (24 / 500), Verified chip, call length chip (mono `mm:ss`), then the **Why they called** box.
-- **Summary draft** box: AI chip "Summary draft". Until AP-9 lands it is a dashed fuchsia outline with faint placeholder copy and a "Coming soon" label; with a draft it is a solid hero-line border.
-- **Reason code**: label, then the active pack's codes as mono pill buttons (radio group). Selected: fuchsia border and 16% fuchsia fill.
-- **Notes**: textarea in the sign in field style. Cmd or Ctrl plus Enter saves.
-- Primary button "Save and go available" (fuchsia gradient), disabled until a reason code is picked.
-- Call island in wrap-up state: glass-blue dot, caller name, info chip "Wrap up", queue count.
+Layout and content only; P3-5 shipped it in the Focus styling and the Studio restyle card (P4-0) restyles it with the screens above. After End or a caller hang up, the in-call frame closes and the center stage shows one glass card (max 600 px):
+- Head: info chip "Wrap up" and a faint label naming who ended it ("You ended the call" or "The caller hung up").
+- Caller name, identity chip, call length chip (mono `mm:ss`), then the **Why they called** box.
+- **Summary draft** box: AI chip "Summary draft". Until AP-9 lands it is an empty dashed outline with placeholder copy and a "Coming soon" label; with a draft it is a solid outline.
+- **Reason code**: label, then the active pack's codes (`wrap_up.reason_codes`) as mono pill buttons in a radio group. Selected uses the AI tint.
+- **Notes**: textarea. Cmd or Ctrl plus Enter saves.
+- Primary button "Save and go available", disabled until a reason code is picked.
+- Call island, wrap up state: info dot, caller name, "Wrap up" chip, queue count.
 - After Save the idle home returns with the notice "Call saved. You are available."

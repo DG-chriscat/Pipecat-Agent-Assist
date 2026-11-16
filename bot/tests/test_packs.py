@@ -122,3 +122,9 @@ def test_invalid_wrap_up_codes_rejected(tmp_path, codes, match):
     text = MINIMAL + f"wrap_up:\n  reason_codes: {codes}\n"
     with pytest.raises(PackError, match=match):
         load_pack(_write(tmp_path, text))
+
+
+@pytest.mark.parametrize("pack_id", ["claims_status", "account_payments", "general_question"])
+def test_every_v1_pack_has_wrap_up_codes_ending_in_other(pack_id):
+    codes = [c.code for c in load_pack(pack_id).wrap_up.reason_codes]
+    assert len(codes) >= 3 and codes[-1] == "other"

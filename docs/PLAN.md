@@ -54,6 +54,7 @@ Source: docs/PRD.md (Nov 14, 2026)
 - P4-5 Tone: tone per caller turn, mood trend, tone tip card (IN-10, AP-14).
 - P4-6 Ask bar and Phase 4 exit: typed questions to the assist (AP-8); live test where each pack trigger shows its card within 3 s.
 - Side card: identity capture fix (member ID read back, numerals, endpointing on the identity step) scored on the 5 demo personas.
+- P4-0 Studio restyle (ADR 0005): restyle Phase 3 screens to DESIGN.md Studio light and dark, rail, theme switch, PHI masking, identity display (AP-16 to AP-18).
 - Exit: each pack's trigger shows its card on a live call.
 
 ## Phase 5

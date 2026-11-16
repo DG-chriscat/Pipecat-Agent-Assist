@@ -71,7 +71,12 @@ CHROMIUM_ARGS = [
 ]
 VOICE_CALLER = "aura-2-arcas-en"
 ASK_TEXT = "Show the last 3 claims"
-ASK_SEL = "[data-testid^='tile-ask:']"
+# Ask bar questions on the claims call, and the claim ids each answer must show. The
+# second makes the shelf overflow, so the answer must be scrolled into view.
+ASKS = [
+    (ASK_TEXT, ["CLM-900001", "CLM-900002"]),
+    ("Any denied claims?", ["CLM-900001"]),
+]
 
 # Watches the assist column and stamps when a card matching a selector first shows.
 WATCH = """
@@ -229,6 +234,49 @@ async def trigger_audio(text: str, word: str, tries: int = 4) -> tuple[bytes, fl
             last = e
             print(f"  re-synthesizing the trigger: {e}")
     raise last  # type: ignore[misc]
+
+
+async def ask_bar(page, expect, text: str, want: list[str], t0: float) -> dict:
+    """Cmd+K, type the question, Enter; wait for its answer tile, fully in view on the
+    shelf, with the question, the claims it should list, and its source."""
+    ask = page.get_by_role("textbox", name="Ask")
+    await page.evaluate("document.activeElement && document.activeElement.blur()")
+    await page.keyboard.press("Meta+K")
+    await expect(ask).to_be_focused()
+    await ask.fill(text)
+    before = await page.locator("[data-testid^='tile-ask:']").count()
+    asked_at = time.time()
+    await page.keyboard.press("Enter")
+    tiles = page.locator("[data-testid^='tile-ask:']")
+    await expect(tiles).to_have_count(before + 1, timeout=15_000)
+    on_screen = time.time()
+    tile = tiles.nth(before)
+    await expect(tile).to_contain_text(f"You asked “{text}”")
+    await expect(tile.get_by_test_id("tile-source")).to_contain_text("Claims system")
+    tid = await tile.get_attribute("data-testid")
+    # Fully inside the shelf's visible width: scrolled into view if it overflowed.
+    await page.wait_for_function(
+        """(id) => { const s = document.querySelector('.shelf');
+        const t = document.querySelector(`[data-testid="${id}"]`);
+        if (!s || !t) return false;
+        const r = t.getBoundingClientRect(), b = s.getBoundingClientRect();
+        return r.left >= b.left - 1 && r.right <= b.right + 1; }""",
+        arg=tid,
+        timeout=3_000,
+    )
+    records = await tile.get_by_test_id("tile-source").get_attribute("title")
+    out = {
+        "text": text,
+        "card": tid.removeprefix("tile-"),
+        "enter_to_card_secs": round(on_screen - asked_at, 3),
+        "big": await tile.get_by_test_id("tile-big").inner_text(),
+        "records": records,
+        "tiles_on_shelf": await page.locator(".shelf > [data-testid^='tile-']").count(),
+    }
+    log(t0, f"ask answered: {out}")
+    assert (records or "").split(", ") == want, out
+    await page.wait_for_timeout(300)
+    return out
 
 
 async def word_end(pcm: bytes, word: str) -> float:
@@ -417,35 +465,10 @@ async def test_pack_trigger_shows_its_card_within_3s(sc: Scenario, schema, shots
 
                 # ---- Ask bar on the claims call ------------------------------------------
                 if sc.key == "claims":
-                    ask = page.get_by_role("textbox", name="Ask")
-                    await page.evaluate("document.activeElement && document.activeElement.blur()")
-                    await page.keyboard.press("Meta+K")
-                    await expect(ask).to_be_focused()
-                    await ask.fill(ASK_TEXT)
-                    await page.evaluate(WATCH, ASK_SEL)
-                    ask_at = time.time()
-                    await page.keyboard.press("Enter")
-                    await page.wait_for_function(
-                        "(sel) => window.__seen && window.__seen[sel]", arg=ASK_SEL, timeout=15_000
-                    )
-                    seen = await page.evaluate("(sel) => window.__seen[sel]", ASK_SEL)
-                    ask_tile = page.locator(f"[data-testid='{seen['id']}']")
-                    await expect(ask_tile).to_contain_text(f"You asked “{ASK_TEXT}”")
-                    await expect(ask_tile.get_by_test_id("tile-source")).to_contain_text(
-                        "Claims system"
-                    )
-                    ask_ids = await ask_tile.get_by_test_id("tile-source").get_attribute("title")
-                    big = await ask_tile.get_by_test_id("tile-big").inner_text()
-                    result["ask"] = {
-                        "text": ASK_TEXT,
-                        "card": seen["id"].removeprefix("tile-"),
-                        "enter_to_card_secs": round(seen["at"] / 1000 - ask_at, 3),
-                        "big": big,
-                        "records": ask_ids,
-                    }
-                    log(t0, f"ask answered: {result['ask']}")
-                    await page.wait_for_timeout(400)
-                    taken += await snap_both(page, shots, "p4-6-ask-claims", t0)
+                    result["ask"] = []
+                    for n, (text, want) in enumerate(ASKS, 1):
+                        result["ask"].append(await ask_bar(page, expect, text, want, t0))
+                        taken += await snap_both(page, shots, f"p4-6-ask-{n}-claims", t0)
 
                 await page.get_by_role("button", name="End call").click()
                 await expect(page.get_by_role("region", name="Wrap up")).to_be_visible(
@@ -495,6 +518,5 @@ async def test_pack_trigger_shows_its_card_within_3s(sc: Scenario, schema, shots
     assert sent.get(card_id, {}).get("pack_id") == sc.pack, sent.get(card_id)
     assert result["trigger_word_to_card_secs"] < DC6_SECS, result
     if sc.key == "claims":
-        ask_card = result["ask"]["card"]
-        assert sent[ask_card]["ask"] is True
-        assert "CLM-900001" in (result["ask"]["records"] or "")
+        for a in result["ask"]:
+            assert sent[a["card"]]["ask"] is True, a

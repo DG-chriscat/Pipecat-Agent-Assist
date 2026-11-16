@@ -98,6 +98,8 @@ MAX_ARTICLES = 2
 DC6_TARGET_MS = 3000
 # Intake keys that say who the caller is, not why they called (not used to pick a pack).
 IDENTITY_INTAKE_KEYS = frozenset({"full_name", "member_id", "dob"})
+# A trigger phrase split across two final lines of one speaker counts within this gap.
+SPLIT_PHRASE_SECS = 3.0
 
 ID_FIELD = {c.name: c.id_field for c in CONNECTORS}
 _PLACEHOLDER = re.compile(r"\{([^{}]*)\}")
@@ -628,9 +630,11 @@ class AssistEngine:
         pack = self.pack
         ts = entry["ts"]
         steps: list[Card] = []
-        for rule in pack.rules_triggered(entry["text"]):
-            trig = self._line_trigger(entry, rule.match_triggers(entry["text"])[0])
-            card = await self._rule_card(rule, trig)
+        for rule in pack.next_best_steps:
+            hits = self._line_matches(entry, rule.triggers)
+            if not hits:
+                continue
+            card = await self._rule_card(rule, self._line_trigger(entry, hits[0]))
             if card is not None:
                 steps.append(card)
         steps.sort(key=lambda c: -c.rank)
@@ -641,7 +645,7 @@ class AssistEngine:
             rec = await self._record_card_for(steps[0])
             if rec is not None:
                 more.append(rec)
-        pack_hits = pack.match_triggers(entry["text"])
+        pack_hits = self._line_matches(entry, pack.triggers.phrases)
         if pack_hits:
             trig = self._line_trigger(entry, pack_hits[0])
             for tpl in pack.card_templates:
@@ -656,6 +660,37 @@ class AssistEngine:
             card = await self._kb_answer(entry)
             if card is not None:
                 await self._offer([_Candidate(card, ts)])
+
+    def _line_matches(self, entry: Mapping[str, Any], phrases: Sequence[str]) -> list[TriggerMatch]:
+        """Trigger phrases heard in this line. A phrase may also start in the same
+        speaker's previous final line (within SPLIT_PHRASE_SECS) and end in this one:
+        STT can end a final line mid phrase ("and I was charged" / "twice for my
+        premium."). Such a match is the part of the phrase in this line; phrases wholly
+        in the previous line are not repeated."""
+        text = entry["text"]
+        hits = match_phrases(text, phrases)
+        prev = self._prev_same_speaker(entry)
+        if prev is not None:
+            joined = prev["text"] + " " + text
+            cut = len(prev["text"]) + 1
+            seen = {(h.phrase, h.start, h.end) for h in hits}
+            for m in match_phrases(joined, phrases):
+                if m.start < cut < m.end:  # spans the line break
+                    part = TriggerMatch(phrase=m.phrase, start=0, end=m.end - cut)
+                    if (part.phrase, part.start, part.end) not in seen:
+                        hits.append(part)
+            hits.sort(key=lambda m: (m.start, -m.end))
+        return hits
+
+    def _prev_same_speaker(self, entry: Mapping[str, Any]) -> dict[str, Any] | None:
+        """The line before `entry` in the window, if the same role said it just before."""
+        items = list(self._window)
+        if len(items) < 2 or items[-1] is not entry:
+            return None
+        prev = items[-2]
+        if prev["role"] != entry["role"] or entry["ts"] - prev["ts"] > SPLIT_PHRASE_SECS:
+            return None
+        return prev
 
     async def _kb_answer(self, entry: dict[str, Any]) -> Card | None:
         """General question pack (P4-6): a caller question that names a KB article's

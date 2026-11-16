@@ -199,6 +199,55 @@ async def test_line_without_triggers_makes_no_cards(packs):
     assert h.connectors.calls == []
 
 
+async def james(packs) -> Harness:
+    h = Harness(packs)
+    await h.engine.start(
+        {"full_name": "James Chen", "reason": "I was charged twice for this month's premium."},
+        default_pack="claims_status",
+    )
+    assert h.engine.pack.id == "account_payments"
+    return h
+
+
+async def test_trigger_phrase_split_across_two_final_lines_still_fires(packs):
+    # Live STT (Phase 4 exit run 7) ended a final line inside the phrase:
+    # "and I was charged" / "twice for my premium."
+    h = await james(packs)
+    await h.say("caller", "and I was charged")
+    h.clock.advance(1.3)
+    line = await h.say("caller", "twice for my premium.")
+    [hero] = h.heroes()
+    card = hero["card"]
+    assert card["id"] == "nbs:duplicate_premium_refund:PAY-000064"
+    t = card["trigger"]
+    # The trigger is the line that completed the phrase; its own part is underlined.
+    assert t["line_id"] == line["line_id"] and t["phrase"] == "charged twice"
+    assert line["text"][t["start"] : t["end"]] == "twice"
+
+
+async def test_split_phrase_needs_the_same_speaker_and_a_short_gap(packs):
+    h = await james(packs)
+    await h.say("agent", "So you were charged")
+    await h.say("caller", "twice for my premium.")
+    assert h.heroes() == []
+    h2 = await james(packs)
+    await h2.say("caller", "and I was charged")
+    h2.clock.advance(10)
+    await h2.say("caller", "twice for my premium.")
+    assert h2.heroes() == []
+
+
+async def test_a_phrase_already_in_the_previous_line_does_not_fire_again(packs):
+    h = await james(packs)
+    await h.say("caller", "I was charged twice.")
+    assert len(h.heroes()) == 1
+    hero_id = h.heroes()[0]["card"]["id"]
+    await h.engine.on_feedback(Feedback(card_id=hero_id, action="dismiss"))
+    n = len(h.sent)
+    await h.say("caller", "Okay.")
+    assert [m for m in h.sent[n:] if m["event"] in ("hero", "card_added")] == []
+
+
 async def test_same_trigger_again_does_not_repeat_cards(packs):
     h = await maria(packs)
     await h.say("caller", "It was denied.")

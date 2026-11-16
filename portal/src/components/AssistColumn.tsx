@@ -541,7 +541,7 @@ function Shelf({ assist, onAction }: { assist: AssistState; onAction: (a: LocalA
     const tile = box.querySelector<HTMLElement>(`[data-testid="tile-${CSS.escape(answered)}"]`);
     if (!tile) return;
     shown.current = answered;
-    if (!box.matches(":hover")) tile.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
+    if (!box.matches(":hover")) tile.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [answered, ordered]);
   const tile = (c: AssistCard) => (
     <CardTile key={c.id} card={c} pinned={assist.pinned.includes(c.id)} rating={assist.ratings[c.id]} onAction={onAction} />

@@ -28,7 +28,10 @@ max 100), since the pack is not known when they open.
 ## How one card is made
 
 1. **Trigger path (deterministic, no LLM).** The line is matched against the active
-   pack's next best step rules (`pack.rules_triggered`). For each triggered rule the
+   pack's next best step rules (`pack.rules_triggered`). A phrase may also start in the
+   same speaker's previous final line (at most 3 s earlier, `SPLIT_PHRASE_SECS`) and end
+   in this one, since STT can end a final line mid phrase ("and I was charged" /
+   "twice for my premium."); the trigger is then the part in this line. For each triggered rule the
    engine searches the rule's connector (one connector per rule in v1), keeps rows
    where `rule.applies(facts)`, and renders the best one (`rule.render`). The best
    step is offered at once, after a single connector round trip; then its record

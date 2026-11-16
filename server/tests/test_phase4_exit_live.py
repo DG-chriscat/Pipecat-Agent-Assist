@@ -430,6 +430,8 @@ async def test_pack_trigger_shows_its_card_within_3s(sc: Scenario, schema, shots
                 plan = page.get_by_test_id("tile-plan")
                 await expect(plan).to_be_visible(timeout=10_000)
                 log(t0, "accepted; call plan on screen")
+                # Caller history (AP-13) loaded for this call's schema, not a stale one.
+                await expect(page.get_by_text("Caller history is unavailable")).to_have_count(0)
 
                 # ---- the caller's trigger; the card on screen ---------------------------
                 await page.evaluate(WATCH, sc.selector)
@@ -497,7 +499,8 @@ async def test_pack_trigger_shows_its_card_within_3s(sc: Scenario, schema, shots
         await store.close()
         if room_name:
             await daily.delete_room(room_name)
-        for attr in ("bot_launcher", "queue_service"):
+        # caller_history caches its schema: a later call in this process must not reuse it.
+        for attr in ("bot_launcher", "queue_service", "caller_history"):
             if hasattr(app.state, attr):
                 delattr(app.state, attr)
 

@@ -29,6 +29,8 @@ class DailyMock:
             return httpx.Response(200, json={"token": f"tok-{props['user_name']}"})
         if request.url.path.endswith("/send-app-message"):
             return httpx.Response(200, json={"status": "sent"})
+        if request.url.path.endswith("/presence"):
+            return httpx.Response(200, json={"total_count": 1, "data": []})
         return httpx.Response(404)
 
     def app_messages(self) -> list[tuple[str, dict]]:
@@ -252,6 +254,79 @@ def test_bot_told_when_queued_and_when_accepted(client, daily):
         "agent_name": "Ana",
     }
     assert "tok-" not in json.dumps(daily.app_messages())
+
+
+def test_bot_notifier_warms_daily_when_the_offer_rings(client, daily):
+    # QH-5: the bot stops hold music on agent_accepted, so that message must not wait
+    # on a new TLS connection to Daily. The offer warms it (accept is <= 20 s later).
+    enqueue(client, "s1")
+    agent_id = sign_in(client, "Ana")
+    make_available(client, agent_id)
+    assert wait_for(lambda: any(r.url.path.endswith("/presence") for r in daily.requests))
+    client.post(f"/agents/{agent_id}/accept", json={"session_id": "s1"})
+    assert wait_for(lambda: len(daily.app_messages()) == 2)
+    paths = [r.url.path for r in daily.requests if "meeting-tokens" not in r.url.path]
+    warm = paths.index("/v1/rooms/caller-abc/presence")
+    assert warm < len(paths) - 1 and paths[-1].endswith("/send-app-message")
+
+
+def test_bot_notifier_keeps_one_daily_connection(daily, monkeypatch):
+    # Every app message used to build its own client (and TLS connection). The
+    # notifier now makes one keep-alive client and sends everything through it.
+    monkeypatch.delenv("QUEUE_PERSIST", raising=False)
+    made: list[DailyRestClient] = []
+
+    class Tracking(DailyRestClient):
+        def keep_alive(self):
+            client = super().keep_alive()
+            made.append(client)
+            return client
+
+    app.state.daily_client_factory = lambda: Tracking(
+        api_key="test-key", transport=httpx.MockTransport(daily.handler)
+    )
+    try:
+        with TestClient(app) as c:
+            svc = queue_api.get_queue(app)
+            svc.register_session("s1", ROOM_URL)
+            svc.register_session("s2", "https://dg-chriscat.daily.co/caller-def")
+            enqueue(c, "s1")
+            enqueue(c, "s2")
+            agent_id = sign_in(c, "Ana")
+            make_available(c, agent_id)
+            c.post(f"/agents/{agent_id}/accept", json={"session_id": "s1"})
+            assert wait_for(lambda: len(daily.app_messages()) >= 4)
+            assert len(made) == 1
+            assert made[0]._shared is not None and not made[0]._shared.is_closed
+    finally:
+        for attr in ("daily_client_factory", "queue_service"):
+            if hasattr(app.state, attr):
+                delattr(app.state, attr)
+
+
+async def test_keep_alive_client_reuses_one_http_client():
+    seen: list[str] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen.append(req.url.path)
+        return httpx.Response(200, json={"total_count": 0, "data": []})
+
+    plain = DailyRestClient(api_key="k", transport=httpx.MockTransport(handler))
+    kept = plain.keep_alive()
+    assert plain._keep_alive is False and kept._keep_alive is True
+    await kept.send_app_message("room-a", {"x": 1})
+    first = kept._shared
+    await kept.get_presence("room-a")
+    await kept.send_app_message("room-b", {"x": 2})
+    assert kept._shared is first and not first.is_closed
+    await plain.send_app_message("room-a", {"x": 3})
+    assert plain._shared is None  # plain clients still open and close per call
+    assert seen == [
+        "/v1/rooms/room-a/send-app-message",
+        "/v1/rooms/room-a/presence",
+        "/v1/rooms/room-b/send-app-message",
+        "/v1/rooms/room-a/send-app-message",
+    ]
 
 
 # ---- websocket (QH-4) -------------------------------------------------------------

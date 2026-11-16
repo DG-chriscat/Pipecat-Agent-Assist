@@ -9,6 +9,8 @@ from __future__ import annotations
 import os
 import time
 import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
 import httpx
@@ -16,6 +18,9 @@ import httpx
 DEFAULT_DAILY_API_URL = "https://api.daily.co/v1"
 ROOM_EXP_SECONDS = 60 * 60
 TOKEN_EXP_SECONDS = 60 * 60
+# Idle keep-alive for keep_alive() clients. An offer rings at most 20 s before accept;
+# Daily kept an idle connection open for over 60 s (Nov 16).
+KEEPALIVE_SECS = 60.0
 # Must match agent_assist_bot.bot.BOT_NAME: the token's user_name overrides the bot's own.
 BOT_USER_NAME = "Vitals Assistant"
 
@@ -117,6 +122,8 @@ class DailyRestClient:
         self.api_url = api_url.rstrip("/")
         self._transport = transport
         self._timeout = timeout
+        self._shared: httpx.AsyncClient | None = None  # keep_alive() clients only
+        self._keep_alive = False
 
     @classmethod
     def from_env(cls) -> DailyRestClient:
@@ -124,6 +131,18 @@ class DailyRestClient:
             api_key=os.getenv("DAILY_API_KEY", ""),
             api_url=os.getenv("DAILY_API_URL", DEFAULT_DAILY_API_URL),
         )
+
+    def keep_alive(self) -> DailyRestClient:
+        """A copy that reuses one connection across calls, for a long lived sender.
+
+        Each call on a plain client opens a new TLS connection to Daily (about 200 ms
+        more per call, measured Nov 16). The bot notifier keeps one of these so the
+        agent_accepted message, which stops hold music (QH-5), goes out on a warm
+        connection. Idle connections are kept up to KEEPALIVE_SECS.
+        """
+        twin = DailyRestClient(self._api_key, self.api_url, self._transport, self._timeout)
+        twin._keep_alive = True
+        return twin
 
     @property
     def api_key(self) -> str:
@@ -138,10 +157,21 @@ class DailyRestClient:
             headers={"Authorization": f"Bearer {self._api_key}"},
             transport=self._transport,
             timeout=self._timeout,
+            limits=httpx.Limits(keepalive_expiry=KEEPALIVE_SECS),
         )
 
+    @asynccontextmanager
+    async def _session(self) -> AsyncIterator[httpx.AsyncClient]:
+        if not self._keep_alive:
+            async with self._client() as client:
+                yield client
+            return
+        if self._shared is None or self._shared.is_closed:
+            self._shared = self._client()
+        yield self._shared
+
     async def _post(self, path: str, body: dict) -> dict:
-        async with self._client() as client:
+        async with self._session() as client:
             try:
                 r = await client.post(path, json=body)
             except httpx.HTTPError as e:
@@ -180,13 +210,13 @@ class DailyRestClient:
         await self._post(f"/rooms/{room_name}/send-app-message", {"data": data, "recipient": "*"})
 
     async def delete_room(self, room_name: str) -> None:
-        async with self._client() as client:
+        async with self._session() as client:
             r = await client.delete(f"/rooms/{room_name}")
         if r.status_code not in (200, 404):
             raise DailyAPIError(f"DELETE /rooms returned {r.status_code}: {r.text[:300]}")
 
     async def get_presence(self, room_name: str) -> dict:
-        async with self._client() as client:
+        async with self._session() as client:
             r = await client.get(f"/rooms/{room_name}/presence")
         if r.status_code != 200:
             raise DailyAPIError(f"GET presence returned {r.status_code}: {r.text[:300]}")

@@ -10,7 +10,10 @@ export interface Offer {
 
 export interface CallerInfo {
   name: string;
+  /** For chips: an unchecked identity shows as not verified. */
   verified: IdentityResult;
+  /** The intake result as is; null when identity was never checked (AP-18). */
+  identity: IdentityResult | null;
   reason: string;
   summary: string;
 }
@@ -24,6 +27,7 @@ export function callerInfo(call: Pick<Call, "summary" | "identity_result">): Cal
   return {
     name: text(s.full_name) || "Unknown caller",
     verified: call.identity_result ?? "not_verified",
+    identity: call.identity_result ?? null,
     reason: text(s.reason) || summary || "No reason captured",
     summary,
   };

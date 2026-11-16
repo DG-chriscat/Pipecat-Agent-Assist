@@ -35,6 +35,8 @@ OFFER_TIMEOUT_SECS = 20.0
 # QH-9: how long after the bot reports the agent left before the call is re-queued.
 AGENT_DROP_GRACE_SECS = 3.0
 MAX_NOTES = 2000
+# AP-17: the masked fields the portal can reveal.
+PHI_FIELDS = frozenset({"member_id", "dob"})
 
 Event = dict[str, Any]
 Listener = Callable[[Event], None]
@@ -143,6 +145,8 @@ class Call:
     ended_by: str | None = None
     # Saved at wrap up (P3-5): {"reason_code", "notes", "saved_at"}.
     wrap_up: dict[str, Any] | None = None
+    # AP-17: each PHI reveal by the agent: {"field", "agent_id", "at"}. Never the value.
+    phi_reveals: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -162,6 +166,7 @@ class Call:
             "ended_at": self.ended_at,
             "ended_by": self.ended_by,
             "wrap_up": dict(self.wrap_up) if self.wrap_up else None,
+            "phi_reveals": [dict(r) for r in self.phi_reveals],
         }
 
 
@@ -433,6 +438,20 @@ class QueueService:
         self._agent_updated(agent)
         self._dispatch()
         return call
+
+    def log_phi_reveal(self, agent_id: str, session_id: str, field_name: str) -> dict[str, Any]:
+        """AP-17: the agent revealed a masked field. Logged on the call record; the value
+        itself is never logged. Only the agent the call was accepted by may reveal."""
+        if field_name not in PHI_FIELDS:
+            raise QueueError(f"unknown PHI field {field_name!r}")
+        call = self.get_call(session_id)
+        if call.agent_id is None or call.agent_id != agent_id:
+            raise QueueError("only the agent on this call can reveal its details")
+        entry = {"field": field_name, "agent_id": agent_id, "at": self._clock.now()}
+        call.phi_reveals.append(entry)
+        logger.info("phi reveal: call=%s field=%s agent=%s", session_id, field_name, agent_id)
+        self._emit({"type": "call_updated", "call": call.to_dict()})
+        return dict(entry)
 
     def report_agent_left(self, session_id: str) -> None:
         """The bot saw the agent leave the room. Wait AGENT_DROP_GRACE_SECS before

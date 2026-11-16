@@ -75,6 +75,16 @@ async def test_queue_handoff_posts_intake_handoff_then_end():
     }
 
 
+def test_enqueue_payload_carries_identity_checks_in_the_summary():
+    # AP-18: the portal's "Identity n of 3" badge reads summary.identity_checks.
+    from dataclasses import replace
+
+    body = handoff.enqueue_payload(replace(HANDOFF, identity_checks=("full_name", "dob")))
+    assert body["summary"]["identity_checks"] == ["full_name", "dob"]
+    # Not checked (asked for a person before giving details): no key at all.
+    assert "identity_checks" not in handoff.enqueue_payload(HANDOFF)["summary"]
+
+
 async def test_queue_handoff_sends_bot_key_from_env():
     # P2-6: with APP_PASSWORD on, the server gives its bots AGENT_ASSIST_BOT_KEY.
     seen: list[httpx.Request] = []

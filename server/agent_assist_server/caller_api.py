@@ -1,6 +1,7 @@
 """Caller panel data (P3-3, PRD AP-5, AP-13, DC-3, DC-8).
 
-    GET /calls/{session_id}/caller?agent_id=...
+    GET  /calls/{session_id}/caller?agent_id=...
+    POST /calls/{session_id}/phi-reveal  {agent_id, field: member_id|dob}  (AP-17)
 
 Returns what the agent's caller panel shows: the intake answers and identity result
 from the queue (in memory, QH-4), the wait time, and, for verified callers only, the
@@ -25,9 +26,10 @@ import os
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from fastapi import APIRouter, FastAPI, HTTPException, Query, Request
+from pydantic import BaseModel, Field
 
 from agent_assist_server.db import connect
 from agent_assist_server.queue_api import get_queue
@@ -211,3 +213,23 @@ async def caller_panel(
         recent_events=history.recent_events,
     )
     return body
+
+
+class PhiRevealRequest(BaseModel):
+    agent_id: str = Field(min_length=1, max_length=64)
+    field: Literal["member_id", "dob"]
+
+
+@router.post("/calls/{session_id}/phi-reveal")
+async def phi_reveal(session_id: str, body: PhiRevealRequest, request: Request) -> dict[str, Any]:
+    """AP-17: the agent clicked Reveal on a masked field. Logged on the call record
+    (calls.phi_reveals via the queue write-through); the portal re-masks after 30 s."""
+    svc = get_queue(request.app)
+    try:
+        svc.get_call(session_id)
+    except QueueError:
+        raise HTTPException(status_code=404, detail="unknown call") from None
+    try:
+        return svc.log_phi_reveal(body.agent_id, session_id, body.field)
+    except QueueError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from None

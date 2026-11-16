@@ -120,6 +120,7 @@ REST:
 | GET | `/calls/{session_id}/caller?agent_id=` | | caller panel data (P3-3, see below) |
 | GET | `/calls/{session_id}/wrap-up?agent_id=` | | wrap up view data (P3-5) |
 | POST | `/agents/{agent_id}/wrap-up` | `{session_id, reason_code, notes}` | the call, saved; agent available (P3-5) |
+| POST | `/calls/{session_id}/phi-reveal` | `{agent_id, field: member_id\|dob}` | logs a PHI reveal on the call (AP-17); 403 unless the agent is on the call |
 
 Invalid commands return 409 with a message; a Daily token failure on accept returns
 502. `/queue/calls` only takes sessions this server started (`/calls/browser` or the
@@ -155,6 +156,9 @@ Code: `server/agent_assist_server/caller_api.py`. `GET /calls/{session_id}/calle
   `repeat_caller` (2 or more), `recent_events` (last 3 across interactions, claims, and
   referrals, newest first: `kind` call/claim/referral, `ref`, `occurred_on`, `status`,
   `summary`). `not_verified` is false.
+- Identity n of 3 (AP-18): the bot's handoff puts `identity_checks` (which of
+  `full_name`, `dob`, `member_id` matched the member) in the summary, so it reaches the
+  portal in `intake.identity_checks`. Missing when identity was never checked.
 - Anyone else: `not_verified` true, `member`/`calls_30d`/`repeat_caller` null,
   `recent_events` empty. The claimed member id is never looked up, so nothing about a
   member is guessed.

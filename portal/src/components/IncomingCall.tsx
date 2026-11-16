@@ -34,6 +34,8 @@ export function IncomingCall({ offer, windowSecs, nowMs, busy, error, onAccept, 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;
+      // Keys pressed inside the rail menu belong to the menu, not the call card.
+      if (e.target instanceof Element && e.target.closest("[role=menu]")) return;
       const k = keys.current;
       if (e.key === "Enter" && k.canAccept) {
         e.preventDefault();
@@ -48,10 +50,10 @@ export function IncomingCall({ offer, windowSecs, nowMs, busy, error, onAccept, 
   }, []);
 
   return (
-    <section className="glass incoming" role="dialog" aria-modal="false" aria-label="Incoming call">
+    <section className="panel card incoming" role="dialog" aria-modal="false" aria-label="Incoming call">
       <div className="incoming-head">
         <span className="chip chip-ai">
-          <PhoneIncoming strokeWidth={1.8} aria-hidden="true" />
+          <PhoneIncoming strokeWidth={1.7} aria-hidden="true" />
           Incoming call
         </span>
       </div>
@@ -100,7 +102,7 @@ export function IncomingCall({ offer, windowSecs, nowMs, busy, error, onAccept, 
 
       <div className="incoming-actions">
         <button type="button" className="btn" disabled={!canDecline} onClick={onDecline}>
-          <X strokeWidth={1.8} aria-hidden="true" />
+          <X strokeWidth={1.7} aria-hidden="true" />
           Decline
           <span className="kbd" aria-hidden="true">
             Esc
@@ -114,7 +116,7 @@ export function IncomingCall({ offer, windowSecs, nowMs, busy, error, onAccept, 
           disabled={!canAccept}
           onClick={onAccept}
         >
-          <Check strokeWidth={1.8} aria-hidden="true" />
+          <Check strokeWidth={1.7} aria-hidden="true" />
           {busy ? "Connecting" : "Accept"}
           <span className="kbd kbd-on-primary" aria-hidden="true">
             Enter

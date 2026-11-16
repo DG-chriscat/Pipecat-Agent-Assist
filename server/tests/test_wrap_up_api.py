@@ -233,3 +233,30 @@ def test_caller_hang_up_does_not_close_the_room_or_message_the_bot(client, daily
     time.sleep(0.2)
     assert not any(e["event"] == "call_ended" for e in daily.bot_events())
     assert not any(r.method == "DELETE" for r in daily.requests)
+
+
+# ---- AP-17: PHI reveal log ----------------------------------------------------------
+
+
+def test_phi_reveal_is_logged_on_the_call(client):
+    agent_id = on_call(client)
+    r = client.post("/calls/s1/phi-reveal", json={"agent_id": agent_id, "field": "dob"})
+    assert r.status_code == 200, r.text
+    assert r.json()["field"] == "dob"
+    reveals = queue_api.get_queue(app).get_call("s1").phi_reveals
+    assert [(x["field"], x["agent_id"]) for x in reveals] == [("dob", agent_id)]
+
+
+def test_phi_reveal_only_by_the_agent_on_the_call(client):
+    on_call(client)
+    ben = client.post("/agents/sign-in", json={"name": "Ben"}).json()["agent_id"]
+    r = client.post("/calls/s1/phi-reveal", json={"agent_id": ben, "field": "dob"})
+    assert r.status_code == 403
+    r = client.post("/calls/nope/phi-reveal", json={"agent_id": ben, "field": "dob"})
+    assert r.status_code == 404
+
+
+def test_phi_reveal_rejects_unknown_fields(client):
+    agent_id = on_call(client)
+    r = client.post("/calls/s1/phi-reveal", json={"agent_id": agent_id, "field": "ssn"})
+    assert r.status_code == 422

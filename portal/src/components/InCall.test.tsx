@@ -7,10 +7,13 @@ function setup(over: Partial<InCallProps> = {}) {
     caller: {
       name: "Maria Alvarez",
       verified: "verified",
+      identity: "verified",
       reason: "MRI claim from Oct 28 was denied",
       summary: "Denied MRI claim",
     },
     memberId: "EVM100231",
+    shell: { name: "Ana", online: true, theme: "light", onTheme: vi.fn(), onSignOut: vi.fn() },
+    onRevealPhi: vi.fn(),
     phase: "live",
     muted: false,
     held: false,
@@ -51,18 +54,38 @@ describe("InCall shell (AP-4)", () => {
     expect(Math.max(...h)).toBeGreaterThan(8);
   });
 
-  it("lays out caller panel, assist column with the Listening hero, and transcript column", () => {
+  it("lays out caller panel, assist column with the Studio placeholders, and conversation", () => {
     setup();
     const caller = screen.getByRole("complementary", { name: /caller/i });
-    expect(within(caller).getByText("Maria Alvarez")).toBeInTheDocument();
-    expect(within(caller).getByText("EVM100231")).toBeInTheDocument();
+    expect(within(caller).getByText("Maria Alvarez", { exact: false })).toBeInTheDocument();
+    // AP-17: masked in the panel.
+    expect(within(caller).getByTestId("phi-member_id")).toHaveTextContent("••••31");
+    expect(within(caller).queryByText("EVM100231")).not.toBeInTheDocument();
     expect(within(caller).getByText("MRI claim from Oct 28 was denied")).toBeInTheDocument();
     const assist = screen.getByRole("region", { name: /assist/i });
-    expect(within(assist).getByText("Listening")).toBeInTheDocument();
+    // Hero listening state, three empty shelf tiles, Earlier this call, Ask bar (P4-4 fills).
+    expect(within(assist).getByText("Listening with you")).toBeInTheDocument();
+    expect(within(assist).getByText("Next best step")).toBeInTheDocument();
+    expect(within(assist).getAllByTestId("shelf-tile")).toHaveLength(3);
+    expect(within(assist).getByText("Earlier this call")).toBeInTheDocument();
     const ask = within(assist).getByRole("textbox", { name: /ask/i });
     expect(ask).toBeDisabled();
-    const transcript = screen.getByRole("complementary", { name: /transcript/i });
-    expect(within(transcript).getByText(/live transcript/i)).toBeInTheDocument();
+    expect(ask).toHaveAttribute("placeholder", "Ask about Maria");
+    const transcript = screen.getByRole("complementary", { name: /conversation/i });
+    expect(within(transcript).getByText("Conversation")).toBeInTheDocument();
+  });
+
+  it("header: wordmark, Vitals, PHI masked chip, rail with Calls active", () => {
+    setup();
+    expect(screen.getByAltText("Deepgram")).toBeInTheDocument();
+    expect(screen.getByText("Vitals")).toBeInTheDocument();
+    expect(screen.getByText("PHI masked")).toBeInTheDocument();
+    const rail = screen.getByRole("navigation", { name: /main/i });
+    expect(within(rail).getByRole("button", { name: "Calls" })).toHaveAttribute("aria-current", "page");
+    expect(within(rail).getByRole("button", { name: "Queue" })).toBeDisabled();
+    expect(within(rail).getByRole("button", { name: "History" })).toBeDisabled();
+    expect(within(rail).getByRole("button", { name: /agent menu/i })).toHaveTextContent("AN");
+    expect(screen.queryByText(/agent assist/i)).not.toBeInTheDocument();
   });
 
   it("controls call back and reflect mute state", () => {

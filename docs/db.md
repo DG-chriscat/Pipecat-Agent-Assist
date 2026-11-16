@@ -44,7 +44,7 @@ Call records (written by bot and server):
 
 | Table | Key | Notes |
 | --- | --- | --- |
-| `calls` | `call_id` (uuid) | `session_id` (unique), `status` intake, ready_for_queue, queued, with_agent, ended, abandoned. `member_id`, `intake` jsonb (answers saved as captured, IN-5), `identity_result` verified, not_verified, not_found, `flags` text[], `created_at`, `updated_at`, `queued_at`, `answered_at`, `ended_at`. |
+| `calls` | `call_id` (uuid) | `session_id` (unique), `status` intake, ready_for_queue, queued, with_agent, ended, abandoned. `member_id`, `intake` jsonb (answers saved as captured, IN-5), `identity_result` verified, not_verified, not_found, `flags` text[], `created_at`, `updated_at`, `queued_at`, `answered_at`, `ended_at`. `phi_reveals` jsonb (AP-17): one `{field, agent_id, at}` entry each time the agent reveals the masked member ID or DOB; never the value. |
 | `transcript_lines` | `line_id` | `call_id` (cascade delete), `speaker_role` caller, bot, agent, `text`, `ts`, `tone`. |
 | `assist_events` | `event_id` | `call_id` (cascade delete), `kind` card_sent, accept, dismiss, pin, unpin, rate, guardrail, `card_id`, `data` jsonb, `created_at`. What the assist showed and what the agent did (P4-3, DC-9; docs/assist.md). |
 

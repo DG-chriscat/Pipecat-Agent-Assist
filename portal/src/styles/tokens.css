@@ -1,5 +1,7 @@
-/* Deepgram Vitals design tokens. Source: docs/DESIGN.md (binding, AP-15).
-   Only the Deepgram 2026 brand fonts, colors, and materials. */
+/* Deepgram Vitals design tokens. Source: docs/DESIGN.md (binding, AP-15, AP-16).
+   Studio: light (default) and dark (vinyl), same layout. Values copied from the
+   reference builds in docs/design/studio/. Only the Deepgram 2026 brand fonts,
+   colors, and materials. */
 
 :root {
   /* Brand colors */
@@ -12,41 +14,166 @@
   --phosphor: #7CD941;
   --glass-blue: #00B2FF;
   --brass: #F7F300;
-  --gray: #C4C4C4;
 
   /* Fonts */
   --font-sans: 'Work Sans', system-ui, sans-serif;
   --font-mono: 'Azeret Mono', ui-monospace, monospace;
 
-  /* Page and text */
-  --bg: #0b0b0c;
-  --text: #FCFAF8;
-  --text-muted: rgba(252, 250, 248, .58);
-  --text-faint: rgba(252, 250, 248, .38);
-  --line: rgba(255, 255, 255, .09);
-
-  /* Glass */
-  --glass-bg: rgba(255, 255, 255, .055);
-  --glass-line: rgba(255, 255, 255, .12);
-  --glass-blur: blur(24px) saturate(140%);
-  --radius: 22px;
+  /* Shape */
+  --radius-panel: 30px;
+  --radius-hero: 36px;
+  --radius-tile: 26px;
   --radius-sm: 12px;
   --radius-pill: 999px;
 
-  /* Hero card */
-  --hero-line: rgba(224, 66, 255, .45);
-  --hero-glow: 0 30px 80px -30px rgba(224, 66, 255, .45);
+  /* Layout (DESIGN.md "Layout": rail 84, gaps 22, stage 22 / 30 / 26) */
+  --rail-w: 84px;
+  --gap: 22px;
 
-  /* Background glows: LED top left at 30%, fuchsia bottom right at 22% */
-  --glow-led: radial-gradient(900px 520px at 18% -5%, rgba(127,57,255,.30), transparent 60%);
-  --glow-fuchsia: radial-gradient(800px 600px at 105% 110%, rgba(224,66,255,.22), transparent 60%);
+  /* Shared gradients */
+  --ai-gradient: linear-gradient(135deg, var(--fuchsia), var(--led));
+  --caller-avatar: linear-gradient(135deg, #c8825e, #a1595a);
+}
 
-  /* Paper grain: SVG fractal noise, 45% overlay */
-  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+/* ---- Light (default) ---- */
+:root, [data-theme="light"] {
+  color-scheme: light;
+  --ground: #F4F0EA;
+  --ground-wash: linear-gradient(180deg, rgba(252,250,248,.92) 0%, rgba(244,240,234,.88) 55%, rgba(236,229,219,.92) 100%);
+  --ground-tex: url(../assets/tex/paper_tile.jpg) 0 0 / 260px;
+  --horizon-wash: linear-gradient(rgba(244,240,234,1), rgba(244,240,234,.2));
+  --horizon-tex: url(../assets/tex/stone_tile.jpg) 0 0 / 460px;
+  --horizon-opacity: .55;
+  --horizon-filter: none;
+  --orb-opacity: .55;
 
-  /* Layout */
-  --page-pad: 22px;
-  --gap: 18px;
+  --text: #1D1D1D;
+  --text-muted: rgba(29,29,29,.62);
+  --text-faint: rgba(29,29,29,.44);
+  --hair: rgba(29,29,29,.08);
+  --soft-fill: rgba(29,29,29,.05);
+  --kbd-bg: rgba(29,29,29,.06);
+
+  --rail-bg: rgba(255,255,255,.45);
+  --rail-line: rgba(29,29,29,.06);
+  --rail-on-bg: #fff;
+  --rail-on-shadow: 0 4px 14px -6px rgba(60,40,20,.25);
+  --rail-icon: var(--text-muted);
+  --me-ring: #fff;
+
+  --panel-bg: rgba(255,255,255,.58);
+  --panel-line: rgba(255,255,255,.9);
+  --panel-blur: blur(36px) saturate(170%);
+  --panel-shadow: 0 30px 60px -36px rgba(60,40,20,.35);
+
+  --hero-bg: rgba(255,255,255,.72);
+  --hero-line: #fff;
+  --hero-shadow: 0 50px 90px -50px rgba(127,57,255,.55), 0 1px 0 #fff inset;
+  --script-bg: rgba(252,250,248,.95);
+  --script-shadow: none;
+
+  --island-bg: rgba(255,255,255,.78);
+  --island-line: #fff;
+  --island-shadow: 0 14px 34px -18px rgba(60,40,20,.35);
+
+  --round-bg: rgba(255,255,255,.75);
+  --round-line: transparent;
+  --round-shadow: 0 2px 8px -4px rgba(60,40,20,.3);
+
+  --rows-bg: rgba(255,255,255,.7);
+  --field-bg: rgba(255,255,255,.8);
+  --field-line: rgba(29,29,29,.12);
+  --ring-gap: #fff;
+  --agent-avatar-bg: rgba(127,57,255,.12);
+  --agent-avatar-ink: #5a22c9;
+  --tick-bg: var(--ok);
+  --tick-ink: #fff;
+  --mark: linear-gradient(transparent 62%, rgba(224,66,255,.22) 62%);
+  --swatch-shadow: 0 0 0 1px rgba(0,0,0,.05) inset, 0 6px 14px -6px rgba(60,40,20,.45);
+  --primary-shadow: 0 14px 28px -12px rgba(155,20,184,.6);
+
+  /* Chips, tuned for contrast per theme */
+  --ok: #2f7a12;
+  --ok-bg: rgba(124,217,65,.18);
+  --warn: #a14d00;
+  --warn-bg: rgba(250,129,0,.13);
+  --bad: #b3161a;
+  --bad-bg: rgba(235,42,46,.10);
+  --ai: #9b14b8;
+  --ai-bg: rgba(224,66,255,.11);
+  --info: #00669f;
+  --info-bg: rgba(0,178,255,.11);
+  --neutral-bg: rgba(29,29,29,.06);
+}
+
+/* ---- Dark (vinyl) ---- */
+[data-theme="dark"] {
+  color-scheme: dark;
+  --ground: #0e0d10;
+  --ground-wash: linear-gradient(180deg, rgba(14,13,16,.55) 0%, rgba(14,13,16,.70) 60%, rgba(10,9,12,.85) 100%);
+  --ground-tex: url(../assets/tex/vinyl_tile.jpg) 0 0 / 320px;
+  --horizon-wash: linear-gradient(rgba(14,13,16,1), rgba(14,13,16,.1));
+  --horizon-tex: url(../assets/tex/vinyl_tile.jpg) 0 0 / 520px;
+  --horizon-opacity: .9;
+  --horizon-filter: brightness(.7);
+  --orb-opacity: .42;
+
+  --text: #FCFAF8;
+  --text-muted: rgba(252,250,248,.66);
+  --text-faint: rgba(252,250,248,.44);
+  --hair: rgba(255,255,255,.08);
+  --soft-fill: rgba(255,255,255,.07);
+  --kbd-bg: rgba(255,255,255,.08);
+
+  --rail-bg: rgba(18,17,21,.55);
+  --rail-line: rgba(255,255,255,.06);
+  --rail-on-bg: rgba(255,255,255,.09);
+  --rail-on-shadow: none;
+  --rail-icon: var(--text-faint);
+  --me-ring: #141317;
+
+  --panel-bg: rgba(30,28,34,.52);
+  --panel-line: rgba(255,255,255,.08);
+  --panel-blur: blur(36px) saturate(170%);
+  --panel-shadow: 0 30px 60px -36px rgba(0,0,0,.9), 0 1px 0 rgba(255,255,255,.05) inset;
+
+  --hero-bg: rgba(34,31,38,.60);
+  --hero-line: rgba(255,255,255,.10);
+  --hero-shadow: 0 50px 100px -50px rgba(224,66,255,.55), 0 0 0 1px rgba(224,66,255,.18), 0 1px 0 rgba(255,255,255,.06) inset;
+  --script-bg: rgba(255,255,255,.05);
+  --script-shadow: 0 0 0 1px rgba(255,255,255,.06) inset;
+
+  --island-bg: rgba(255,255,255,.08);
+  --island-line: rgba(255,255,255,.12);
+  --island-shadow: 0 14px 34px -18px rgba(0,0,0,.8);
+
+  --round-bg: rgba(255,255,255,.08);
+  --round-line: rgba(255,255,255,.08);
+  --round-shadow: none;
+
+  --rows-bg: rgba(255,255,255,.04);
+  --field-bg: rgba(255,255,255,.05);
+  --field-line: rgba(255,255,255,.12);
+  --ring-gap: #1b1a1f;
+  --agent-avatar-bg: rgba(127,57,255,.28);
+  --agent-avatar-ink: #d9c7ff;
+  --tick-bg: rgba(124,217,65,.22);
+  --tick-ink: var(--ok);
+  --mark: linear-gradient(transparent 60%, rgba(224,66,255,.38) 60%);
+  --swatch-shadow: 0 0 0 1px rgba(255,255,255,.08) inset, 0 6px 14px -6px rgba(0,0,0,.7);
+  --primary-shadow: 0 14px 28px -12px rgba(155,20,184,.6);
+
+  --ok: #a6ec78;
+  --ok-bg: rgba(124,217,65,.15);
+  --warn: #ffb66a;
+  --warn-bg: rgba(250,129,0,.16);
+  --bad: #ff8a8c;
+  --bad-bg: rgba(235,42,46,.16);
+  --ai: #f0a6ff;
+  --ai-bg: rgba(224,66,255,.16);
+  --info: #7fd6ff;
+  --info-bg: rgba(0,178,255,.14);
+  --neutral-bg: rgba(255,255,255,.08);
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -55,47 +182,53 @@ html, body, #root { height: 100%; }
 body {
   font-family: var(--font-sans);
   font-size: 14px;
-  line-height: 1.5;
-  background: var(--bg);
+  line-height: 1.45;
+  background: var(--ground);
   color: var(--text);
   -webkit-font-smoothing: antialiased;
-  position: relative;
   overflow: hidden;
 }
 
-body::before {
-  content: '';
-  position: fixed;
-  inset: -20%;
-  background: var(--glow-led), var(--glow-fuchsia);
-  pointer-events: none;
+/* Theme switch: 200 ms color crossfade, no layout change (DESIGN.md Motion). */
+body, .rail, .panel, .glass, .hero, .island, .round-btn, .chip, .btn {
+  transition: background-color .2s ease, color .2s ease, border-color .2s ease, box-shadow .2s ease;
 }
 
-body::after {
-  content: '';
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  opacity: .45;
-  mix-blend-mode: overlay;
-  background-image: var(--grain);
+button, input, textarea { font: inherit; color: inherit; }
+
+/* ---- Backdrop: ground, horizon, and one aurora orb behind the hero only ---- */
+.backdrop, .backdrop-horizon, .backdrop-orb { position: fixed; z-index: 0; pointer-events: none; }
+.backdrop { inset: 0; background: var(--ground-wash), var(--ground-tex); }
+.backdrop-horizon {
+  left: 0; right: 0; bottom: 0; height: 34%;
+  opacity: var(--horizon-opacity);
+  filter: var(--horizon-filter);
+  background: var(--horizon-wash), var(--horizon-tex);
+  /* Feathered top edge: the reference's hard step shows on screens with open ground. */
+  -webkit-mask-image: linear-gradient(transparent, black 30%);
+  mask-image: linear-gradient(transparent, black 30%);
+}
+.backdrop-orb {
+  left: 31%; top: 6%; width: 760px; height: 560px; border-radius: 50%;
+  filter: blur(70px);
+  opacity: var(--orb-opacity);
+  background: radial-gradient(circle at 40% 40%, rgba(224,66,255,.55), rgba(127,57,255,.35) 45%, rgba(0,178,255,.18) 70%, transparent 75%);
 }
 
-button, input { font: inherit; color: inherit; }
-
-/* Shared primitives */
-.glass {
-  background: var(--glass-bg);
-  border: 1px solid var(--glass-line);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border-radius: var(--radius);
+/* ---- Shared primitives ---- */
+.panel, .glass {
+  background: var(--panel-bg);
+  backdrop-filter: var(--panel-blur);
+  -webkit-backdrop-filter: var(--panel-blur);
+  border: 1px solid var(--panel-line);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--panel-shadow);
 }
 
 .label {
   font-family: var(--font-mono);
-  font-size: 10.5px;
-  letter-spacing: .09em;
+  font-size: 10px;
+  letter-spacing: .1em;
   text-transform: uppercase;
   color: var(--text-faint);
 }
@@ -104,22 +237,24 @@ button, input { font: inherit; color: inherit; }
 
 .chip {
   font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: .07em;
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: .08em;
   text-transform: uppercase;
   padding: 4px 9px;
   border-radius: var(--radius-pill);
   display: inline-flex;
-  gap: 6px;
+  gap: 5px;
   align-items: center;
   white-space: nowrap;
 }
-.chip-ok { background: rgba(124, 217, 65, .15); color: var(--phosphor); }
-.chip-warn { background: rgba(250, 129, 0, .16); color: var(--bakelite); }
-.chip-bad { background: rgba(235, 42, 46, .18); color: var(--clay); }
-.chip-ai { background: rgba(224, 66, 255, .16); color: var(--fuchsia); }
-.chip-info { background: rgba(0, 178, 255, .15); color: var(--glass-blue); }
-.chip-neutral { background: rgba(255, 255, 255, .08); color: var(--text-muted); }
+.chip svg { width: 11px; height: 11px; flex: none; }
+.chip-ok { background: var(--ok-bg); color: var(--ok); }
+.chip-warn { background: var(--warn-bg); color: var(--warn); }
+.chip-bad { background: var(--bad-bg); color: var(--bad); }
+.chip-ai { background: var(--ai-bg); color: var(--ai); }
+.chip-info { background: var(--info-bg); color: var(--info); }
+.chip-neutral { background: var(--neutral-bg); color: var(--text-muted); }
 
 .btn {
   font-family: var(--font-mono);
@@ -127,9 +262,9 @@ button, input { font: inherit; color: inherit; }
   letter-spacing: .08em;
   text-transform: uppercase;
   border-radius: var(--radius-pill);
-  padding: 11px 18px;
-  border: 1px solid var(--glass-line);
-  background: transparent;
+  padding: 13px 20px;
+  border: 0;
+  background: var(--soft-fill);
   color: var(--text);
   display: inline-flex;
   gap: 8px;
@@ -138,15 +273,9 @@ button, input { font: inherit; color: inherit; }
   cursor: pointer;
 }
 .btn svg { width: 14px; height: 14px; }
-.btn:focus-visible { outline: 2px solid var(--text); outline-offset: 3px; }
+.btn:focus-visible { outline: 2px solid var(--fuchsia); outline-offset: 3px; }
 .btn:disabled { opacity: .5; cursor: default; }
-.btn-primary {
-  background: linear-gradient(135deg, var(--fuchsia), var(--led));
-  border: 0;
-  color: #fff;
-  box-shadow: 0 8px 28px rgba(224, 66, 255, .35);
-}
-.btn-solid { background: var(--text); color: #111; border-color: var(--text); }
+.btn-primary { background: var(--ai-gradient); color: #fff; box-shadow: var(--primary-shadow); }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

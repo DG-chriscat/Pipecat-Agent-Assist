@@ -1,5 +1,5 @@
-import { render, screen, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 import type { CallerDetails } from "../api/types";
 import { CallerPanel, type CallerPanelProps } from "./CallerPanel";
 
@@ -85,143 +85,201 @@ function setup(over: Partial<CallerPanelProps> = {}) {
     caller: {
       name: "Maria Alvarez",
       verified: "verified",
+      identity: "verified",
       reason: "MRI claim denied",
       summary: mariaIntake.summary,
     },
     memberId: "EVM100231",
-    intake: mariaIntake,
+    intake: { ...mariaIntake, identity_checks: ["full_name", "dob", "member_id"] },
     waitSecs: 102,
     details: null,
     detailsState: "loading",
+    onRevealPhi: vi.fn(),
     ...over,
   };
   render(<CallerPanel {...props} />);
-  return screen.getByRole("complementary", { name: /caller/i });
+  return { panel: screen.getByRole("complementary", { name: /caller/i }), props };
 }
 
-const fact = (panel: HTMLElement, term: string) => {
+const row = (panel: HTMLElement, term: string) => {
   const dt = within(panel).getByText(term, { selector: "dt" });
   return dt.nextElementSibling as HTMLElement;
 };
 
-describe("CallerPanel (AP-5, AP-13, DESIGN.md caller panel)", () => {
+const daniel = {
+  caller: {
+    name: "Daniel Okafor",
+    verified: "not_verified" as const,
+    identity: "not_verified" as const,
+    reason: danielIntake.reason,
+    summary: danielIntake.summary,
+  },
+  memberId: "EVM100235",
+  intake: { ...danielIntake, identity_checks: ["full_name", "member_id"] },
+  waitSecs: 40,
+  details: danielDetails,
+  detailsState: "ready" as const,
+};
+
+describe("CallerPanel (AP-5, AP-13, AP-17, AP-18, DESIGN.md caller panel)", () => {
   it("fills from the accept summary at once, before the history arrives", () => {
-    const panel = setup();
+    const { panel } = setup();
     expect(within(panel).getByRole("heading", { name: "Maria Alvarez" })).toBeInTheDocument();
-    expect(within(panel).getByTestId("caller-id")).toHaveTextContent("EVM100231");
-    const why = within(panel).getByTestId("why");
-    expect(why).toHaveTextContent("Why they called");
-    expect(why).toHaveTextContent("MRI claim was denied. She expected it to be covered.");
-    expect(fact(panel, "Claim")).toHaveTextContent("CLM-900001");
-    expect(fact(panel, "Waited")).toHaveTextContent("1 min 42 s");
+    expect(within(panel).getByTestId("phi-member_id")).toHaveTextContent("••••31");
+    const quote = within(panel).getByTestId("why");
+    expect(quote).toHaveTextContent("In their words");
+    expect(quote).toHaveTextContent("MRI claim denied");
+    expect(row(panel, "Claim")).toHaveTextContent("CLM-900001");
+    expect(row(panel, "Waited")).toHaveTextContent("1:42");
     expect(within(panel).getByTestId("history")).toHaveTextContent(/loading/i);
   });
 
-  it("verified repeat caller (Maria): plan in mono, born, repeat chip, three colored events", () => {
-    const panel = setup({ details: mariaDetails, detailsState: "ready" });
+  it("verified (Maria): copper avatar inside the phosphor ring, plan, masked ID and DOB", () => {
+    const { panel } = setup({ details: mariaDetails, detailsState: "ready" });
+    const avatar = within(panel).getByTestId("caller-avatar");
+    expect(avatar).toHaveTextContent("MA");
+    expect(avatar).toHaveClass("is-verified");
     const id = within(panel).getByTestId("caller-id");
-    expect(id).toHaveClass("mono");
-    expect(id).toHaveTextContent("EVM100231 · Evergreen HMO Silver");
-    expect(fact(panel, "Born")).toHaveTextContent("Mar 12, 1984");
-    expect(fact(panel, "Claim")).toHaveClass("mono");
-    const calls = fact(panel, "Calls, 30 d");
-    expect(calls).toHaveTextContent("2");
-    const chip = within(calls).getByText("Repeat");
-    expect(chip).toHaveClass("chip", "chip-warn");
+    expect(id).toHaveTextContent("Evergreen HMO Silver");
+    expect(id).toHaveTextContent("••••31");
+    expect(id).not.toHaveTextContent("EVM100231");
+    expect(row(panel, "Born")).toHaveTextContent("••/••/1984");
+    expect(row(panel, "Born")).not.toHaveTextContent("Mar 12");
+    expect(row(panel, "Claim")).toHaveClass("mono");
+  });
 
+  it("Reveal shows the member ID and DOB and asks the parent to log each reveal (AP-17)", () => {
+    const { panel, props } = setup({ details: mariaDetails, detailsState: "ready" });
+    fireEvent.click(within(panel).getByRole("button", { name: "Reveal member ID" }));
+    expect(within(panel).getByTestId("phi-member_id")).toHaveTextContent("EVM100231");
+    fireEvent.click(within(panel).getByRole("button", { name: "Reveal date of birth" }));
+    expect(row(panel, "Born")).toHaveTextContent("Mar 12, 1984");
+    expect(props.onRevealPhi).toHaveBeenNthCalledWith(1, "member_id");
+    expect(props.onRevealPhi).toHaveBeenNthCalledWith(2, "dob");
+  });
+
+  it("identity badge: 3 of 3 confirmed, with the checks on hover (AP-18)", () => {
+    const { panel } = setup({ details: mariaDetails, detailsState: "ready" });
+    const badge = within(panel).getByTestId("identity-badge");
+    expect(badge).toHaveTextContent("Identity 3 of 3");
+    expect(badge).toHaveClass("chip-ok");
+    expect(badge).toHaveAttribute("title", "Name ✓ · Date of birth ✓ · Member ID ✓");
+  });
+
+  it("identity badge: partial n of 3 in bakelite, no ring (AP-18)", () => {
+    const { panel } = setup(daniel);
+    const badge = within(panel).getByTestId("identity-badge");
+    expect(badge).toHaveTextContent("Identity 2 of 3");
+    expect(badge).toHaveClass("chip-warn");
+    expect(badge).toHaveAttribute("title", "Name ✓ · Date of birth ✗ · Member ID ✓");
+    expect(within(panel).getByTestId("caller-avatar")).not.toHaveClass("is-verified");
+  });
+
+  it("identity badge: not checked when intake never checked identity (AP-18)", () => {
+    const { panel } = setup({
+      caller: { name: "Pat Doe", verified: "not_verified", identity: null, reason: "Billing", summary: "" },
+      memberId: null,
+      intake: { full_name: "Pat Doe", reason: "Billing" },
+      details: { ...danielDetails, identity_result: null, intake: {} },
+      detailsState: "ready",
+    });
+    const badge = within(panel).getByTestId("identity-badge");
+    expect(badge).toHaveTextContent("Identity not checked");
+    expect(badge).toHaveClass("chip-neutral");
+  });
+
+  it("repeat caller badge when calls in 30 days is 2 or more", () => {
+    const { panel } = setup({ details: mariaDetails, detailsState: "ready" });
+    expect(within(panel).getByText("Repeat caller")).toHaveClass("chip", "chip-warn");
+    expect(row(panel, "Calls, 30 d")).toHaveTextContent("2");
+  });
+
+  it("verified, one call in 30 days: count without the Repeat caller badge", () => {
+    const { panel } = setup({
+      details: { ...mariaDetails, calls_30d: 1, repeat_caller: false },
+      detailsState: "ready",
+    });
+    expect(row(panel, "Calls, 30 d")).toHaveTextContent("1");
+    expect(within(panel).queryByText("Repeat caller")).not.toBeInTheDocument();
+  });
+
+  it("settings rows show the last call and the recent events", () => {
+    const { panel } = setup({ details: mariaDetails, detailsState: "ready" });
+    expect(row(panel, "Last call")).toHaveTextContent("Nov 9");
     const items = within(within(panel).getByTestId("history")).getAllByRole("listitem");
     expect(items).toHaveLength(3);
     expect(items[0]).toHaveTextContent("Nov 9");
     expect(items[0]).toHaveTextContent("called claims, 9 min, escalated to claims review");
-    expect(items[2]).toHaveTextContent("Oct 30");
     expect(items[2]).toHaveTextContent("MRI, knee, left claim denied, CO-197");
     const dots = items.map((li) => li.querySelector(".tl-dot")!.className);
     expect(dots[0]).toContain("tl-info");
     expect(dots[2]).toContain("tl-bad");
   });
 
-  it("verified, one call in 30 days: count without the Repeat chip", () => {
-    const panel = setup({
-      details: { ...mariaDetails, calls_30d: 1, repeat_caller: false },
-      detailsState: "ready",
-    });
-    const calls = fact(panel, "Calls, 30 d");
-    expect(calls).toHaveTextContent("1");
-    expect(within(calls).queryByText("Repeat")).not.toBeInTheDocument();
-  });
-
-  it("verified with no history: zero calls and an empty timeline note", () => {
-    const panel = setup({
+  it("verified with no history: an empty timeline note", () => {
+    const { panel } = setup({
       details: { ...mariaDetails, calls_30d: 0, repeat_caller: false, recent_events: [] },
       detailsState: "ready",
     });
-    expect(fact(panel, "Calls, 30 d")).toHaveTextContent("0");
+    expect(row(panel, "Calls, 30 d")).toHaveTextContent("0");
     const history = within(panel).getByTestId("history");
     expect(within(history).queryAllByRole("listitem")).toHaveLength(0);
     expect(history).toHaveTextContent(/no past calls, claims, or referrals/i);
   });
 
   it("not verified (Daniel): intake data only, a warning, no member record or history", () => {
-    const panel = setup({
-      caller: {
-        name: "Daniel Okafor",
-        verified: "not_verified",
-        reason: danielIntake.reason,
-        summary: danielIntake.summary,
-      },
-      memberId: "EVM100235",
-      intake: danielIntake,
-      waitSecs: 40,
-      details: danielDetails,
-      detailsState: "ready",
-    });
+    const { panel } = setup(daniel);
     expect(within(panel).getByRole("heading", { name: "Daniel Okafor" })).toBeInTheDocument();
-    expect(within(panel).getByTestId("caller-id")).toHaveTextContent("EVM100235 · Not verified");
+    expect(within(panel).getByTestId("caller-id")).toHaveTextContent("Not verified");
     expect(within(panel).getByTestId("caller-id")).not.toHaveTextContent("Harbor");
+    expect(within(panel).getByTestId("phi-member_id")).toHaveTextContent("••••35");
     expect(within(panel).getByRole("note")).toHaveTextContent(/identity is not verified/i);
-    // What the caller said, labeled as such.
-    expect(fact(panel, "Born, said")).toHaveTextContent("Jun 17, 1990");
+    // What the caller said, labeled as such, still masked.
+    expect(row(panel, "Born, said")).toHaveTextContent("••/••/1990");
     expect(within(panel).queryByText("Calls, 30 d")).not.toBeInTheDocument();
-    expect(within(panel).queryByText("Repeat")).not.toBeInTheDocument();
+    expect(within(panel).queryByText("Repeat caller")).not.toBeInTheDocument();
     const history = within(panel).getByTestId("history");
     expect(within(history).queryAllByRole("listitem")).toHaveLength(0);
     expect(history).toHaveTextContent(/once identity is verified/i);
   });
 
-  it("not found: same intake only view", () => {
-    const panel = setup({
-      caller: { name: "Pat Doe", verified: "not_found", reason: "Billing", summary: "" },
+  it("not found: same intake only view, no member ID", () => {
+    const { panel } = setup({
+      caller: { name: "Pat Doe", verified: "not_found", identity: "not_found", reason: "Billing", summary: "" },
       memberId: null,
-      intake: { full_name: "Pat Doe", reason: "Billing" },
+      intake: { full_name: "Pat Doe", reason: "Billing", identity_checks: [] },
       details: { ...danielDetails, identity_result: "not_found", intake: {} },
       detailsState: "ready",
     });
     expect(within(panel).getByTestId("caller-id")).toHaveTextContent("No member ID");
+    expect(within(panel).getByTestId("identity-badge")).toHaveTextContent("Identity 0 of 3");
     expect(within(panel).getByRole("note")).toHaveTextContent(/not verified/i);
     expect(within(panel).getByTestId("why")).toHaveTextContent("Billing");
   });
 
   it("history error keeps the summary and says history is unavailable", () => {
-    const panel = setup({ details: null, detailsState: "error" });
+    const { panel } = setup({ details: null, detailsState: "error" });
     expect(within(panel).getByRole("heading", { name: "Maria Alvarez" })).toBeInTheDocument();
     expect(within(panel).getByTestId("history")).toHaveTextContent(/history is unavailable/i);
     expect(within(panel).queryByText("Calls, 30 d")).not.toBeInTheDocument();
   });
 
-  it("mood over call: empty state with the Calm to Upset axis until tone readings arrive", () => {
-    const panel = setup({ details: mariaDetails, detailsState: "ready" });
+  it("mood area: placeholder pinned at the bottom until tone readings arrive (P4-5)", () => {
+    const { panel } = setup({ details: mariaDetails, detailsState: "ready" });
     const mood = within(panel).getByTestId("mood");
-    expect(mood).toHaveTextContent("Mood over call");
-    expect(mood).toHaveTextContent("Calm");
-    expect(mood).toHaveTextContent("Upset");
+    expect(mood).toHaveTextContent("Mood");
+    expect(mood).toHaveAttribute("title", "Tone reader, words only.");
     expect(mood).toHaveTextContent(/mood shows up once the caller talks/i);
-    expect(mood.querySelector("path.spark-line")).toBeNull();
+    expect(mood.querySelectorAll(".bars i")).toHaveLength(0);
   });
 
-  it("mood over call: draws a sparkline when readings are given", () => {
-    const panel = setup({ details: mariaDetails, detailsState: "ready", mood: [0.1, 0.3, 0.6, 0.9] });
+  it("mood area: one bar per tone reading, bakelite when worried", () => {
+    const { panel } = setup({ details: mariaDetails, detailsState: "ready", mood: [0.1, 0.3, 0.6, 0.9] });
     const mood = within(panel).getByTestId("mood");
-    expect(mood.querySelector("path.spark-line")).not.toBeNull();
+    const bars = mood.querySelectorAll(".bars i");
+    expect(bars).toHaveLength(4);
+    expect(bars[0]).not.toHaveClass("is-worried");
+    expect(bars[3]).toHaveClass("is-worried");
     expect(mood).not.toHaveTextContent(/mood shows up/i);
   });
 });

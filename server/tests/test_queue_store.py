@@ -187,3 +187,23 @@ async def test_write_through_requeued_call_clears_the_agent(schema):
     got = await rows(schema, "SELECT status, agent_id, answered_at FROM calls")
     assert got == [("queued", None, None)]
     assert await rows(schema, "SELECT state FROM agents") == [("offline",)]
+
+
+async def test_write_through_saves_phi_reveals_on_the_call(schema):
+    """AP-17: each reveal lands on calls.phi_reveals (field, agent, time; never the value)."""
+    store = QueueStore(schema=schema)
+    svc = QueueService(mint_token=mint)
+    svc.subscribe(store.on_event)
+    agent = svc.sign_in("Ana")
+    svc.set_status(agent.agent_id, AgentState.AVAILABLE)
+    svc.enqueue_call("sess-8", "https://x.daily.co/caller-8", {"dob": "1984-03-12"})
+    await svc.accept(agent.agent_id, "sess-8")
+    svc.log_phi_reveal(agent.agent_id, "sess-8", "member_id")
+    svc.log_phi_reveal(agent.agent_id, "sess-8", "dob")
+    await store.drain()
+    (got,) = await rows(schema, "SELECT phi_reveals FROM calls")
+    assert [(r["field"], r["agent_id"]) for r in got[0]] == [
+        ("member_id", agent.agent_id),
+        ("dob", agent.agent_id),
+    ]
+    assert all(isinstance(r["at"], float) for r in got[0])

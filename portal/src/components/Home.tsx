@@ -1,10 +1,11 @@
-import { ClipboardCheck, Headphones, LogOut, WifiOff } from "lucide-react";
+import { ClipboardCheck, Headphones, WifiOff } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   acceptRest,
   declineRest,
   getCaller,
   getWrapUp,
+  logPhiReveal,
   saveWrapUp,
   setStatusRest,
   type QueueSocket,
@@ -14,14 +15,18 @@ import type { CreateMedia } from "../call/media";
 import { useCall } from "../hooks/useCall";
 import { useQueueSocket } from "../hooks/useQueueSocket";
 import { offerFor, type Offer } from "../state/offer";
+import type { Theme } from "../state/theme";
 import { InCall } from "./InCall";
 import { IncomingCall } from "./IncomingCall";
+import type { PhiFieldName } from "./PhiField";
+import { Shell, type ShellAgent } from "./Shell";
 import { StatusToggle } from "./StatusToggle";
-import { TopBar } from "./TopBar";
 import { WrapUp } from "./WrapUp";
 
 interface Props {
   agent: Agent;
+  theme: Theme;
+  onTheme: (t: Theme) => void;
   createSocket: () => QueueSocket;
   createMedia: CreateMedia;
   onSignOut: () => void;
@@ -50,7 +55,7 @@ interface WrapState {
 
 /** Signed in: idle home with status toggle (AP-2), offer card (AP-3), in-call shell (AP-4),
  * wrap up (P3-5). */
-export function Home({ agent: signedIn, createSocket, createMedia, onSignOut }: Props) {
+export function Home({ agent: signedIn, theme, onTheme, createSocket, createMedia, onSignOut }: Props) {
   const [agentId, setAgentId] = useState(signedIn.agent_id);
   const [pending, setPending] = useState<AgentState | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -278,9 +283,27 @@ export function Home({ agent: signedIn, createSocket, createMedia, onSignOut }: 
     }
   }
 
+  /** AP-17: each reveal is logged on the call record. A failed log never blocks the agent. */
+  function revealPhi(field: PhiFieldName) {
+    if (!call) return;
+    logPhiReveal(call.sessionId, agentId, field).catch(() => {
+      // The server logs what it receives; the portal has nothing to retry here.
+    });
+  }
+
+  const shellAgent: ShellAgent = {
+    name: signedIn.name,
+    online: live && agentState !== "offline",
+    theme,
+    onTheme,
+    onSignOut: signOut,
+  };
+
   if (call) {
     return (
       <InCall
+        shell={shellAgent}
+        onRevealPhi={revealPhi}
         caller={call.caller}
         memberId={call.memberId}
         intake={call.intake}
@@ -324,7 +347,7 @@ export function Home({ agent: signedIn, createSocket, createMedia, onSignOut }: 
       <span className="vdot vdot-info" aria-hidden="true" />
       <b className="island-name">{wrapView?.info?.caller_name ?? "Last call"}</b>
       <span className="chip chip-info">
-        <ClipboardCheck strokeWidth={1.8} aria-hidden="true" />
+        <ClipboardCheck strokeWidth={1.7} aria-hidden="true" />
         Wrap up
       </span>
       <span className="island-label label">In queue</span>
@@ -335,24 +358,21 @@ export function Home({ agent: signedIn, createSocket, createMedia, onSignOut }: 
   );
 
   return (
-    <div className="page">
-      <TopBar
-        center={wrapSession ? wrapIsland : queueIsland}
-        right={
-          <>
-            <StatusToggle
-              state={agentState}
-              busy={pending !== null}
-              disabled={!live || pending !== null || !TOGGLEABLE.includes(agentState)}
-              onToggle={toggle}
-            />
-            <span className="agent-name">{signedIn.name}</span>
-            <button type="button" className="round-btn" aria-label="Sign out" title="Sign out" onClick={signOut}>
-              <LogOut strokeWidth={1.8} aria-hidden="true" />
-            </button>
-          </>
-        }
-      />
+    <Shell
+      agent={shellAgent}
+      island={wrapSession ? wrapIsland : queueIsland}
+      right={
+        <>
+          <StatusToggle
+            state={agentState}
+            busy={pending !== null}
+            disabled={!live || pending !== null || !TOGGLEABLE.includes(agentState)}
+            onToggle={toggle}
+          />
+          <span className="agent-name">{signedIn.name}</span>
+        </>
+      }
+    >
       <main className="center-stage">
         {wrapSession ? (
           <WrapUp
@@ -375,9 +395,9 @@ export function Home({ agent: signedIn, createSocket, createMedia, onSignOut }: 
             onDecline={() => void decline()}
           />
         ) : (
-          <section className="glass panel empty-state" aria-live="polite">
+          <section className="panel card empty-state" aria-live="polite">
             <div className={`orb${available ? "" : " orb-rest"}`} aria-hidden="true">
-              <Headphones strokeWidth={1.8} />
+              <Headphones strokeWidth={1.7} />
             </div>
             <h1>Waiting for the next call</h1>
             <p className="sub">
@@ -412,7 +432,7 @@ export function Home({ agent: signedIn, createSocket, createMedia, onSignOut }: 
             )}
             {status === "reconnecting" && (
               <p className="conn" role="status">
-                <WifiOff strokeWidth={1.8} aria-hidden="true" />
+                <WifiOff strokeWidth={1.7} aria-hidden="true" />
                 Reconnecting to the queue
               </p>
             )}
@@ -424,6 +444,6 @@ export function Home({ agent: signedIn, createSocket, createMedia, onSignOut }: 
           </section>
         )}
       </main>
-    </div>
+    </Shell>
   );
 }

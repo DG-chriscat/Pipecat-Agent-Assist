@@ -665,3 +665,33 @@ async def test_reported_drop_ignores_a_later_agent_on_the_same_call(svc, clock):
     # The first report was about Ana; Ben's call is left alone.
     assert svc.get_call("s1").agent_id == b.agent_id
     assert svc.get_agent(a.agent_id).state is AgentState.OFFLINE
+
+
+# ---- AP-17: PHI reveal log -------------------------------------------------------------
+
+
+async def test_phi_reveal_is_logged_on_the_call(svc, clock):
+    a = await on_call(svc, clock)
+    svc.events.clear()
+    entry = svc.log_phi_reveal(a.agent_id, "s1", "member_id")
+    assert entry == {"field": "member_id", "agent_id": a.agent_id, "at": clock.now()}
+    clock.advance(5)
+    svc.log_phi_reveal(a.agent_id, "s1", "dob")
+    call = svc.get_call("s1")
+    assert [r["field"] for r in call.phi_reveals] == ["member_id", "dob"]
+    assert call.to_dict()["phi_reveals"] == call.phi_reveals
+    assert types(svc.events) == ["call_updated", "call_updated"]
+
+
+async def test_phi_reveal_only_by_the_agent_on_the_call(svc, clock):
+    await on_call(svc, clock)
+    ben = svc.sign_in("Ben")
+    with pytest.raises(QueueError):
+        svc.log_phi_reveal(ben.agent_id, "s1", "dob")
+    assert svc.get_call("s1").phi_reveals == []
+
+
+async def test_phi_reveal_rejects_unknown_fields(svc, clock):
+    a = await on_call(svc, clock)
+    with pytest.raises(QueueError):
+        svc.log_phi_reveal(a.agent_id, "s1", "ssn")

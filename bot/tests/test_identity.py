@@ -60,3 +60,20 @@ def test_same_name_different_dob_resolves_to_neither():
 def test_nothing_matches_is_not_found():
     r = check("Nobody Here", "2000-01-01", "XYZ000000")
     assert (r.result, r.member_id) == ("not_found", None)
+
+
+# AP-18: the agent sees "Identity n of 3", so the check records which details matched.
+@pytest.mark.parametrize(
+    "name, dob, member_id, want",
+    [
+        ("Maria Alvarez", "1984-03-12", "EVM100231", ("full_name", "dob", "member_id")),
+        ("Maria Alvarez", "1984-03-21", "EVM100231", ("full_name", "member_id")),
+        ("Linda Nguyen", "1984-03-12", "EVM100231", ("dob", "member_id")),
+        ("Linda Nguyen", "2001-01-01", "EVM100231", ("member_id",)),
+        ("James Chen", "1986-02-09", "EVM999999", ("full_name", "dob")),
+        ("James Chen", "1990-01-01", "EVM999999", ()),
+        ("Nobody Here", "2000-01-01", "XYZ000000", ()),
+    ],
+)
+def test_check_records_which_details_matched(name, dob, member_id, want):
+    assert check(name, dob, member_id).checks == want

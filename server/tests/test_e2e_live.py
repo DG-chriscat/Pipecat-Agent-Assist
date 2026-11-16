@@ -10,7 +10,7 @@ starts the bot itself on POST /calls/browser. The bot inherits
 AGENT_ASSIST_SERVER_URL (so its intake hook is QueueHandoff) and DATABASE_SCHEMA
 (a throwaway migrated and seeded schema, so identity is checked against the seed
 members and nothing touches public). The caller is a daily-python client (S1
-harness) that answers as demo persona Maria Alvarez with Deepgram TTS audio; which
+harness) that answers as demo persona Maria Lopez with Deepgram TTS audio; which
 line to say next is picked from the calls row. When the Flow confirms the read back
 it enqueues the call. A websocket agent on /ws/queue then signs in, goes
 available, gets the offer with the intake summary, accepts inside the 20 s offer
@@ -40,7 +40,7 @@ from agent_assist_bot.handoff import SERVER_URL_ENV
 from agent_assist_server.app import app
 from agent_assist_server.bot_launcher import BotLauncher
 from agent_assist_server.daily import DailyRestClient
-from harness.intake_script import MARIA_ALVAREZ as SCRIPT
+from harness.intake_script import MARIA_LOPEZ as SCRIPT
 from harness.intake_script import next_line
 from harness.participant import SAMPLE_RATE, HarnessParticipant
 from harness.tts import synthesize

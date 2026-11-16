@@ -14,17 +14,17 @@ from fastapi.testclient import TestClient
 ROOM_URL = "https://dg-chriscat.daily.co/caller-abc"
 
 MARIA_INTAKE = {
-    "full_name": "Maria Alvarez",
+    "full_name": "Maria Lopez",
     "dob": "1984-03-12",
-    "member_id": "EVM100231",
+    "member_id": "418302",
     "reason": "MRI claim denied",
-    "claim_number": "CLM-900001",
+    "claim_number": "70412",
     "summary": "Maria's MRI claim was denied; she wants to know why.",
 }
 DANIEL_INTAKE = {
-    "full_name": "Daniel Okafor",
+    "full_name": "Ben Cole",
     "dob": "1990-06-17",
-    "member_id": "EVM100235",
+    "member_id": "852617",
     "reason": "Knee surgery prior auth status",
     "summary": "Asks about knee surgery authorization.",
 }
@@ -47,10 +47,10 @@ class FakeHistory:
 
 MARIA_HISTORY = MemberHistory(
     member={
-        "member_id": "EVM100231",
+        "member_id": "418302",
         "first_name": "Maria",
-        "last_name": "Alvarez",
-        "name": "Maria Alvarez",
+        "last_name": "Lopez",
+        "name": "Maria Lopez",
         "dob": "1984-03-12",
         "plan_id": "PLN-HMO-SILVER",
         "plan_name": "Evergreen HMO Silver",
@@ -108,7 +108,7 @@ async def put_call_with_agent(
     return agent.agent_id
 
 
-VERIFIED = IntakeInfo(outcome="completed", identity_result="verified", member_id="EVM100231")
+VERIFIED = IntakeInfo(outcome="completed", identity_result="verified", member_id="418302")
 
 
 async def test_verified_caller_gets_member_history_intake_and_wait(app):
@@ -125,12 +125,12 @@ async def test_verified_caller_gets_member_history_intake_and_wait(app):
     assert body["not_verified"] is False
     assert body["intake"] == MARIA_INTAKE
     assert body["wait_secs"] == 102.0
-    assert body["member"]["member_id"] == "EVM100231"
+    assert body["member"]["member_id"] == "418302"
     assert body["member"]["plan_name"] == "Evergreen HMO Silver"
     assert body["calls_30d"] == 2
     assert body["repeat_caller"] is True
     assert body["recent_events"] == []
-    assert history.lookups == ["EVM100231"]
+    assert history.lookups == ["418302"]
 
 
 async def test_one_call_in_30_days_is_not_a_repeat_caller(app):
@@ -149,7 +149,7 @@ async def test_unverified_caller_gets_intake_only_and_no_lookup(app, identity):
     """Never guess a member: the claimed member id is not looked up."""
     history = FakeHistory(MARIA_HISTORY)
     client = make_client(app, history)
-    info = IntakeInfo(outcome="completed", identity_result=identity, member_id="EVM100235")
+    info = IntakeInfo(outcome="completed", identity_result=identity, member_id="852617")
     agent_id = await put_call_with_agent(app, DANIEL_INTAKE, info)
 
     r = client.get("/calls/s1/caller", params={"agent_id": agent_id})
@@ -171,7 +171,7 @@ async def test_agent_verified_close_match_shows_the_member(app):
     # IN-13: Mark verified unlocks the record of the member matched by member ID.
     history = FakeHistory(MARIA_HISTORY)
     client = make_client(app, history)
-    info = IntakeInfo(outcome="completed", identity_result="close_match", member_id="EVM100231")
+    info = IntakeInfo(outcome="completed", identity_result="close_match", member_id="418302")
     agent_id = await put_call_with_agent(app, MARIA_INTAKE, info)
     body = client.get("/calls/s1/caller", params={"agent_id": agent_id}).json()
     assert body["not_verified"] is True and history.lookups == []
@@ -179,15 +179,15 @@ async def test_agent_verified_close_match_shows_the_member(app):
     queue_api.get_queue(app).set_identity_decision(agent_id, "s1", "verified")
     body = client.get("/calls/s1/caller", params={"agent_id": agent_id}).json()
     assert body["not_verified"] is False
-    assert body["member"]["member_id"] == "EVM100231"
+    assert body["member"]["member_id"] == "418302"
     assert body["identity_decision"]["decision"] == "verified"
-    assert history.lookups == ["EVM100231"]
+    assert history.lookups == ["418302"]
 
 
 async def test_could_not_verify_keeps_the_member_hidden(app):
     history = FakeHistory(MARIA_HISTORY)
     client = make_client(app, history)
-    info = IntakeInfo(outcome="completed", identity_result="close_match", member_id="EVM100231")
+    info = IntakeInfo(outcome="completed", identity_result="close_match", member_id="418302")
     agent_id = await put_call_with_agent(app, MARIA_INTAKE, info)
     queue_api.get_queue(app).set_identity_decision(agent_id, "s1", "not_verified")
     body = client.get("/calls/s1/caller", params={"agent_id": agent_id}).json()
@@ -246,7 +246,7 @@ async def test_agent_can_still_read_after_the_call_ends_in_wrap_up(app):
     queue_api.get_queue(app).end_call("s1")
     r = client.get("/calls/s1/caller", params={"agent_id": agent_id})
     assert r.status_code == 200
-    assert r.json()["member"]["member_id"] == "EVM100231"
+    assert r.json()["member"]["member_id"] == "418302"
 
 
 def test_unknown_call_is_404(app):

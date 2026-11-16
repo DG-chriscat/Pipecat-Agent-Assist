@@ -19,9 +19,9 @@ pytestmark = [
 ]
 
 AS_OF = dt.date(2026, 11, 15)
-MARIA = "EVM100231"
-JAMES = "EVM100232"
-AISHA = "EVM100233"
+MARIA = "418302"
+JAMES = "527194"
+AISHA = "639251"
 
 
 @pytest_asyncio.fixture(scope="module", loop_scope="module")
@@ -57,11 +57,11 @@ async def test_claims_search_returns_only_the_call_members_claims(reader):
     assert out["tool"] == "claims_search"
     assert out["source"] == "Claims system"
     ids = [c["claim_id"] for c in out["items"]]
-    assert ids == ["CLM-900001", "CLM-900002"]  # newest service date first
+    assert ids == ["70412", "70358"]  # newest service date first
     assert out["count"] == 2
     denied = out["items"][0]
     assert denied == {
-        "claim_id": "CLM-900001",
+        "claim_id": "70412",
         "service_date": "2026-10-12",
         "provider": "Riverside Imaging Center",
         "service": "MRI, knee, left",
@@ -77,14 +77,14 @@ async def test_claims_search_returns_only_the_call_members_claims(reader):
 async def test_claims_filters_and_get(reader):
     s = session(reader)
     out = await s.call("claims_search", {"status": "denied"})
-    assert [c["claim_id"] for c in out["items"]] == ["CLM-900001"]
+    assert [c["claim_id"] for c in out["items"]] == ["70412"]
     out = await s.call("claims_search", {"denial_code": "CO-197"})
-    assert [c["claim_id"] for c in out["items"]] == ["CLM-900001"]
+    assert [c["claim_id"] for c in out["items"]] == ["70412"]
     out = await s.call("claims_search", {"service_from": "2026-10-01"})
-    assert [c["claim_id"] for c in out["items"]] == ["CLM-900001"]
+    assert [c["claim_id"] for c in out["items"]] == ["70412"]
     out = await s.call("claims_search", {"provider": "lakeside"})
-    assert [c["claim_id"] for c in out["items"]] == ["CLM-900002"]
-    got = await s.call("claims_get", {"claim_id": "CLM-900002"})
+    assert [c["claim_id"] for c in out["items"]] == ["70358"]
+    got = await s.call("claims_get", {"claim_id": "70358"})
     assert got["found"] is True
     assert got["item"]["allowed_amount"] == 120.0
     assert got["item"]["member_responsibility"] == 25.0
@@ -92,8 +92,8 @@ async def test_claims_filters_and_get(reader):
 
 
 async def test_get_never_returns_another_members_row(reader):
-    # CLM-900007 belongs to James Chen; Maria's call cannot see it.
-    got = await session(reader).call("claims_get", {"claim_id": "CLM-900007"})
+    # 58139 belongs to James Carter; Maria's call cannot see it.
+    got = await session(reader).call("claims_get", {"claim_id": "58139"})
     assert got == {"tool": "claims_get", "source": "Claims system", "found": False, "item": None}
     for tool, key, other in [
         ("payments_get", "payment_id", "PAY-000004"),
@@ -111,7 +111,7 @@ async def test_get_never_returns_another_members_row(reader):
     ["claims_search", "payments_search", "referrals_search", "interactions_search"],
 )
 async def test_scoped_search_only_returns_the_call_member(reader, tool):
-    # Maria and Aisha both have rows in every scoped table.
+    # Maria and Sarah both have rows in every scoped table.
     pair = (MARIA, AISHA)
     for member in pair:
         out = await session(reader, member_id=member).call(tool, {"limit": 25})
@@ -127,7 +127,7 @@ async def test_scoped_search_only_returns_the_call_member(reader, tool):
 async def test_explicit_other_member_id_is_refused(reader):
     out = await session(reader).call("claims_search", {"member_id": JAMES})
     assert out["error"] == "member_scope"
-    same = await session(reader).call("claims_search", {"member_id": "evm 100-231"})
+    same = await session(reader).call("claims_search", {"member_id": "418 302"})
     assert same["count"] == 2
 
 
@@ -145,7 +145,7 @@ async def test_members_returns_the_caller_with_plan(reader):
     assert out["items"] == [
         {
             "member_id": MARIA,
-            "name": "Maria Alvarez",
+            "name": "Maria Lopez",
             "dob": "1984-03-12",
             "plan_id": "PLN-HMO-SILVER",
             "plan_name": "Evergreen HMO Silver",
@@ -155,7 +155,7 @@ async def test_members_returns_the_caller_with_plan(reader):
         }
     ]
     got = await session(reader).call("members_get", {"member_id": MARIA})
-    assert got["item"]["name"] == "Maria Alvarez"
+    assert got["item"]["name"] == "Maria Lopez"
 
 
 async def test_plans_search_and_get(reader):
@@ -183,13 +183,13 @@ async def test_payments_shows_james_duplicate_premium_draft(reader):
     assert out["source"] == "Billing system"
     assert out["items"] == [
         {
-            "payment_id": "PAY-000064",
+            "payment_id": "PAY-000067",
             "paid_at": "2026-11-01T06:02:00Z",
             "amount": 610.0,
             "kind": "premium",
             "method": "autopay",
             "status": "posted",
-            "reference": "AP2026110064",
+            "reference": "AP2026110067",
         },
         {
             "payment_id": "PAY-000004",
@@ -201,7 +201,7 @@ async def test_payments_shows_james_duplicate_premium_draft(reader):
             "reference": "AP2026110004",
         },
     ]
-    got = await s.call("payments_get", {"payment_id": "PAY-000064"})
+    got = await s.call("payments_get", {"payment_id": "PAY-000067"})
     assert got["item"]["amount"] == 610.0
 
 
@@ -223,7 +223,7 @@ async def test_referrals(reader):
 
 
 async def test_prior_authorizations(reader):
-    s = session(reader, member_id="EVM100235")
+    s = session(reader, member_id="852617")
     out = await s.call("prior_authorizations_search", {"status": "pending"})
     assert out["source"] == "Utilization management"
     assert [a["auth_id"] for a in out["items"]] == ["PA-500101"]
@@ -244,7 +244,7 @@ async def test_interactions_caller_history(reader):
     assert first["duration_seconds"] == 512
     assert first["queue"] == "claims"
     assert first["outcome"] == "escalated to claims review"
-    assert first["notes"].startswith("Asked why MRI claim CLM-900001 was denied.")
+    assert first["notes"].startswith("Asked why MRI claim 70412 was denied.")
     q = await session(reader).call("interactions_search", {"queue": "general"})
     assert [i["interaction_id"] for i in q["items"]] == ["INT-000003"]
 

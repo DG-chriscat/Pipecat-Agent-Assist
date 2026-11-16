@@ -20,7 +20,7 @@ from agent_assist_server.daily import DailyRestClient
 from fastapi.testclient import TestClient
 
 ROOM_URL = "https://dg-chriscat.daily.co/caller-e2e"
-MARIA = Member("EVM100231", "Maria", "Alvarez", dt.date(1984, 3, 12))
+MARIA = Member("418302", "Maria", "Lopez", dt.date(1984, 3, 12))
 
 
 def daily_handler(request: httpx.Request) -> httpx.Response:
@@ -50,19 +50,19 @@ def fn(node, name):
 
 
 async def run_intake(session: IntakeSession) -> None:
-    """Drive the Flow the way the LLM would for Maria Alvarez."""
+    """Drive the Flow the way the LLM would for Maria Lopez."""
     await session.start()
     _, node = await fn(session.identity_node(), "save_identity").handler(
-        {"full_name": "Maria Alvarez", "date_of_birth": "1984-03-12", "member_id": "EVM 100231"},
+        {"full_name": "Maria Lopez", "date_of_birth": "1984-03-12", "member_id": "418 302"},
         None,
     )
     _, node = await fn(node, "verify_identity").handler({}, None)
     _, node = await fn(node, "save_reason").handler({"reason": "denied MRI claim"}, None)
-    for answer in ("CLM-900001", "last month, Riverside Imaging", "denied, no prior auth"):
+    for answer in ("70412", "last month, Riverside Imaging", "denied, no prior auth"):
         _, node = await fn(node, "save_answer").handler({"answer": answer}, None)
     assert node["name"] == "readback"
     _, node = await fn(node, "confirm_summary").handler(
-        {"summary": "Maria Alvarez, MRI claim CLM-900001 denied for no prior auth."}, None
+        {"summary": "Maria Lopez, MRI claim 70412 denied for no prior auth."}, None
     )
     assert node["name"] == "handoff"
 
@@ -81,10 +81,10 @@ async def test_finished_intake_is_queued_and_offered_with_its_summary(client):
     call = queue[0]
     assert call["outcome"] == "completed"
     assert call["identity_result"] == "verified"
-    assert call["member_id"] == "EVM100231"
+    assert call["member_id"] == "418302"
     assert call["flags"] == []
-    assert call["summary"]["claim_number"] == "CLM-900001"
-    assert call["summary"]["summary"].startswith("Maria Alvarez, MRI claim")
+    assert call["summary"]["claim_number"] == "70412"
+    assert call["summary"]["summary"].startswith("Maria Lopez, MRI claim")
 
     with client.websocket_connect("/ws/queue") as ws:
         assert ws.receive_json()["type"] == "snapshot"

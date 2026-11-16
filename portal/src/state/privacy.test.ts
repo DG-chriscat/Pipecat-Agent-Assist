@@ -3,7 +3,7 @@ import { identityBadge, maskDob, maskMemberId, REVEAL_SECS } from "./privacy";
 
 describe("PHI masking (AP-17)", () => {
   it("masks the member ID to its last two characters", () => {
-    expect(maskMemberId("EVM100231")).toBe("••••31");
+    expect(maskMemberId("418302")).toBe("••••31");
     expect(maskMemberId("  evm100210 ")).toBe("••••10");
     expect(maskMemberId("7")).toBe("••••");
   });

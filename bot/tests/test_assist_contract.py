@@ -20,16 +20,16 @@ def _trigger():
 
 def _nbs_card():
     return c.Card(
-        id="nbs:retro_auth_review:CLM-900001",
+        id="nbs:retro_auth_review:70412",
         kind="next_step",
         title="Next best step",
         pack_id="claims_status",
         rank=10,
         trigger=_trigger(),
-        source=c.Source(label="Claims system, KB-CL-002", records=[("claims", "CLM-900001")]),
+        source=c.Source(label="Claims system, KB-CL-002", records=[("claims", "70412")]),
         rule_id="retro_auth_review",
         body={
-            "headline": "Start a retro authorization review for CLM-900001",
+            "headline": "Start a retro authorization review for 70412",
             "why": "w",
             "script": "s",
             "action": {"id": "request_retro_auth_review", "label": "Request retro auth review"},
@@ -57,7 +57,7 @@ def test_unknown_event_is_rejected():
 
 def test_card_dict_carries_trigger_source_and_ai_label():
     d = _nbs_card().to_dict()
-    assert d["id"] == "nbs:retro_auth_review:CLM-900001"
+    assert d["id"] == "nbs:retro_auth_review:70412"
     assert d["kind"] == "next_step"
     assert d["ai_suggested"] is True
     assert d["trigger"] == {
@@ -71,7 +71,7 @@ def test_card_dict_carries_trigger_source_and_ai_label():
     }
     assert d["source"] == {
         "label": "Claims system, KB-CL-002",
-        "records": [{"connector": "claims", "id": "CLM-900001"}],
+        "records": [{"connector": "claims", "id": "70412"}],
     }
     assert d["rule_id"] == "retro_auth_review" and d["template_id"] is None
     assert d["body"]["action"]["id"] == "request_retro_auth_review"

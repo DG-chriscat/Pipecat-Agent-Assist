@@ -206,7 +206,7 @@ async def test_read_back_off_checks_identity_right_after_save(session):
     node = session.identity_node()
     f = next(f for f in node["functions"] if f.name == "save_identity")
     result, nxt = await f.handler(
-        {"full_name": "Maria Alvarez", "date_of_birth": "1984-03-12", "member_id": "EVM100231"},
+        {"full_name": "Maria Lopez", "date_of_birth": "1984-03-12", "member_id": "418302"},
         object(),
     )
     assert nxt["name"] == "reason"
@@ -221,7 +221,7 @@ async def test_read_back_on_is_still_the_default():
     node = s.identity_node()
     f = next(f for f in node["functions"] if f.name == "save_identity")
     _, nxt = await f.handler(
-        {"full_name": "Maria Alvarez", "date_of_birth": "1984-03-12", "member_id": "EVM100231"},
+        {"full_name": "Maria Lopez", "date_of_birth": "1984-03-12", "member_id": "418302"},
         object(),
     )
     assert nxt["name"] == "identity_confirm"

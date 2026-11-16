@@ -87,9 +87,7 @@ async def test_phonellm_calls_save_identity(monkeypatch):
         messages=[
             {
                 "role": "user",
-                "content": (
-                    "My name is Maria Alvarez, born March 12 1984, member ID E V M 100231."
-                ),
+                "content": ("My name is Maria Lopez, born March 12 1984, member ID E V M 100231."),
             }
         ],
         tools=ToolsSchema(standard_tools=[SAVE_IDENTITY]),
@@ -102,7 +100,7 @@ async def test_phonellm_calls_save_identity(monkeypatch):
     assert [c.function_name for c in calls] == ["save_identity"]
     args = calls[0].arguments
     assert args["dob"] == "1984-03-12"
-    assert args["member_id"].replace(" ", "").upper() == "EVM100231"
+    assert args["member_id"].replace(" ", "").upper() == "418302"
 
 
 @pytest.mark.parametrize("model", [PHONELLM, THINK_FAST])

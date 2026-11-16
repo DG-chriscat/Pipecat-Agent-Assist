@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import datetime as dt
 import random
+import re
+from collections.abc import Callable
 from dataclasses import astuple, dataclass, fields
 
 import psycopg
@@ -134,6 +136,7 @@ class Persona:
     first_name: str
     last_name: str
     dob: dt.date
+    plan_id: str
     pack: str
     reason: str
 
@@ -169,99 +172,129 @@ PLANS = [
     ),
 ]
 
-# The 5 scripted demo callers. Keep docs/db.md in sync.
+# P5-10 (Chris, Nov 16): demo friendly data so speech to text hears it right.
+# Member IDs: 6 digits read as two groups of three (418 302), no leading 0, no digit
+# twice in a row, and no group shared by two members. Claim numbers: 5 digits (70412).
+# Names: short and common, except the two deliberately hard names for the identity
+# verification demo (HARD_NAMES). Two members are named Mark Hill (different DOB), so
+# the DOB check still matters.
+HARD_NAMES = frozenset({"Linda Nguyen", "Aisha Patel"})
+
+# The scripted demo callers who are seed members. Keep docs/db.md and
+# server/agent_assist_server/demo_personas.yaml in sync (a test checks the YAML).
 DEMO_PERSONAS = [
     Persona(
-        "EVM100231",
+        "418302",
         "Maria",
-        "Alvarez",
+        "Lopez",
         dt.date(1984, 3, 12),
+        "PLN-HMO-SILVER",
         "claims_status",
-        "MRI claim denied (CO-197, no prior authorization). Second call in a week; "
+        "MRI claim 70412 denied (CO-197, no prior authorization). Second call in a week; "
         "the next best step is a retro authorization review.",
     ),
     Persona(
-        "EVM100232",
+        "527194",
         "James",
-        "Chen",
+        "Carter",
         dt.date(1979, 7, 4),
+        "PLN-PPO-GOLD",
         "account_payments",
-        "Charged twice for this month's premium (duplicate autopay draft). "
-        "A second member named James Chen exists with a different DOB.",
+        "Charged twice for this month's premium (duplicate autopay draft).",
     ),
     Persona(
-        "EVM100233",
-        "Aisha",
-        "Patel",
-        dt.date(1992, 11, 28),
+        "639251",
+        "Sarah",
+        "Miller",
+        dt.date(1988, 6, 15),
+        "PLN-HMO-GOLD",
         "claims_status",
-        "Cardiology claim stuck in pending_info for 3 weeks; repeat caller. "
-        "Provider has not sent the itemized bill.",
+        "Cardiac stress test claim 31845 stuck in pending_info for 3 weeks; frustrated "
+        "repeat caller. Provider has not sent the itemized bill.",
     ),
     Persona(
-        "EVM100234",
+        "741526",
         "Linda",
         "Nguyen",
-        dt.date(1958, 1, 30),
+        dt.date(1958, 4, 22),
+        "PLN-MA-PLUS",
         "claims_status",
-        "Out of network denial (CO-242) on a dermatology visit; asks what an EOB "
-        "is and how to appeal (KB articles).",
+        "Hard name. Dermatology claim 52976 denied CO-242 (out of network); asks how to "
+        "appeal. STT often mishears the last name, so intake ends in a close match.",
     ),
     Persona(
-        "EVM100235",
-        "Daniel",
-        "Okafor",
+        "174839",
+        "Aisha",
+        "Patel",
+        dt.date(1995, 8, 9),
+        "PLN-HMO-SILVER",
+        "general_question",
+        "Hard name. Asks what an explanation of benefits is (KB article). Often heard as "
+        "Ayesha, so intake ends in a close match.",
+    ),
+    Persona(
+        "852617",
+        "Ben",
+        "Cole",
         dt.date(1990, 5, 17),
+        "PLN-EPO-BRONZE",
         "claims_status",
-        "Knee surgery prior auth status. Scripted to give a wrong date of birth "
-        "first, so identity comes back not_verified and the call is flagged.",
+        "Knee surgery prior auth PA-500101 status. Scripted to give a wrong date of birth "
+        "(May 7, not May 17), so identity comes back not_verified and the call is flagged.",
+    ),
+    Persona(
+        "263048",
+        "David",
+        "Brooks",
+        dt.date(1971, 9, 25),
+        "PLN-HDHP-HSA",
+        "general_question",
+        "General benefits question: how the deductible and out of pocket maximum work "
+        "(KB article).",
+    ),
+    Persona(
+        "307495",
+        "Emily",
+        "Stone",
+        dt.date(1983, 2, 14),
+        "PLN-PPO-GOLD",
+        "claims_status",
+        "Emergency guardrail: describes chest pain during intake; the bot gives the 911 "
+        "line and flags the call.",
+    ),
+    Persona(
+        "285916",
+        "Mark",
+        "Hill",
+        dt.date(1975, 10, 6),
+        "PLN-HMO-GOLD",
+        "claims_status",
+        "Urgent care claim 46183 in review. A second Mark Hill (1986-02-09, 396127) "
+        "exists, so the date of birth decides who is calling.",
     ),
 ]
-_PERSONA_PLANS = ["PLN-HMO-SILVER", "PLN-PPO-GOLD", "PLN-HMO-GOLD", "PLN-MA-PLUS", "PLN-EPO-BRONZE"]
+PERSONA_IDS = frozenset(p.member_id for p in DEMO_PERSONAS)
 
-_FIRST = [
-    "Olivia",
-    "Noah",
-    "Emma",
-    "Liam",
-    "Sofia",
-    "Lucas",
-    "Grace",
-    "Ethan",
-    "Chloe",
-    "Mateo",
-    "Hannah",
-    "Owen",
-    "Priya",
-    "Samuel",
-    "Elena",
-    "Marcus",
-    "Fatima",
-    "Tyler",
-    "Rosa",
-    "Kevin",
-]
-_LAST = [
-    "Brooks",
-    "Ramirez",
-    "Kim",
-    "Foster",
-    "Haddad",
-    "Silva",
-    "Novak",
-    "Reyes",
-    "Turner",
-    "Ibrahim",
-    "Larsen",
-    "Mendez",
-    "Walsh",
-    "Castillo",
-    "Yamamoto",
-    "Bennett",
-    "Osei",
-    "Price",
-    "Duarte",
-    "Hughes",
+# Same name as Mark Hill above, different DOB, plan, and ID.
+MARK_HILL_TWIN = ("396127", "Mark", "Hill", dt.date(1986, 2, 9), "PLN-HDHP-HSA")
+
+# Everyone else: short, easy names (the member ID is generated, see _filler_ids).
+_FILLERS = [
+    ("Anna", "Price"),
+    ("Kate", "Ward"),
+    ("Luke", "Fox"),
+    ("Jane", "Bell"),
+    ("Paul", "Grant"),
+    ("Rose", "Lane"),
+    ("Jack", "Moss"),
+    ("Lily", "Hart"),
+    ("Sam", "Shaw"),
+    ("Claire", "Webb"),
+    ("Nick", "Dean"),
+    ("Grace", "Knox"),
+    ("Adam", "Burke"),
+    ("Beth", "West"),
+    ("Joe", "Hale"),
 ]
 _PROVIDERS = [
     "Lakeside Family Medicine",
@@ -304,6 +337,40 @@ _OUTCOMES = {
 }
 
 
+def syllables(word: str) -> int:
+    """Rough syllable count (vowel groups, silent final e): the easy name check."""
+    w = word.lower()
+    n = len(re.findall(r"[aeiou]+", w))
+    if w.endswith("e") and n > 1 and not w.endswith(("le", "ee")):
+        n -= 1
+    return max(n, 1)
+
+
+def speakable(digits: str) -> bool:
+    """No leading 0 and no digit twice in a row (no "one one" or "double one")."""
+    return (
+        digits.isdigit()
+        and digits[0] != "0"
+        and all(a != b for a, b in zip(digits, digits[1:], strict=False))
+    )
+
+
+def _filler_ids(n: int, taken: set[str]) -> list[str]:
+    """`n` speakable 6 digit IDs whose groups of three are not used by any other ID."""
+    rng = random.Random(RNG_SEED + 7)
+    heads = {t[:3] for t in taken}
+    tails = {t[3:] for t in taken}
+    out: list[str] = []
+    while len(out) < n:
+        mid = f"{rng.randrange(100000, 1000000)}"
+        if not speakable(mid) or mid[:3] in heads or mid[3:] in tails:
+            continue
+        heads.add(mid[:3])
+        tails.add(mid[3:])
+        out.append(mid)
+    return out
+
+
 def _phone(n: int) -> str:
     # Fictional range: 555-0100 to 555-0199.
     return f"+1312555{100 + n:04d}"
@@ -322,31 +389,25 @@ def _months_back(day: dt.date, k: int) -> dt.date:
 def _members() -> list[Member]:
     rng = random.Random(RNG_SEED)
     out = [
-        Member(p.member_id, p.first_name, p.last_name, p.dob, _phone(i), plan, dt.date(2024, 1, 1))
-        for i, (p, plan) in enumerate(zip(DEMO_PERSONAS, _PERSONA_PLANS, strict=True))
-    ]
-    # Same name as persona 2, different DOB and plan: identity must use DOB + member ID.
-    out.append(
         Member(
-            "EVM100236",
-            "James",
-            "Chen",
-            dt.date(1986, 2, 9),
-            _phone(5),
-            "PLN-HDHP-HSA",
-            dt.date(2025, 1, 1),
+            p.member_id, p.first_name, p.last_name, p.dob, _phone(i), p.plan_id, dt.date(2024, 1, 1)
         )
-    )
+        for i, p in enumerate(DEMO_PERSONAS)
+    ]
+    twin_id, first, last, dob, plan = MARK_HILL_TWIN
+    out.append(Member(twin_id, first, last, dob, _phone(len(out)), plan, dt.date(2025, 1, 1)))
     plan_ids = [p.plan_id for p in PLANS]
-    for i in range(19):
+    ids = _filler_ids(len(_FILLERS), {m.member_id for m in out})
+    base = len(out)
+    for i, ((first, last), mid) in enumerate(zip(_FILLERS, ids, strict=True)):
         dob = dt.date(1950, 1, 1) + dt.timedelta(days=rng.randrange(0, 365 * 52))
         out.append(
             Member(
-                f"EVM1003{i:02d}",
-                _FIRST[i],
-                _LAST[i],
+                mid,
+                first,
+                last,
                 dob,
-                _phone(6 + i),
+                _phone(base + i),
                 plan_ids[i % len(plan_ids)],
                 dt.date(2023 + i % 3, 1 + i % 12, 1),
             )
@@ -354,17 +415,37 @@ def _members() -> list[Member]:
     return out
 
 
+def _filler_claim_ids(rng: random.Random, taken: set[str], members: set[str]) -> Callable[[], str]:
+    """A function giving the next unused 5 digit claim ID (no leading 0, never part
+    of a member ID)."""
+
+    def next_id() -> str:
+        while True:
+            cid = f"{rng.randrange(10000, 100000)}"
+            if cid in taken or any(cid in m for m in members):
+                continue
+            taken.add(cid)
+            return cid
+
+    return next_id
+
+
+MARIA, JAMES, SARAH, LINDA, AISHA, BEN, DAVID, EMILY, MARK = (p.member_id for p in DEMO_PERSONAS)
+MARK_TWIN = MARK_HILL_TWIN[0]
+
+
 def build_seed(as_of: dt.date | None = None) -> SeedData:
     as_of = as_of or dt.datetime.now(dt.UTC).date()
     rng = random.Random(RNG_SEED + 1)
     members = _members()
     plans_by_id = {p.plan_id: p for p in PLANS}
+    fill = [m.member_id for m in members[len(DEMO_PERSONAS) + 1 :]]
     d = lambda days: as_of - dt.timedelta(days=days)  # noqa: E731
 
     auths: list[PriorAuth] = [
         PriorAuth(
             "PA-500101",
-            "EVM100235",
+            BEN,
             "Arthroscopic knee surgery, right",
             "Pine Hill Orthopedics",
             "pending",
@@ -376,7 +457,7 @@ def build_seed(as_of: dt.date | None = None) -> SeedData:
         ),
         PriorAuth(
             "PA-500102",
-            "EVM100233",
+            SARAH,
             "Cardiac stress test",
             "Northgate Cardiology",
             "approved",
@@ -388,7 +469,7 @@ def build_seed(as_of: dt.date | None = None) -> SeedData:
         ),
         PriorAuth(
             "PA-500103",
-            "EVM100300",
+            fill[0],
             "MRI, lumbar spine",
             "Riverside Imaging Center",
             "approved",
@@ -400,7 +481,7 @@ def build_seed(as_of: dt.date | None = None) -> SeedData:
         ),
         PriorAuth(
             "PA-500104",
-            "EVM100304",
+            fill[4],
             "Sleep study",
             "Lakeside Family Medicine",
             "denied",
@@ -412,7 +493,7 @@ def build_seed(as_of: dt.date | None = None) -> SeedData:
         ),
         PriorAuth(
             "PA-500105",
-            "EVM100309",
+            fill[9],
             "Physical therapy, 12 visits",
             "Meadow Physical Therapy",
             "expired",
@@ -425,10 +506,10 @@ def build_seed(as_of: dt.date | None = None) -> SeedData:
     ]
 
     claims: list[Claim] = [
-        # Persona 1: MRI denied for missing auth.
+        # Maria Lopez: MRI denied for missing auth.
         Claim(
-            "CLM-900001",
-            "EVM100231",
+            "70412",
+            MARIA,
             d(34),
             "Riverside Imaging Center",
             "MRI, knee, left",
@@ -442,8 +523,8 @@ def build_seed(as_of: dt.date | None = None) -> SeedData:
             d(16),
         ),
         Claim(
-            "CLM-900002",
-            "EVM100231",
+            "70358",
+            MARIA,
             d(70),
             "Lakeside Family Medicine",
             "Office visit, established patient",
@@ -456,10 +537,10 @@ def build_seed(as_of: dt.date | None = None) -> SeedData:
             d(66),
             d(52),
         ),
-        # Persona 3: pending info.
+        # Sarah Miller: pending info.
         Claim(
-            "CLM-900003",
-            "EVM100233",
+            "31845",
+            SARAH,
             d(45),
             "Northgate Cardiology",
             "Cardiac stress test",
@@ -474,8 +555,8 @@ def build_seed(as_of: dt.date | None = None) -> SeedData:
             "PA-500102",
         ),
         Claim(
-            "CLM-900004",
-            "EVM100233",
+            "31962",
+            SARAH,
             d(90),
             "Northgate Cardiology",
             "Specialist consult",
@@ -488,10 +569,10 @@ def build_seed(as_of: dt.date | None = None) -> SeedData:
             d(85),
             d(71),
         ),
-        # Persona 4: out of network.
+        # Linda Nguyen: out of network.
         Claim(
-            "CLM-900005",
-            "EVM100234",
+            "52976",
+            LINDA,
             d(28),
             "Bayview Dermatology",
             "Skin biopsy",
@@ -504,10 +585,10 @@ def build_seed(as_of: dt.date | None = None) -> SeedData:
             d(25),
             d(12),
         ),
-        # Persona 5: nothing billed yet for the surgery; one old paid claim.
+        # Ben Cole: nothing billed yet for the surgery; one old paid claim.
         Claim(
-            "CLM-900006",
-            "EVM100235",
+            "64281",
+            BEN,
             d(50),
             "Pine Hill Orthopedics",
             "X-ray, knee, 2 views",
@@ -520,10 +601,10 @@ def build_seed(as_of: dt.date | None = None) -> SeedData:
             d(47),
             d(33),
         ),
-        # Persona 2: routine.
+        # James Carter: routine.
         Claim(
-            "CLM-900007",
-            "EVM100232",
+            "58139",
+            JAMES,
             d(20),
             "Cedar Urgent Care",
             "Urgent care visit",
@@ -536,9 +617,106 @@ def build_seed(as_of: dt.date | None = None) -> SeedData:
             d(17),
             None,
         ),
+        # Mark Hill (1975): the claim he calls about.
+        Claim(
+            "46183",
+            MARK,
+            d(12),
+            "Cedar Urgent Care",
+            "Urgent care visit",
+            310.00,
+            None,
+            None,
+            "in_review",
+            None,
+            None,
+            d(9),
+            None,
+        ),
+        # Aisha Patel: the EOB she asks about.
+        Claim(
+            "19374",
+            AISHA,
+            d(26),
+            "Lakeside Family Medicine",
+            "Specialist consult",
+            320.00,
+            210.00,
+            50.00,
+            "paid",
+            None,
+            None,
+            d(22),
+            d(10),
+        ),
+        # David Brooks: lab work toward the deductible.
+        Claim(
+            "27591",
+            DAVID,
+            d(40),
+            "Summit Lab Services",
+            "Lipid panel",
+            180.00,
+            95.00,
+            95.00,
+            "paid",
+            None,
+            None,
+            d(36),
+            d(24),
+        ),
+        # Emily Stone: routine.
+        Claim(
+            "35718",
+            EMILY,
+            d(60),
+            "Lakeside Family Medicine",
+            "Annual preventive exam",
+            240.00,
+            160.00,
+            0.00,
+            "paid",
+            None,
+            None,
+            d(56),
+            d(42),
+        ),
+        # Guaranteed filler denials regardless of RNG draws.
+        Claim(
+            "90271",
+            fill[6],
+            d(55),
+            "Summit Lab Services",
+            "Comprehensive metabolic panel",
+            210.00,
+            None,
+            None,
+            "denied",
+            "CO-50",
+            "Not deemed a medical necessity by the payer",
+            d(52),
+            d(40),
+        ),
+        Claim(
+            "90385",
+            fill[12],
+            d(65),
+            "Cedar Urgent Care",
+            "Urgent care visit",
+            290.00,
+            None,
+            None,
+            "denied",
+            "CO-18",
+            "Exact duplicate claim or service",
+            d(61),
+            d(50),
+        ),
     ]
-    n = 8
-    for m in members[6:]:
+    next_claim_id = _filler_claim_ids(
+        rng, {c.claim_id for c in claims}, {m.member_id for m in members}
+    )
+    for m in members[len(DEMO_PERSONAS) + 1 :]:
         for _ in range(rng.randint(1, 3)):
             svc_day = rng.randint(10, 160)
             billed = round(rng.uniform(90, 1400), 2)
@@ -555,7 +733,7 @@ def build_seed(as_of: dt.date | None = None) -> SeedData:
                 processed = d(max(svc_day - 18, 1))
             claims.append(
                 Claim(
-                    f"CLM-9{n:05d}",
+                    next_claim_id(),
                     m.member_id,
                     d(svc_day),
                     rng.choice(_PROVIDERS),
@@ -570,42 +748,6 @@ def build_seed(as_of: dt.date | None = None) -> SeedData:
                     processed,
                 )
             )
-            n += 1
-    # Guarantee a couple of extra filler denials regardless of RNG draws.
-    claims.append(
-        Claim(
-            "CLM-990001",
-            "EVM100306",
-            d(55),
-            "Summit Lab Services",
-            "Comprehensive metabolic panel",
-            210.00,
-            None,
-            None,
-            "denied",
-            "CO-50",
-            "Not deemed a medical necessity by the payer",
-            d(52),
-            d(40),
-        )
-    )
-    claims.append(
-        Claim(
-            "CLM-990002",
-            "EVM100312",
-            d(65),
-            "Cedar Urgent Care",
-            "Urgent care visit",
-            290.00,
-            None,
-            None,
-            "denied",
-            "CO-18",
-            "Exact duplicate claim or service",
-            d(61),
-            d(50),
-        )
-    )
 
     payments: list[Payment] = []
     p = 1
@@ -628,12 +770,12 @@ def build_seed(as_of: dt.date | None = None) -> SeedData:
                 )
             )
             p += 1
-    # Persona 2: duplicate autopay draft this month.
+    # James Carter: duplicate autopay draft this month.
     this_month = as_of.replace(day=1)
     payments.append(
         Payment(
             f"PAY-{p:06d}",
-            "EVM100232",
+            JAMES,
             _at(this_month, 6, 2),
             plans_by_id["PLN-PPO-GOLD"].monthly_premium,
             "premium",
@@ -646,7 +788,7 @@ def build_seed(as_of: dt.date | None = None) -> SeedData:
     payments.append(
         Payment(
             f"PAY-{p:06d}",
-            "EVM100231",
+            MARIA,
             _at(d(45), 14, 20),
             25.00,
             "copay",
@@ -659,7 +801,7 @@ def build_seed(as_of: dt.date | None = None) -> SeedData:
     payments.append(
         Payment(
             f"PAY-{p:06d}",
-            "EVM100305",
+            fill[5],
             _at(d(12), 10, 5),
             85.40,
             "claim_balance",
@@ -672,7 +814,7 @@ def build_seed(as_of: dt.date | None = None) -> SeedData:
     referrals = [
         Referral(
             "REF-700001",
-            "EVM100233",
+            SARAH,
             "Lakeside Family Medicine",
             "Northgate Cardiology",
             "Cardiology",
@@ -683,7 +825,7 @@ def build_seed(as_of: dt.date | None = None) -> SeedData:
         ),
         Referral(
             "REF-700002",
-            "EVM100231",
+            MARIA,
             "Lakeside Family Medicine",
             "Pine Hill Orthopedics",
             "Orthopedics",
@@ -694,7 +836,7 @@ def build_seed(as_of: dt.date | None = None) -> SeedData:
         ),
         Referral(
             "REF-700003",
-            "EVM100234",
+            LINDA,
             "Lakeside Family Medicine",
             "Bayview Dermatology",
             "Dermatology",
@@ -705,7 +847,7 @@ def build_seed(as_of: dt.date | None = None) -> SeedData:
         ),
         Referral(
             "REF-700004",
-            "EVM100300",
+            fill[0],
             "Lakeside Family Medicine",
             "Riverside Imaging Center",
             "Radiology",
@@ -716,7 +858,7 @@ def build_seed(as_of: dt.date | None = None) -> SeedData:
         ),
         Referral(
             "REF-700005",
-            "EVM100306",
+            fill[6],
             "Cedar Urgent Care",
             "Northgate Cardiology",
             "Cardiology",
@@ -727,7 +869,7 @@ def build_seed(as_of: dt.date | None = None) -> SeedData:
         ),
         Referral(
             "REF-700006",
-            "EVM100312",
+            fill[12],
             "Lakeside Family Medicine",
             "Meadow Physical Therapy",
             "Physical therapy",
@@ -742,17 +884,17 @@ def build_seed(as_of: dt.date | None = None) -> SeedData:
         # Repeat callers (2+ calls in the last 30 days).
         Interaction(
             "INT-000001",
-            "EVM100231",
+            MARIA,
             _at(d(6), 15, 10),
             512,
             "claims",
             "escalated to claims review",
-            "Asked why MRI claim CLM-900001 was denied. Explained CO-197. "
+            "Asked why MRI claim 70412 was denied. Explained CO-197. "
             "Member says the orthopedist's office said auth was handled.",
         ),
         Interaction(
             "INT-000002",
-            "EVM100231",
+            MARIA,
             _at(d(15), 9, 40),
             305,
             "claims",
@@ -761,7 +903,7 @@ def build_seed(as_of: dt.date | None = None) -> SeedData:
         ),
         Interaction(
             "INT-000003",
-            "EVM100231",
+            MARIA,
             _at(d(120), 11, 0),
             240,
             "general",
@@ -770,25 +912,26 @@ def build_seed(as_of: dt.date | None = None) -> SeedData:
         ),
         Interaction(
             "INT-000004",
-            "EVM100233",
+            SARAH,
             _at(d(3), 13, 25),
             420,
             "claims",
             "sent claim for reprocessing",
-            "Stress test claim pending info. Called provider; itemized bill requested.",
+            "Stress test claim pending info. Called provider; itemized bill requested. "
+            "Member upset this is her third call.",
         ),
         Interaction(
             "INT-000005",
-            "EVM100233",
+            SARAH,
             _at(d(18), 16, 5),
             365,
             "claims",
             "explained claim status",
-            "Claim CLM-900003 pending provider information.",
+            "Claim 31845 pending provider information.",
         ),
         Interaction(
             "INT-000006",
-            "EVM100232",
+            JAMES,
             _at(d(75), 10, 15),
             190,
             "billing",
@@ -797,7 +940,7 @@ def build_seed(as_of: dt.date | None = None) -> SeedData:
         ),
         Interaction(
             "INT-000007",
-            "EVM100234",
+            LINDA,
             _at(d(40), 14, 0),
             610,
             "general",
@@ -806,7 +949,7 @@ def build_seed(as_of: dt.date | None = None) -> SeedData:
         ),
         Interaction(
             "INT-000008",
-            "EVM100234",
+            LINDA,
             _at(d(150), 12, 30),
             280,
             "billing",
@@ -815,7 +958,7 @@ def build_seed(as_of: dt.date | None = None) -> SeedData:
         ),
         Interaction(
             "INT-000009",
-            "EVM100235",
+            BEN,
             _at(d(9), 11, 45),
             335,
             "claims",
@@ -824,7 +967,7 @@ def build_seed(as_of: dt.date | None = None) -> SeedData:
         ),
         Interaction(
             "INT-000010",
-            "EVM100236",
+            MARK_TWIN,
             _at(d(95), 17, 0),
             150,
             "general",
@@ -834,7 +977,7 @@ def build_seed(as_of: dt.date | None = None) -> SeedData:
         # Two filler repeat callers.
         Interaction(
             "INT-000011",
-            "EVM100305",
+            fill[5],
             _at(d(2), 9, 5),
             270,
             "billing",
@@ -843,7 +986,7 @@ def build_seed(as_of: dt.date | None = None) -> SeedData:
         ),
         Interaction(
             "INT-000012",
-            "EVM100305",
+            fill[5],
             _at(d(21), 10, 50),
             330,
             "billing",
@@ -852,7 +995,7 @@ def build_seed(as_of: dt.date | None = None) -> SeedData:
         ),
         Interaction(
             "INT-000013",
-            "EVM100312",
+            fill[12],
             _at(d(11), 15, 30),
             455,
             "claims",
@@ -861,7 +1004,7 @@ def build_seed(as_of: dt.date | None = None) -> SeedData:
         ),
         Interaction(
             "INT-000014",
-            "EVM100312",
+            fill[12],
             _at(d(26), 8, 55),
             210,
             "claims",

@@ -1,4 +1,4 @@
-"""Live P4-4: the portal's assist column on a real Maria Alvarez call.
+"""Live P4-4: the portal's assist column on a real Maria Lopez call.
 
 Run locally with keys, a Postgres, a built portal (npm run build in portal/), and
 Playwright's Chromium (Pillow for the side by side sheets):
@@ -12,7 +12,7 @@ docs/design/studio/in-call-studio-*.png.
 
 Same call as test_assist_live.py, but the agent is the real portal in headless
 Chromium (the P3-2/P4-0 setup):
-1. A daily-python caller finishes intake as Maria Alvarez; Agent Ana's portal accepts
+1. A daily-python caller finishes intake as Maria Lopez; Agent Ana's portal accepts
    with Enter.
 2. The agent says a call plan line through the portal mic; the caller says the
    trigger ("So why did my MRI claim get denied?").
@@ -45,7 +45,7 @@ from agent_assist_server.app import app
 from agent_assist_server.bot_launcher import BotLauncher
 from agent_assist_server.daily import DailyRestClient
 from agent_assist_server.portal import DEFAULT_DIST
-from harness.intake_script import MARIA_ALVAREZ as SCRIPT
+from harness.intake_script import MARIA_LOPEZ as SCRIPT
 from harness.intake_script import next_line
 from harness.participant import SAMPLE_RATE, HarnessParticipant
 from harness.tts import synthesize
@@ -64,15 +64,15 @@ CHROMIUM_ARGS = [
 ]
 VOICES = {"caller": "aura-2-arcas-en", "agent": "aura-2-thalia-en"}
 DESIGN = Path(__file__).resolve().parents[2] / "docs" / "design"
-HERO_ID = "nbs:retro_auth_review:CLM-900001"
+HERO_ID = "nbs:retro_auth_review:70412"
 AGENT_LINE = "Okay Maria, I pulled up your account, and I can see the claim right here."
 CALLER_TRIGGER = "So why did my MRI claim get denied?"
 # Same as test_assist_live.py: spell the surname so intake STT verifies the caller.
 INTAKE_LINES = dict(
     SCRIPT,
     identity=(
-        "Sure. My name is Maria Alvarez, that's A L V A R E Z. My date of birth is March "
-        "twelfth, nineteen eighty four. And my member ID is E V M, one zero zero, two three one."
+        "Sure. My name is Maria Lopez, that's A L V A R E Z. My date of birth is March "
+        "twelfth, nineteen eighty four. And my member ID is four one eight, three zero two."
     ),
 )
 
@@ -380,9 +380,7 @@ async def test_assist_column_on_a_live_call(schema, shots, monkeypatch):
                 (session_id,),
             )
             events = await cur.fetchall()
-            cur = await store._execute(
-                "SELECT status FROM claims WHERE claim_id = 'CLM-900001'", ()
-            )
+            cur = await store._execute("SELECT status FROM claims WHERE claim_id = '70412'", ())
             claim_status = (await cur.fetchone())[0]
     finally:
         for p in launcher.processes.values():

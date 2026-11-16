@@ -20,7 +20,7 @@ hold updates every 8 s (HOLD_UPDATE_SECS) so one lands inside the wait. Two call
   deployed server's webhook drives (test_dialin_call_live.py), and it ends in this
   same room type with this same bot and transport.
 
-Each caller finishes intake as Maria Alvarez and waits about 15 s in the queue with
+Each caller finishes intake as Maria Lopez and waits about 15 s in the queue with
 nobody available, recording the bot's audio. Checks:
 
 - during the wait the caller always hears something: no gap over 1 s (RMS);
@@ -59,7 +59,7 @@ from agent_assist_server.bot_launcher import BotLauncher, BotLaunchRequest
 from agent_assist_server.daily import DailyRestClient
 from agent_assist_server.queue_api import get_bot_channels, get_queue
 from harness.audio import write_wav
-from harness.intake_script import MARIA_ALVAREZ as SCRIPT
+from harness.intake_script import MARIA_LOPEZ as SCRIPT
 from harness.intake_script import next_line
 from harness.participant import SAMPLE_RATE, HarnessParticipant
 from harness.tts import synthesize

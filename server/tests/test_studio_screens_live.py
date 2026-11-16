@@ -12,7 +12,7 @@ screenshots and side by side sheets with docs/design/studio/in-call-studio-*.png
 One call, start to finish, same setup as test_live_transcript_live.py:
 1. Sign in: light on a light OS, dark on a dark OS (first visit follows
    prefers-color-scheme, AP-16).
-2. A daily-python caller finishes intake as Maria Alvarez; Agent Ana's portal goes
+2. A daily-python caller finishes intake as Maria Lopez; Agent Ana's portal goes
    available and rings. Light screenshot, then the theme switch in the rail avatar
    menu goes dark (Esc closes the menu and must not decline the call), dark screenshot.
 3. Enter accepts. The caller panel shows Identity 3 of 3 and a masked member ID.
@@ -43,7 +43,7 @@ from agent_assist_server.app import app
 from agent_assist_server.bot_launcher import BotLauncher
 from agent_assist_server.daily import DailyRestClient
 from agent_assist_server.portal import DEFAULT_DIST
-from harness.intake_script import MARIA_ALVAREZ as INTAKE
+from harness.intake_script import MARIA_LOPEZ as INTAKE
 from harness.intake_script import next_line
 from harness.participant import SAMPLE_RATE, HarnessParticipant
 from harness.tts import synthesize
@@ -349,7 +349,7 @@ async def test_studio_screens_light_and_dark(schema, shots, monkeypatch):
 
                 # ---- 4. reveal (AP-17) -------------------------------------------------
                 await panel.get_by_role("button", name="Reveal member ID").click()
-                await expect(panel.get_by_test_id("phi-member_id")).to_have_text("EVM100231")
+                await expect(panel.get_by_test_id("phi-member_id")).to_have_text("418302")
                 await snap(page, shots / "p4-0-4-member-id-revealed-light.png", t0)
                 taken.append("p4-0-4-member-id-revealed-light.png")
                 reveals = None
@@ -363,7 +363,7 @@ async def test_studio_screens_light_and_dark(schema, shots, monkeypatch):
                     await asyncio.sleep(0.3)
                 log(t0, f"calls.phi_reveals: {reveals}")
                 assert reveals and reveals[0]["field"] == "member_id"
-                assert "EVM100231" not in str(reveals)
+                assert "418302" not in str(reveals)
 
                 # ---- 5. wrap up --------------------------------------------------------
                 await page.get_by_role("button", name="End call").click()

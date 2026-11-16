@@ -122,7 +122,7 @@ async def test_show_the_last_3_claims_is_a_record_card_with_its_source(packs):
     assert card["trigger"]["text"] == "Show the last 3 claims"
     assert card["trigger"]["phrase"] is None
     assert card["source"]["label"] == "Claims system"
-    assert [r["id"] for r in card["source"]["records"]] == ["CLM-900001", "CLM-900002"]
+    assert [r["id"] for r in card["source"]["records"]] == ["70412", "70358"]
     # the pack's claims table fields, in its order
     assert card["body"]["fields"][:2] == ["claim_id", "service_date"]
     assert len(card["body"]["rows"]) == 2
@@ -140,7 +140,7 @@ async def test_limit_caps_the_rows(packs):
     h = await maria(packs)
     await h.engine.on_ask(c.Ask("a1", "show the last 1 claim"))
     [card] = h.added()
-    assert [r["claim_id"] for r in card["body"]["rows"]] == ["CLM-900001"]
+    assert [r["claim_id"] for r in card["body"]["rows"]] == ["70412"]
 
 
 async def test_filters_go_to_the_connector(packs):
@@ -148,7 +148,7 @@ async def test_filters_go_to_the_connector(packs):
     await h.engine.on_ask(c.Ask("a1", "any denied claims?"))
     [card] = h.added()
     assert ("claims_search", {"status": "denied", "limit": 5}) in h.connectors.calls
-    assert [r["claim_id"] for r in card["body"]["rows"]] == ["CLM-900001"]
+    assert [r["claim_id"] for r in card["body"]["rows"]] == ["70412"]
 
 
 async def test_a_connector_the_pack_does_not_allow_is_not_called(packs):
@@ -194,14 +194,12 @@ async def test_kb_question_without_a_connector_word_searches_articles(packs):
 
 
 async def test_llm_picks_records_for_other_questions_and_the_engine_renders_them(packs):
-    llm = FakeLLM(
-        {"next_steps": [], "cards": [{"template_id": "denied_claim", "ids": ["CLM-900001"]}]}
-    )
+    llm = FakeLLM({"next_steps": [], "cards": [{"template_id": "denied_claim", "ids": ["70412"]}]})
     h = await maria(packs, llm=llm)
     await h.engine.on_ask(c.Ask("a1", "why was the MRI turned down"))
     [card] = h.added()
     assert card["id"] == "ask:a1" and card["kind"] == "record"
-    assert card["body"]["rows"][0]["claim_id"] == "CLM-900001"
+    assert card["body"]["rows"][0]["claim_id"] == "70412"
     assert card["trigger"]["role"] == "ask"
     [req] = llm.requests
     assert req.question == "why was the MRI turned down"

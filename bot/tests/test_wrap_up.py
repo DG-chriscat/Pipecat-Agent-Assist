@@ -49,7 +49,7 @@ class FakeService:
 RETRO = AcceptedAction(
     id="request_retro_auth_review",
     label="Request retro auth review",
-    records=("CLM-900001",),
+    records=("70412",),
 )
 
 
@@ -57,15 +57,15 @@ def maria(**over) -> WrapUpInputs:
     base = dict(
         pack=load_pack("claims_status"),
         intake={
-            "full_name": "Maria Alvarez",
+            "full_name": "Maria Lopez",
             "dob": "1984-03-12",
-            "member_id": "EVM100231",
+            "member_id": "418302",
             "reason": "MRI claim was denied",
-            "summary": "Maria Alvarez is calling about a denied MRI claim.",
+            "summary": "Maria Lopez is calling about a denied MRI claim.",
         },
         transcript=[
             {"role": "caller", "text": "My MRI claim was denied and I don't know why."},
-            {"role": "agent", "text": "I can see claim CLM-900001. It was denied because"},
+            {"role": "agent", "text": "I can see claim 70412. It was denied because"},
             {"role": "agent", "text": "no prior authorization was on file."},
             {"role": "caller", "text": "So what do I do now?"},
             {"role": "agent", "text": "I'll start a retro authorization review today."},
@@ -83,9 +83,9 @@ def maria(**over) -> WrapUpInputs:
 
 
 GOOD_SUMMARY = (
-    "Maria Alvarez called about her denied MRI claim CLM-900001. "
+    "Maria Lopez called about her denied MRI claim 70412. "
     "The agent explained it was denied CO-197 because no prior authorization was on file. "
-    "The agent requested a retro authorization review for CLM-900001. "
+    "The agent requested a retro authorization review for 70412. "
     "Maria was told the claim is reprocessed if the review is approved."
 )
 
@@ -104,7 +104,7 @@ async def test_prompt_has_transcript_intake_actions_and_plan():
     assert "CALLER: My MRI claim was denied and I don't know why." in prompt
     assert "AGENT: I'll start a retro authorization review today." in prompt
     assert "reason: MRI claim was denied" in prompt
-    assert "Request retro auth review (CLM-900001)" in prompt
+    assert "Request retro auth review (70412)" in prompt
     assert "[x] Confirm which claim the caller means" in prompt
     assert "[ ] Tell the caller what happens next" in prompt
     assert "claims_status" in prompt
@@ -115,7 +115,7 @@ async def test_prompt_never_carries_date_of_birth_or_member_id():
     await WrapUpDrafter(svc).draft(maria())
     sent = json.dumps(svc.calls[0]["messages"])
     assert "1984-03-12" not in sent
-    assert "EVM100231" not in sent
+    assert "418302" not in sent
 
 
 async def test_reason_code_is_constrained_to_the_pack_codes():
@@ -185,11 +185,11 @@ async def test_fewer_than_three_sentences_uses_the_fallback():
 
 async def test_missing_accepted_action_reference_is_added():
     text = (
-        "Maria Alvarez called about a denied MRI claim. The agent explained the denial. "
+        "Maria Lopez called about a denied MRI claim. The agent explained the denial. "
         "A retro review was requested."
     )
     d = await WrapUpDrafter(FakeService(reply(summary=text))).draft(maria())
-    assert "CLM-900001" in d.summary
+    assert "70412" in d.summary
     assert 3 <= wrap_up.sentence_count(d.summary) <= 5
 
 
@@ -205,7 +205,7 @@ async def test_unusable_reply_uses_the_fallback(raw):
     d = await WrapUpDrafter(FakeService(raw)).draft(maria())
     assert d.source == "fallback"
     assert d.reason_code == "appeal_started"
-    assert "CLM-900001" in d.summary
+    assert "70412" in d.summary
 
 
 async def test_llm_error_uses_the_fallback():
@@ -220,9 +220,9 @@ async def test_no_llm_uses_the_fallback():
 
 
 async def test_summary_never_carries_dob_or_member_id_even_if_the_llm_writes_it():
-    text = GOOD_SUMMARY + " Her member ID is EVM100231."
+    text = GOOD_SUMMARY + " Her member ID is 418302."
     d = await WrapUpDrafter(FakeService(reply(summary=text))).draft(maria())
-    assert "EVM100231" not in d.summary
+    assert "418302" not in d.summary
     assert "1984-03-12" not in d.summary
 
 
@@ -230,15 +230,25 @@ async def test_summary_never_carries_dob_or_member_id_even_if_the_llm_writes_it(
 
 
 async def test_partial_reference_from_misheard_intake_becomes_the_record_id():
-    # Live P5-1: intake STT heard "CLM-900" for CLM-900001; the LLM copied it.
+    # Live P5-1: intake STT heard a claim number short; the LLM copied it.
     text = (
-        "The agent confirmed claim CLM-900 for Maria Alvarez. The agent explained the denial. "
-        "The agent requested a retro authorization review under reference CLM-900001."
+        "The agent confirmed claim 704 for Maria Lopez. The agent explained the denial. "
+        "The agent requested a retro authorization review under reference 70412."
     )
-    inputs = maria(intake={"full_name": "Maria Alvarez", "claim_number": "CLM 900"})
+    inputs = maria(intake={"full_name": "Maria Lopez", "claim_number": "704"})
     d = await WrapUpDrafter(FakeService(reply(summary=text))).draft(inputs)
-    assert "CLM-900 " not in d.summary
-    assert d.summary.count("CLM-900001") == 2
+    assert "claim 704 " not in d.summary
+    assert d.summary.count("70412") == 2
+
+
+async def test_claim_number_said_in_groups_becomes_the_record_id():
+    text = (
+        "The agent confirmed claim 70 412 for Maria Lopez. The agent explained the denial. "
+        "The agent requested a retro authorization review."
+    )
+    d = await WrapUpDrafter(FakeService(reply(summary=text))).draft(maria())
+    assert "70 412" not in d.summary
+    assert "claim 70412 for" in d.summary
 
 
 async def test_prompt_says_records_win_over_intake_and_refs_come_from_the_list():
@@ -251,15 +261,18 @@ async def test_prompt_says_records_win_over_intake_and_refs_come_from_the_list()
 
 
 def test_fix_references_leaves_unknown_and_ambiguous_ids():
-    assert wrap_up.fix_references("See CLM-12 and PA-5.", ["CLM-900001"]) == "See CLM-12 and PA-5."
-    assert wrap_up.fix_references("See CLM-9.", ["CLM-900001", "CLM-900005"]) == "See CLM-9."
-    assert wrap_up.fix_references("See CLM-9000.", ["CLM-900001"]) == "See CLM-900001."
+    assert wrap_up.fix_references("See 12 and PA-5.", ["70412"]) == "See 12 and PA-5."
+    assert wrap_up.fix_references("See 704.", ["70412", "70498"]) == "See 704."
+    assert wrap_up.fix_references("See 7041.", ["70412"]) == "See 70412."
+    # Amounts, days, and years are not partial references.
+    assert wrap_up.fix_references("$704 in 70 days, 2026.", ["70412"]) == "$704 in 70 days, 2026."
+    assert wrap_up.fix_references("See PA-5001.", ["PA-500101"]) == "See PA-500101."
 
 
 def test_suggest_reason_code_from_accepted_actions():
     pack = load_pack("claims_status")
     assert suggest_reason_code(pack, [RETRO]) == "appeal_started"
-    net = AcceptedAction("start_network_appeal", "Start an appeal", ("CLM-900005",))
+    net = AcceptedAction("start_network_appeal", "Start an appeal", ("52976",))
     assert suggest_reason_code(pack, [net]) == "appeal_started"
 
 
@@ -275,7 +288,7 @@ def test_suggest_reason_code_for_a_refund():
 
 def test_last_matching_action_wins():
     pack = load_pack("claims_status")
-    info = AcceptedAction("contact_provider_for_info", "Request info from provider", ("CLM-1",))
+    info = AcceptedAction("contact_provider_for_info", "Request info from provider", ("10001",))
     assert suggest_reason_code(pack, [RETRO, info]) == "callback_needed"
 
 
@@ -283,22 +296,37 @@ def test_reference_numbers_from_actions_and_transcript():
     refs = reference_numbers(
         maria(transcript=[{"role": "agent", "text": "PA-500101 and KB-CL-002"}])
     )
-    assert refs == ["CLM-900001", "PA-500101"]
+    assert refs == ["70412", "PA-500101"]
 
 
 def test_reference_numbers_skip_member_id():
-    refs = reference_numbers(maria(transcript=[{"role": "caller", "text": "EVM100231"}]))
-    assert "EVM100231" not in refs
+    refs = reference_numbers(maria(transcript=[{"role": "caller", "text": "418302"}]))
+    assert "418302" not in refs
+    refs = reference_numbers(maria(transcript=[{"role": "caller", "text": "It's 418 302."}]))
+    assert not any("418" in r for r in refs)
+
+
+def test_reference_numbers_find_claim_numbers_in_the_transcript():
+    refs = reference_numbers(
+        maria(accepted=[], transcript=[{"role": "agent", "text": "Claim 52976 for $640.00."}])
+    )
+    assert refs == ["52976"]
+
+
+async def test_member_id_in_groups_never_reaches_the_summary():
+    text = GOOD_SUMMARY + " Her member ID is 418 302."
+    d = await WrapUpDrafter(FakeService(reply(summary=text))).draft(maria())
+    assert "418 302" not in d.summary and "418302" not in d.summary
 
 
 def test_fallback_summary_is_three_to_five_factual_sentences():
     text = fallback_summary(maria())
     assert 3 <= wrap_up.sentence_count(text) <= 5
-    assert "Maria Alvarez" in text
+    assert "Maria Lopez" in text
     assert "MRI claim was denied" in text
     assert "Request retro auth review" in text
-    assert "CLM-900001" in text
-    assert "EVM100231" not in text
+    assert "70412" in text
+    assert "418302" not in text
 
 
 def test_fallback_summary_with_no_actions_says_so():

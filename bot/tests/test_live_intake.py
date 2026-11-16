@@ -6,7 +6,7 @@ Run locally with keys and a Postgres in the environment:
 Needs DAILY_API_KEY, DEEPGRAM_API_KEY, ANTHROPIC_API_KEY, DATABASE_URL.
 
 One run per demo persona (docs/db.md). INTAKE_RUNS=2 runs each persona twice (the
-identity card's scored table, docs/spikes/identity.md); INTAKE_PERSONAS=maria_alvarez,...
+identity card's scored table, docs/spikes/identity.md); INTAKE_PERSONAS=maria_lopez,...
 picks personas. INTAKE_RESULTS=<path> appends one JSON line per run.
 
 Each run migrates and seeds a throwaway schema, starts the real bot process
@@ -18,7 +18,7 @@ reads the identity details back), so the script follows the flow instead of gues
 the LLM's wording.
 
 Passes when the calls row is ready_for_queue with the persona's expected identity
-result (verified; not_verified for Daniel Okafor, who gives a wrong DOB on purpose),
+result (verified; not_verified for Ben Cole, who gives a wrong DOB on purpose),
 the right member ID, a reason, and the intake took under 2 minutes (PRD target).
 
 P5-7: INTAKE_STT_MODEL=nova-3-general|flux-general-en picks the intake STT (unset: the

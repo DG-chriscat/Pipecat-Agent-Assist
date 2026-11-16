@@ -11,7 +11,7 @@ from agent_assist_server.daily import DailyRestClient
 from fastapi.testclient import TestClient
 
 ROOM_URL = "https://dg-chriscat.daily.co/caller-abc"
-MARIA = {"full_name": "Maria Alvarez", "reason": "MRI claim denied", "summary": "Denied MRI."}
+MARIA = {"full_name": "Maria Lopez", "reason": "MRI claim denied", "summary": "Denied MRI."}
 
 
 class DailyMock:
@@ -120,7 +120,7 @@ def test_wrap_up_view_after_caller_hangs_up(client):
     body = r.json()
     assert body["session_id"] == "s1"
     assert body["ended_by"] == "caller"
-    assert body["caller_name"] == "Maria Alvarez"
+    assert body["caller_name"] == "Maria Lopez"
     assert body["reason"] == "MRI claim denied"
     assert body["duration_secs"] >= 0
     assert body["wrap_up"] is None
@@ -317,8 +317,8 @@ def test_enqueue_takes_the_v2_identity_results(client):
 # ---- P5-1: the wrap up draft (AP-9) ---------------------------------------------------
 
 DRAFT = {
-    "summary": "Maria Alvarez called about CLM-900001. The agent explained the denial. "
-    "The agent requested a retro authorization review for CLM-900001.",
+    "summary": "Maria Lopez called about 70412. The agent explained the denial. "
+    "The agent requested a retro authorization review for 70412.",
     "reason_code": "appeal_started",
     "pack_id": "claims_status",
     "source": "llm",

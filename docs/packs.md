@@ -23,11 +23,16 @@ Demo personas (docs/db.md) and what they hit:
 
 | Persona | Pack | Hits |
 | --- | --- | --- |
-| Maria Alvarez, EVM100231 | claims_status | CLM-900001 denied CO-197: `retro_auth_review` |
-| James Chen, EVM100232 | account_payments | second premium autopay draft this month: `duplicate_charge` alert, `duplicate_premium_refund` |
-| Aisha Patel, EVM100233 | claims_status | CLM-900003 pending_info: `provider_info_follow_up` |
-| Linda Nguyen, EVM100234 | claims_status, general_question | CLM-900005 denied CO-242: `out_of_network_appeal`; "what is an EOB": KB-CL-010 |
-| Daniel Okafor, EVM100235 | claims_status | PA-500101 pending: `prior_auth_pending` |
+| Maria Lopez, 418302 | claims_status | claim 70412 denied CO-197: `retro_auth_review` |
+| James Carter, 527194 | account_payments | second premium autopay draft this month: `duplicate_charge` alert, `duplicate_premium_refund` |
+| Sarah Miller, 639251 | claims_status | claim 31845 pending_info: `provider_info_follow_up`; repeat caller, tone tip when frustrated |
+| Linda Nguyen, 741526 | claims_status | claim 52976 denied CO-242: `out_of_network_appeal` |
+| Aisha Patel, 174839 | general_question | "what is an EOB": KB-CL-010 |
+| David Brooks, 263048 | general_question | deductible and out of pocket maximum: KB-BL-005 |
+| Ben Cole, 852617 | claims_status | PA-500101 pending: `prior_auth_pending` |
+
+Member IDs are 6 digits and claim numbers 5 digits (P5-10, Nov 16); the full list of demo
+callers, with scripts, is on the portal's Demos page (docs/demos.md).
 
 `DEFAULT_PACK` (`claims_status`) is the intake pack unless `INTAKE_PACK` is set.
 
@@ -44,7 +49,7 @@ intake only pack still loads.
 | `questions` | list | Intake questions: `key` (snake_case, not a core key), `ask`, `description`, `required`. Each key is saved on `calls.intake`. |
 | `triggers` | `{phrases, fallback}` | Phrases that activate the pack. `fallback: true` marks the one pack that takes everything else. |
 | `allowed_connectors` | list | Connector names from the P4-1 catalog (docs/connectors.md). The assist LLM only gets these tools. |
-| `keyterms` | list | Fixed Deepgram STT keyterms (max 100): plan names, provider names, the `EVM` member ID prefix, denial codes and terms. Never per member. |
+| `keyterms` | list | Fixed Deepgram STT keyterms (max 100): plan names, provider names, denial codes and terms. Never per member, and no ID prefixes (IDs are digits only since P5-10). |
 | `card_templates` | list | Cards the assist can show (below). |
 | `call_plan` | list | The checklist (AP-12, below). |
 | `next_best_steps` | list | DC-10 rules (below). |
@@ -154,7 +159,7 @@ triggers:
 
 allowed_connectors: [members, payments, kb_articles]
 
-keyterms: [EVM, PAY, Evergreen HMO Silver, Evergreen HMO Gold, Summit PPO Gold,
+keyterms: [Evergreen HMO Silver, Evergreen HMO Gold, Summit PPO Gold,
            Harbor EPO Bronze, Summit HDHP, Evergreen Medicare Advantage Plus, premium,
            autopay, refund, double charge, charged twice, draft, copay, deductible]
 
@@ -221,7 +226,7 @@ next_best_steps:
     source: Billing system, KB-BL-001
 ```
 
-How the assist uses it for James Chen (EVM100232), as `test_packs_seed.py` runs it:
+How the assist uses it for James Carter (527194), as `test_packs_seed.py` runs it:
 
 ```python
 packs = load_packs()

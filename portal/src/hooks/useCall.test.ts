@@ -10,10 +10,10 @@ const res: AcceptResult = {
   room_url: "https://x.daily.co/r1",
   token: "t",
   expires_at: 0,
-  summary: { full_name: "Maria Alvarez", reason: "MRI claim" },
+  summary: { full_name: "Maria Lopez", reason: "MRI claim" },
   outcome: "completed",
   identity_result: "verified",
-  member_id: "EVM100231",
+  member_id: "418302",
   flags: [],
 };
 

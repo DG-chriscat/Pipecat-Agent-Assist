@@ -58,7 +58,9 @@ from agent_assist_bot.calls import (
     FLAG_NOT_VERIFIED,
     CallStore,
     IdentityCheck,
+    is_valid_member_id,
     normalize_member_id,
+    spoken_digits,
 )
 from agent_assist_bot.packs import Pack
 from agent_assist_bot.tts_pacing import mark_readback
@@ -173,7 +175,7 @@ _DIGIT_WORDS = "zero one two three four five six seven eight nine".split()
 def speak_member_id(raw: str) -> str:
     """Member ID as TTS should say it: letters spaced, digits as words in threes.
 
-    "EVM100231" -> "E V M, one zero zero, two three one".
+    "418302" -> "four one eight, three zero two".
     """
     mid = normalize_member_id(raw)
     letters = " ".join(c for c in mid if c.isalpha())
@@ -182,13 +184,28 @@ def speak_member_id(raw: str) -> str:
     return ", ".join(p for p in [letters, *groups] if p)
 
 
+CLAIM_NUMBER_KEY = "claim_number"
+CLAIM_NUMBER_DIGITS = 5
+
+
+def normalize_claim_number(raw: str) -> str:
+    """A claim number is 5 digits (P5-10): an answer holding exactly 5 digits, written
+    or spoken ("seven zero, four one two", "70 412"), is saved as the digits. Anything
+    else ("unknown", no number) is kept as said."""
+    digits = spoken_digits(raw)
+    return digits if len(digits) == CLAIM_NUMBER_DIGITS else raw
+
+
 def _identity_properties() -> dict[str, dict[str, str]]:
     return {
         "full_name": {"type": "string", "description": "First and last name."},
         "date_of_birth": {"type": "string", "description": "Date of birth as YYYY-MM-DD."},
         "member_id": {
             "type": "string",
-            "description": "Member ID, letters and digits, e.g. EVM100231.",
+            "description": (
+                "Member ID: 6 digits, usually said in two groups of three, e.g. 418302. "
+                "Write the digits only."
+            ),
         },
     }
 
@@ -782,10 +799,18 @@ class IntakeSession:
 
     async def _on_save_identity(self, args: FlowArgs, flow_manager: FlowManager):
         fields = _identity_fields(args)
-        if missing := [k for k, v in fields.items() if not v]:
+        missing = [k for k, v in fields.items() if not v]
+        bad_id = bool(fields["member_id"]) and not is_valid_member_id(fields["member_id"])
+        if missing or bad_id:
             self._identity_asks += 1
             if self._identity_asks <= MAX_IDENTITY_FIXES:
-                return {"error": f"missing {', '.join(missing)}; ask the caller for it"}, None
+                errors = [f"missing {', '.join(missing)}"] if missing else []
+                if bad_id:
+                    errors.append(
+                        "member_id must be 6 digits (heard "
+                        f"{len(fields['member_id'])}); ask the caller to say it again"
+                    )
+                return {"error": "; ".join(errors) + "; ask the caller for it"}, None
             # Asked once already: check with what we have and move on (incomplete).
             if present := {k: v for k, v in fields.items() if v}:
                 await self._save(present)
@@ -942,7 +967,10 @@ class IntakeSession:
         q = next(q for q in self.pack.questions if q.key == key)
 
         async def on_answer(args: FlowArgs, flow_manager: FlowManager):
-            await self._save({q.key: str(args.get("answer", "")).strip()})
+            answer = str(args.get("answer", "")).strip()
+            if q.key == CLAIM_NUMBER_KEY:
+                answer = normalize_claim_number(answer)
+            await self._save({q.key: answer})
             return {"saved": q.key}, self._node_after(q.key)
 
         return self._finalize(

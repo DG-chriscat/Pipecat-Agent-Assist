@@ -9,7 +9,8 @@ with smart_format. A key entity counts as right when it is in the transcript exa
 
 The identity read back and the hold update are the bot's real lines (intake.READBACK_LINE
 with speak_member_id, hold.hold_line). The others are the kind of line the LLM speaks
-in the read back node, written the way an LLM writes them (digits, $, CLM-, 2:00 PM).
+in the read back node, written the way an LLM writes them (digits, $, 2:00 PM).
+P5-10: member IDs are 6 digits (418302), claim numbers 5 digits (70412).
 """
 
 from __future__ import annotations
@@ -50,16 +51,16 @@ class Line:
 LINES: tuple[Line, ...] = (
     Line(
         "identity_readback",
-        READBACK_LINE.format(name="Maria Alvarez", member_id=speak_member_id("EVM100231")),
-        (Entity("member_id", "EVM100231 in groups"),),
+        READBACK_LINE.format(name="Maria Lopez", member_id=speak_member_id("418302")),
+        (Entity("member_id", "418302 in groups"),),
     ),
     Line(
         "summary_readback",
-        "So that's Maria Alvarez, date of birth March 12, 1984, calling about claim "
-        "CLM-900001 for $1,240, which was denied. Is that right?",
+        "So that's Maria Lopez, date of birth March 12, 1984, calling about claim "
+        "70412 for $1,240, which was denied. Is that right?",
         (
             Entity("dob", "March 12, 1984"),
-            Entity("claim_number", "CLM-900001"),
+            Entity("claim_number", "70412"),
             Entity("amount", "$1,240"),
         ),
     ),
@@ -77,8 +78,8 @@ LINES: tuple[Line, ...] = (
     Line("hold_update", hold_line(2), (Entity("place", "number 2 in line"),)),
     Line(
         "raw_formats",
-        "Your member ID is EVM100231 and your date of birth is 03/12/1984.",
-        (Entity("member_id", "EVM100231 as written"), Entity("dob", "03/12/1984")),
+        "Your member ID is 418302 and your date of birth is 03/12/1984.",
+        (Entity("member_id", "418302 as written"), Entity("dob", "03/12/1984")),
     ),
 )
 
@@ -181,7 +182,7 @@ def normalize(text: str) -> str:
     """Lowercase, with number words and ordinals turned into digits. Each spoken number is
     its own token ("twelve forty" -> "12 40"); punctuation is kept."""
     t = (text or "").lower().replace("-", " ")
-    # A spoken "dash" (CLM-900001 read as "C L M dash nine...") is the hyphen.
+    # A spoken "dash" is the hyphen.
     t = re.sub(r"\bdash\b", " ", t)
     t = re.sub(r"(\d+)(st|nd|rd|th)\b", r"\1", t)
     words = re.findall(r"[a-z]+|\d+|[^\sa-z\d]", t)
@@ -201,7 +202,7 @@ def normalize(text: str) -> str:
 
 
 def collapse(text: str) -> str:
-    """Only letters and digits of normalize(): "E V M, one zero zero" -> "evm100"."""
+    """Only letters and digits of normalize(): "four one eight, three" -> "4183"."""
     return re.sub(r"[^a-z0-9]", "", normalize(text))
 
 
@@ -219,9 +220,9 @@ def _amount(heard: str) -> bool:
 
 
 MATCHERS: dict[str, Callable[[str], bool]] = {
-    "member_id": _has(r"evm100231(?!\d)"),
+    "member_id": _has(r"(?<!\d)418302(?!\d)"),
     "dob": _has(r"march121984|(?<!\d)0?3121984(?!\d)"),
-    "claim_number": _has(r"clm900001(?!\d)"),
+    "claim_number": _has(r"(?<!\d)70412(?!\d)"),
     "amount": _amount,
     "time": _has(r"(?<!\d)2(00)?pm"),
     "address": _has(r"(?<!\d)8oakst"),

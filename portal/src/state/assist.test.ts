@@ -37,7 +37,7 @@ describe("parseAssistMessage (contract v1, docs/assist.md)", () => {
     });
     expect(parseAssistMessage(msg("hero", { card: heroCard(), reason: "new", replaces: null }))).toMatchObject({
       event: "hero",
-      card: { id: "nbs:retro_auth_review:CLM-900001" },
+      card: { id: "nbs:retro_auth_review:70412" },
     });
     expect(parseAssistMessage(msg("hero", { card: null, reason: "accepted", replaces: "x" }))).toMatchObject({
       event: "hero",
@@ -73,7 +73,7 @@ describe("parseAssistMessage (contract v1, docs/assist.md)", () => {
 describe("applyAssist", () => {
   it("hero replaces the hero; null goes back to listening", () => {
     let s = apply(emptyAssist(), msg("hero", { card: heroCard(), reason: "new", replaces: null }));
-    expect(s.hero?.id).toBe("nbs:retro_auth_review:CLM-900001");
+    expect(s.hero?.id).toBe("nbs:retro_auth_review:70412");
     s = apply(s, msg("hero", { card: null, reason: "dismissed", replaces: s.hero?.id }));
     expect(s.hero).toBeNull();
   });
@@ -142,7 +142,7 @@ describe("localAssist (agent actions)", () => {
       expect.objectContaining({
         key: `action:${heroCard().id}`,
         label: "Request retro auth review",
-        detail: "Simulated · CLM-900001",
+        detail: "Simulated · 70412",
         atSecs: 130,
       }),
     ]);

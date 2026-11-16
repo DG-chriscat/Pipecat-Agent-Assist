@@ -14,11 +14,11 @@ from assist_fakes import FakeConnectors, FakeLLM
 from pipecat.transports.daily.transport import DailyOutputTransportMessageUrgentFrame
 
 INTAKE = {
-    "full_name": "Maria Alvarez",
+    "full_name": "Maria Lopez",
     "dob": "1984-03-12",
-    "member_id": "EVM100231",
+    "member_id": "418302",
     "reason": "MRI claim denied",
-    "claim_number": "CLM-900001",
+    "claim_number": "70412",
 }
 
 
@@ -33,7 +33,7 @@ class Out:
         return [f.message["data"] for f in self.frames]
 
 
-async def make(identity="verified", *, agent_joined=True, llm=None, member_id="EVM100231"):
+async def make(identity="verified", *, agent_joined=True, llm=None, member_id="418302"):
     store = MemoryCallStore()
     call_id = await store.create_call("s1")
     intake = SimpleNamespace(
@@ -76,7 +76,7 @@ async def accept(s, roles):
 async def test_accept_starts_the_engine_with_the_verified_member():
     s, roles, out, _, call_id, made = await make()
     await accept(s, roles)
-    assert made == {"call_id": call_id, "member_id": "EVM100231"}
+    assert made == {"call_id": call_id, "member_id": "418302"}
     assert [d["event"] for d in out.data()] == ["assist_status", "plan_update", "identity"]
     assert all(f.participant_id == "a1" for f in out.frames)
     assert all(f.message["label"] == "rtvi-ai" for f in out.frames)
@@ -90,7 +90,7 @@ async def test_unverified_caller_is_scoped_to_the_id_match_but_locked():
     # agent as locked tiles until the agent marks the caller verified.
     s, roles, out, store, _, made = await make("close_match")
     await accept(s, roles)
-    assert made["member_id"] == "EVM100231"
+    assert made["member_id"] == "418302"
     assert s.engine.locked is True and s.engine.agent_name == "Agent Ana"
     hero = [d for d in out.data() if d["event"] == "hero"][0]
     assert hero["card"]["kind"] == "verify"
@@ -268,12 +268,12 @@ async def test_wrap_up_inputs_carry_lines_accepted_actions_and_plan():
         ("agent", "I see the claim."),
     ]
     assert [(a.id, a.label, a.records) for a in inputs.accepted] == [
-        ("request_retro_auth_review", "Request retro auth review", ("CLM-900001",))
+        ("request_retro_auth_review", "Request retro auth review", ("70412",))
     ]
     plan = {p.id: p.done for p in inputs.plan}
     assert plan["take_next_step"] is True
     assert plan["set_expectations"] is False
-    assert inputs.intake["full_name"] == "Maria Alvarez"
+    assert inputs.intake["full_name"] == "Maria Lopez"
     await s.close()
 
 

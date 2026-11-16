@@ -8,7 +8,8 @@ identity:
   prompt: >-
     Ask for the caller's full name, date of birth, and member ID. You may ask for
     them together or one at a time. If something is unclear, ask them to repeat it
-    once. The member ID looks like three letters and six digits, for example EVM100232.
+    once. The member ID is 6 digits, usually said in two groups of three, for
+    example 418 302.
 
 reason:
   prompt: >-
@@ -56,8 +57,6 @@ allowed_connectors:
   - kb_articles
 
 keyterms:
-  - EVM
-  - PAY
   - Evergreen HMO Silver
   - Evergreen HMO Gold
   - Summit PPO Gold
@@ -79,7 +78,7 @@ card_templates:
     title: Payment history
     connector: payments
     fields: [payment_id, paid_at, amount, kind, method, status]
-  # James Chen (EVM100232): two posted premium autopay drafts in the current month.
+  # James Carter (527194): two posted premium autopay drafts in the current month.
   - id: duplicate_charge
     type: alert
     title: Possible duplicate premium charge
@@ -119,7 +118,7 @@ call_plan:
       phrases: [business days, posts back, back to your account]
 
 next_best_steps:
-  # James Chen, EVM100232: duplicate premium autopay draft this month.
+  # James Carter, 527194: duplicate premium autopay draft this month.
   - id: duplicate_premium_refund
     priority: 10
     triggers:

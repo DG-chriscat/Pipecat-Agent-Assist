@@ -10,7 +10,7 @@ ID_FIELD = {c.name: c.id_field for c in CONNECTORS}
 
 MARIA_CLAIMS = [
     {
-        "claim_id": "CLM-900001",
+        "claim_id": "70412",
         "service_date": "2026-10-13",
         "provider": "Riverside Imaging Center",
         "service": "MRI, knee, left",
@@ -22,7 +22,7 @@ MARIA_CLAIMS = [
         "processed_on": "2026-10-31",
     },
     {
-        "claim_id": "CLM-900002",
+        "claim_id": "70358",
         "service_date": "2026-09-01",
         "provider": "Lakeside Family Medicine",
         "service": "Office visit",
@@ -79,7 +79,7 @@ def default_rows() -> dict[str, list[dict[str, Any]]]:
         "claims": [dict(r) for r in MARIA_CLAIMS],
         "kb_articles": [dict(r) for r in KB],
         "payments": [dict(r) for r in PAYMENTS],
-        "members": [{"member_id": "EVM100231", "name": "Maria Alvarez"}],
+        "members": [{"member_id": "418302", "name": "Maria Lopez"}],
     }
 
 

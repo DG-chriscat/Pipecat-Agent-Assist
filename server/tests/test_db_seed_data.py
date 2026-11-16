@@ -47,13 +47,94 @@ def test_claims_include_denials_with_codes():
     assert all(c.denial_code is None for c in data.claims if c.status != "denied")
 
 
-def test_five_demo_personas_exist_in_members():
+def test_demo_personas_exist_in_members():
     data = seed.build_seed(AS_OF)
-    ids = {m.member_id for m in data.members}
-    assert len(seed.DEMO_PERSONAS) == 5
+    by_id = {m.member_id: m for m in data.members}
+    # 9 seed members; the Demos page adds a not found caller who is not a member.
+    assert len(seed.DEMO_PERSONAS) == 9
     for p in seed.DEMO_PERSONAS:
-        assert p.member_id in ids
+        m = by_id[p.member_id]
+        assert (m.first_name, m.last_name, m.dob, m.plan_id) == (
+            p.first_name,
+            p.last_name,
+            p.dob,
+            p.plan_id,
+        )
         assert p.reason
+
+
+# ---- P5-10: demo friendly IDs and names (Chris, Nov 16) ---------------------------------
+
+
+def _speakable(digits: str) -> bool:
+    """No leading 0 and no digit said twice in a row ("one one" / "double one")."""
+    return digits[0] != "0" and not any(a == b for a, b in zip(digits, digits[1:], strict=False))
+
+
+def test_member_ids_are_six_speakable_digits():
+    data = seed.build_seed(AS_OF)
+    ids = [m.member_id for m in data.members]
+    assert len(set(ids)) == len(ids)
+    for mid in ids:
+        assert mid.isdigit() and len(mid) == 6, mid
+        assert _speakable(mid), mid
+
+
+def test_member_id_groups_are_not_shared():
+    # Read as two groups of three: no two members share either group.
+    data = seed.build_seed(AS_OF)
+    ids = [m.member_id for m in data.members]
+    assert len({i[:3] for i in ids}) == len(ids)
+    assert len({i[3:] for i in ids}) == len(ids)
+
+
+def test_claim_ids_are_five_speakable_digits():
+    data = seed.build_seed(AS_OF)
+    ids = [c.claim_id for c in data.claims]
+    assert len(set(ids)) == len(ids)
+    for cid in ids:
+        assert cid.isdigit() and len(cid) == 5, cid
+        assert cid[0] != "0", cid
+    personas = {c.claim_id for c in data.claims if c.member_id in seed.PERSONA_IDS}
+    assert all(_speakable(c) for c in personas), personas
+
+
+def test_claim_ids_never_look_like_member_ids():
+    data = seed.build_seed(AS_OF)
+    members = {m.member_id for m in data.members}
+    assert not any(c.claim_id in m for c in data.claims for m in members)
+
+
+def test_only_linda_nguyen_and_aisha_patel_have_hard_names():
+    data = seed.build_seed(AS_OF)
+    hard = {
+        f"{m.first_name} {m.last_name}"
+        for m in data.members
+        if seed.syllables(m.first_name) > 2
+        or seed.syllables(m.last_name) > 2
+        or f"{m.first_name} {m.last_name}" in seed.HARD_NAMES
+    }
+    assert hard == {"Linda Nguyen", "Aisha Patel"}
+
+
+def test_one_same_name_pair_with_different_dobs():
+    data = seed.build_seed(AS_OF)
+    names: dict[str, list] = {}
+    for m in data.members:
+        names.setdefault(f"{m.first_name} {m.last_name}", []).append(m)
+    pairs = {n: ms for n, ms in names.items() if len(ms) > 1}
+    assert list(pairs) == ["Mark Hill"]
+    a, b = pairs["Mark Hill"]
+    assert a.dob != b.dob
+
+
+def test_seed_counts_are_stable():
+    data = seed.build_seed(AS_OF)
+    assert len(data.members) == 25
+    assert len(data.plans) == 6
+    assert len(data.kb_articles) == 15
+    assert len(data.prior_authorizations) == 5
+    assert len(data.referrals) == 6
 
 
 def test_all_phones_use_fictional_555_01xx_range():
@@ -68,7 +149,7 @@ def test_premium_history_covers_three_consecutive_months():
     months = {
         (p.paid_at.year, p.paid_at.month)
         for p in data.payments
-        if p.member_id == "EVM100231" and p.kind == "premium"
+        if p.member_id == "418302" and p.kind == "premium"
     }
     assert months == {(2027, 3), (2027, 2), (2027, 1)}
 

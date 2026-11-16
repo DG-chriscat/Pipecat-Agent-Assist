@@ -12,7 +12,8 @@ identity:
   prompt: >-
     Ask for the caller's full name, date of birth, and member ID. You may ask for
     them together or one at a time. If something is unclear, ask them to repeat it
-    once. The member ID looks like three letters and six digits, for example EVM100231.
+    once. The member ID is 6 digits, usually said in two groups of three, for
+    example 418 302.
 
 reason:
   prompt: >-
@@ -22,7 +23,7 @@ questions:
   - key: claim_number
     ask: Do you have the claim number? It's on your explanation of benefits.
     description: >-
-      The claim number as the caller said it, for example CLM-900001, or "unknown"
+      The claim number as the caller said it, for example 70412, or "unknown"
       if they do not have it.
   - key: service_date
     ask: About when was the service, and who was the provider?
@@ -68,11 +69,9 @@ allowed_connectors:
   - interactions
   - kb_articles
 
-# Fixed Deepgram STT keyterms (never per member): plan names, provider names, the
-# member ID prefix, claim terms, and denial codes.
+# Fixed Deepgram STT keyterms (never per member): plan names, provider names, claim
+# terms, and denial codes. IDs are digits only (P5-10), so there is no ID prefix.
 keyterms:
-  - EVM
-  - CLM
   - Evergreen HMO Silver
   - Evergreen HMO Gold
   - Summit PPO Gold
@@ -158,7 +157,7 @@ call_plan:
 # (intake.<key> or <connector>.<field> from a connector result) and the `when`
 # conditions hold. The LLM only fills the {fact} placeholders from record facts.
 next_best_steps:
-  # Maria Alvarez, CLM-900001: MRI denied CO-197 (no prior authorization).
+  # Maria Lopez, 70412: MRI denied CO-197 (no prior authorization).
   - id: retro_auth_review
     priority: 10
     triggers: [denied, denial, prior authorization, prior auth, authorization, CO-197]
@@ -181,7 +180,7 @@ next_best_steps:
     action: {id: request_retro_auth_review, label: Request retro auth review}
     source: Claims system, KB-CL-002 and KB-CL-009
 
-  # Aisha Patel, CLM-900003: stuck in pending_info, waiting on the itemized bill.
+  # Sarah Miller, 31845: stuck in pending_info, waiting on the itemized bill.
   - id: provider_info_follow_up
     priority: 8
     triggers: [still pending, pending, itemized bill, waiting, taking so long]
@@ -198,7 +197,7 @@ next_best_steps:
     action: {id: contact_provider_for_info, label: Request info from provider}
     source: Claims system, KB-CL-007
 
-  # Linda Nguyen, CLM-900005: denied CO-242 (out of network).
+  # Linda Nguyen, 52976: denied CO-242 (out of network).
   - id: out_of_network_appeal
     priority: 6
     triggers: [out of network, network, CO-242, appeal, denied]
@@ -216,7 +215,7 @@ next_best_steps:
     action: {id: start_network_appeal, label: Start an appeal}
     source: Claims system, KB-CL-003 and KB-CL-008
 
-  # Daniel Okafor, PA-500101: knee surgery prior auth pending clinical notes.
+  # Ben Cole, PA-500101: knee surgery prior auth pending clinical notes.
   - id: prior_auth_pending
     priority: 5
     triggers: [prior authorization, prior auth, authorization, approved yet, surgery]

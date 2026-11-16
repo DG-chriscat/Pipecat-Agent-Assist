@@ -33,7 +33,7 @@ describe("TranscriptColumn (P3-4)", () => {
   it("each line has an avatar: caller initials (copper), agent You (LED tint, muted text)", () => {
     render(
       <TranscriptColumn
-        callerName="Maria Alvarez"
+        callerName="Maria Lopez"
         lines={[line("caller-1", "caller", "I already called."), line("agent-1", "agent", "I'm sorry.")]}
         highlights={[]}
       />,

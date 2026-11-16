@@ -23,7 +23,7 @@ pytestmark = pytest.mark.skipif(not os.environ.get("DATABASE_URL"), reason="DATA
 AS_OF = dt.date(2026, 11, 15)
 NOW = dt.datetime(2026, 11, 15, 12, 0, tzinfo=dt.UTC)
 ROOM_URL = "https://dg-chriscat.daily.co/caller-abc"
-NO_HISTORY_ID = "EVM199901"
+NO_HISTORY_ID = "591736"
 
 
 @pytest.fixture
@@ -111,12 +111,12 @@ async def member_of(schema, kind, ref) -> str:
 
 
 async def test_maria_repeat_caller_last_three_events(repo):
-    h = await repo.lookup("EVM100231")
+    h = await repo.lookup("418302")
     assert h.member == {
-        "member_id": "EVM100231",
+        "member_id": "418302",
         "first_name": "Maria",
-        "last_name": "Alvarez",
-        "name": "Maria Alvarez",
+        "last_name": "Lopez",
+        "name": "Maria Lopez",
         "dob": "1984-03-12",
         "plan_id": "PLN-HMO-SILVER",
         "plan_name": "Evergreen HMO Silver",
@@ -126,7 +126,7 @@ async def test_maria_repeat_caller_last_three_events(repo):
     assert [(e["kind"], e["ref"], e["occurred_on"]) for e in h.recent_events] == [
         ("call", "INT-000001", "2026-11-09"),
         ("call", "INT-000002", "2026-10-31"),
-        ("claim", "CLM-900001", "2026-10-30"),
+        ("claim", "70412", "2026-10-30"),
     ]
     denied = h.recent_events[2]
     assert denied["status"] == "denied"
@@ -135,17 +135,17 @@ async def test_maria_repeat_caller_last_three_events(repo):
 
 
 async def test_james_chen_not_repeat_and_no_twin_leak(repo, schema):
-    h = await repo.lookup("EVM100232")
+    h = await repo.lookup("527194")
     assert h.member["dob"] == "1979-07-04"
     assert h.member["plan_name"] == "Summit PPO Gold"
     assert h.calls_30d == 0
     for e in h.recent_events:
-        assert await member_of(schema, e["kind"], e["ref"]) == "EVM100232"
-    assert "INT-000010" not in {e["ref"] for e in h.recent_events}  # the other James Chen
+        assert await member_of(schema, e["kind"], e["ref"]) == "527194"
+    assert "INT-000010" not in {e["ref"] for e in h.recent_events}  # the other Mark Hill
 
 
 async def test_referral_events_are_included(repo):
-    h = await repo.lookup("EVM100306")  # pending cardiology referral 5 days ago
+    h = await repo.lookup("758513")  # pending cardiology referral 5 days ago
     first = h.recent_events[0]
     assert (first["kind"], first["ref"], first["status"]) == ("referral", "REF-700005", "pending")
     assert first["summary"] == "referral to Northgate Cardiology, pending"
@@ -159,7 +159,7 @@ async def test_member_with_no_history(repo):
 
 
 async def test_unknown_member_is_none(repo):
-    assert await repo.lookup("EVM000000") is None
+    assert await repo.lookup("999999") is None
 
 
 async def test_events_never_belong_to_another_member(repo, schema):
@@ -175,20 +175,20 @@ async def test_events_never_belong_to_another_member(repo, schema):
 
 
 async def test_endpoint_verified_repeat_caller_maria(app):
-    intake = {"full_name": "Maria Alvarez", "member_id": "EVM100231", "reason": "MRI denied"}
-    client, agent_id = await accepted(app, intake, verified("EVM100231"))
+    intake = {"full_name": "Maria Lopez", "member_id": "418302", "reason": "MRI denied"}
+    client, agent_id = await accepted(app, intake, verified("418302"))
     body = client.get("/calls/s1/caller", params={"agent_id": agent_id}).json()
     assert body["not_verified"] is False
-    assert body["member"]["name"] == "Maria Alvarez"
+    assert body["member"]["name"] == "Maria Lopez"
     assert body["calls_30d"] == 2
     assert body["repeat_caller"] is True
     assert body["wait_secs"] == 95.0
-    assert [e["ref"] for e in body["recent_events"]] == ["INT-000001", "INT-000002", "CLM-900001"]
+    assert [e["ref"] for e in body["recent_events"]] == ["INT-000001", "INT-000002", "70412"]
 
 
 async def test_endpoint_aisha_repeat_caller(app):
-    intake = {"full_name": "Aisha Patel", "member_id": "EVM100233", "reason": "Claim pending"}
-    client, agent_id = await accepted(app, intake, verified("EVM100233"))
+    intake = {"full_name": "Sarah Miller", "member_id": "639251", "reason": "Claim pending"}
+    client, agent_id = await accepted(app, intake, verified("639251"))
     body = client.get("/calls/s1/caller", params={"agent_id": agent_id}).json()
     assert body["repeat_caller"] is True
     assert body["calls_30d"] == 2
@@ -197,15 +197,15 @@ async def test_endpoint_aisha_repeat_caller(app):
 async def test_endpoint_not_verified_daniel_returns_intake_only(app):
     """Daniel gives a wrong DOB: not_verified. His claimed id must not be looked up."""
     intake = {
-        "full_name": "Daniel Okafor",
+        "full_name": "Ben Cole",
         "dob": "1990-06-17",
-        "member_id": "EVM100235",
+        "member_id": "852617",
         "reason": "Knee surgery prior auth status",
     }
     info = IntakeInfo(
         outcome="completed",
         identity_result="not_verified",
-        member_id="EVM100235",
+        member_id="852617",
         flags=("identity_not_verified",),
     )
     client, agent_id = await accepted(app, intake, info)
@@ -231,17 +231,17 @@ async def test_endpoint_no_history_member(app):
 
 async def test_endpoint_two_calls_do_not_cross(app):
     """Two accepted calls: each agent sees only their own caller."""
-    maria = {"full_name": "Maria Alvarez", "member_id": "EVM100231", "reason": "MRI denied"}
-    linda = {"full_name": "Linda Nguyen", "member_id": "EVM100234", "reason": "EOB question"}
-    client, maria_agent = await accepted(app, maria, verified("EVM100231"), "s1")
+    maria = {"full_name": "Maria Lopez", "member_id": "418302", "reason": "MRI denied"}
+    linda = {"full_name": "Linda Nguyen", "member_id": "741526", "reason": "EOB question"}
+    client, maria_agent = await accepted(app, maria, verified("418302"), "s1")
     queue_api.get_queue(app).register_session("s2", "https://dg-chriscat.daily.co/caller-def")
-    _, linda_agent = await accepted(app, linda, verified("EVM100234"), "s2")
+    _, linda_agent = await accepted(app, linda, verified("741526"), "s2")
 
     m = client.get("/calls/s1/caller", params={"agent_id": maria_agent})
     n = client.get("/calls/s2/caller", params={"agent_id": linda_agent})
-    assert m.json()["member"]["member_id"] == "EVM100231"
-    assert n.json()["member"]["member_id"] == "EVM100234"
-    assert "EVM100234" not in m.text and "Linda" not in m.text
-    assert "EVM100231" not in n.text and "Maria" not in n.text
+    assert m.json()["member"]["member_id"] == "418302"
+    assert n.json()["member"]["member_id"] == "741526"
+    assert "741526" not in m.text and "Linda" not in m.text
+    assert "418302" not in n.text and "Maria" not in n.text
     cross = client.get("/calls/s2/caller", params={"agent_id": maria_agent})
     assert cross.status_code == 403

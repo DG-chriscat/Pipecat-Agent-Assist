@@ -9,7 +9,7 @@ Needs DAILY_API_KEY, DEEPGRAM_API_KEY, ANTHROPIC_API_KEY, DATABASE_URL.
 P3_SCREENSHOT_DIR (optional) keeps the 1600x1000 mid call screenshot.
 
 Same setup as test_portal_call_live.py: the real server starts the bot, a daily-python
-caller (S1 harness) finishes intake as Maria Alvarez, the built portal in headless
+caller (S1 harness) finishes intake as Maria Lopez, the built portal in headless
 Chromium goes available and accepts with Enter. Then caller and agent alternate 6
 turns. The caller talks through the harness; the agent talks through the portal's own
 microphone: getUserMedia is stubbed with a WebAudio stream so the test can play
@@ -50,7 +50,7 @@ from agent_assist_server.bot_launcher import BotLauncher
 from agent_assist_server.daily import DailyRestClient
 from agent_assist_server.portal import DEFAULT_DIST
 from harness.audio import find_speech_segments
-from harness.intake_script import MARIA_ALVAREZ as INTAKE
+from harness.intake_script import MARIA_LOPEZ as INTAKE
 from harness.intake_script import next_line
 from harness.participant import SAMPLE_RATE, HarnessParticipant
 from harness.tts import synthesize

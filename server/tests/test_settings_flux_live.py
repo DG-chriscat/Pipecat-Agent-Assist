@@ -12,7 +12,7 @@ schema is migrated, seeded, and dropped; settings persist in it, SETTINGS_PERSIS
    hold message every 8 s; a greeting without the AI disclosure is refused first
    (screenshot). Save.
 2. A browser call (POST /calls/browser), a daily-python caller answering intake as
-   Maria Alvarez. The bot's own log (`[settings]`, `[timing]`) is kept in a file.
+   Maria Lopez. The bot's own log (`[settings]`, `[timing]`) is kept in a file.
 3. Checks: the bot built Flux with the saved voice; the greeting heard is the saved
    one; intake reaches the queue; the saved hold message plays over the music; a
    websocket agent accepts and "Connecting you now." is heard. Timings printed.
@@ -42,7 +42,7 @@ from agent_assist_bot.timing import parse_timing
 from agent_assist_server.app import app
 from agent_assist_server.bot_launcher import BotLauncher, build_bot_command
 from agent_assist_server.daily import DailyRestClient
-from harness.intake_script import MARIA_ALVAREZ as SCRIPT
+from harness.intake_script import MARIA_LOPEZ as SCRIPT
 from harness.intake_script import next_line
 from harness.participant import SAMPLE_RATE, HarnessParticipant
 from harness.tts import synthesize

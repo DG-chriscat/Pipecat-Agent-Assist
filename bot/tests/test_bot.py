@@ -449,7 +449,7 @@ def test_medical_assist_branches_run_nova_3_medical(api_keys):
 def test_keyterms_are_deduped_across_packs():
     terms = bot.listen_keyterms(load_packs())
     assert len(terms) == len(set(t.lower() for t in terms))
-    assert "EVM" in terms
+    assert "Evergreen HMO Silver" in terms and "EVM" not in terms
 
 
 def test_listen_branch_finals_reach_transcript_store_and_assist(api_keys):
@@ -498,7 +498,7 @@ def test_intake_stt_uses_the_active_pack_keyterms(api_keys, model):
     )
     assert intake_stt._settings.model == model
     assert intake_stt._settings.keyterm == pack.keyterms
-    assert "EVM" in intake_stt._settings.keyterm
+    assert "Riverside Imaging Center" in intake_stt._settings.keyterm
 
 
 class FakeForwarder:

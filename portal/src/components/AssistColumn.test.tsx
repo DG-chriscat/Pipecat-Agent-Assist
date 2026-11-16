@@ -73,7 +73,7 @@ describe("AssistColumn hero (DESIGN.md Assist column, docs/assist.md)", () => {
     expect(within(h).getByText("Next best step")).toBeInTheDocument();
     expect(within(h).getByText("AI suggested")).toBeInTheDocument();
     expect(within(h).getByText('Heard "denied"')).toBeInTheDocument();
-    expect(within(h).getByRole("heading", { name: /Start a retro authorization review for CLM-900001/ })).toBeInTheDocument();
+    expect(within(h).getByRole("heading", { name: /Start a retro authorization review for 70412/ })).toBeInTheDocument();
     expect(within(h).getByText(/was denied CO-197 because no prior authorization/)).toBeInTheDocument();
     expect(within(h).getByText("Say this")).toBeInTheDocument();
     expect(within(h).getByText(/I can open a retro authorization review today/)).toBeInTheDocument();
@@ -100,10 +100,10 @@ describe("AssistColumn hero (DESIGN.md Assist column, docs/assist.md)", () => {
     expect(within(hero()).getByRole("button", { name: "Hide why" })).toHaveAttribute("aria-expanded", "true");
     expect(within(more).getByText("So why did my MRI claim get")).toBeInTheDocument();
     expect(within(more).getByText("denied", { selector: "mark" })).toBeInTheDocument();
-    expect(within(more).getByText("CLM-900001", { selector: "dd" })).toBeInTheDocument();
+    expect(within(more).getByText("70412", { selector: "dd" })).toBeInTheDocument();
     expect(within(more).getByText("$1,240")).toBeInTheDocument();
     expect(within(more).getByText("Riverside Imaging Center")).toBeInTheDocument();
-    expect(within(more).getByText(/claims · CLM-900001/)).toBeInTheDocument();
+    expect(within(more).getByText(/claims · 70412/)).toBeInTheDocument();
   });
 
   it("the primary action accepts; Not now dismisses", () => {
@@ -198,13 +198,13 @@ describe("AssistColumn shelf (supporting cards)", () => {
     expect(within(tile).getByTestId("tile-big")).toHaveTextContent("$1,240");
     expect(within(tile).getByText("AI suggested")).toBeInTheDocument();
     expect(within(tile).getByTestId("tile-source")).toHaveTextContent("Claims system");
-    expect(within(tile).getByText(/CLM-900001 MRI lumbar spine denied CO-197/)).toBeInTheDocument();
+    expect(within(tile).getByText(/70412 MRI lumbar spine denied CO-197/)).toBeInTheDocument();
   });
 
   it("a multi row record shows a table of claims", () => {
     const rows = [
-      { claim_id: "CLM-900001", service_date: "2026-10-28", billed_amount: 1240, status: "denied" },
-      { claim_id: "CLM-900002", service_date: "2026-09-02", billed_amount: 180.5, status: "paid" },
+      { claim_id: "70412", service_date: "2026-10-28", billed_amount: 1240, status: "denied" },
+      { claim_id: "70358", service_date: "2026-09-02", billed_amount: 180.5, status: "paid" },
     ];
     const card = recordCard({
       id: "card:claims_table",
@@ -485,7 +485,7 @@ describe("AssistColumn Ask bar (P4-6, AP-8)", () => {
     expect(within(tile).getByTestId("tile-big")).toHaveTextContent("2 claims");
     expect(within(tile).getAllByRole("row")).toHaveLength(3);
     expect(within(tile).getByTestId("tile-source")).toHaveTextContent("Claims system");
-    expect(within(tile).getByTestId("tile-source")).toHaveAttribute("title", "CLM-900001, CLM-900002");
+    expect(within(tile).getByTestId("tile-source")).toHaveAttribute("title", "70412, 70358");
     expect(within(region).queryByRole("status")).not.toBeInTheDocument();
   });
 });
@@ -499,7 +499,7 @@ describe("AssistColumn Earlier this call", () => {
     const hist = within(region).getByRole("list", { name: "Earlier this call" });
     const rows = within(hist).getAllByRole("listitem");
     expect(rows.map((r) => r.textContent)).toEqual([
-      expect.stringMatching(/Request retro auth review.*Simulated · CLM-900001.*02:10/),
+      expect.stringMatching(/Request retro auth review.*Simulated · 70412.*02:10/),
       expect.stringMatching(/Confirm which claim the caller means.*00:48/),
     ]);
   });
@@ -628,6 +628,6 @@ describe("AssistColumn locked tiles (IN-13)", () => {
     s = applyAssist(s, parseAssistMessage(msg("card_added", { card: recordCard() }))!, 9);
     const { region } = setup(s);
     expect(within(region).queryByText("Verify the caller to see records")).not.toBeInTheDocument();
-    expect(within(region).getByTestId("tile-card:denied_claim")).toHaveTextContent("CLM-900001");
+    expect(within(region).getByTestId("tile-card:denied_claim")).toHaveTextContent("70412");
   });
 });

@@ -50,11 +50,14 @@ MIN_SENTENCES = 3
 MAX_SENTENCES = 5
 # Intake keys whose values never reach the LLM or the summary.
 PRIVATE_INTAKE_KEYS = ("dob", "member_id")
-# Record ids worth quoting: CLM-900001, PA-500101, PAY-000123. Not KB-CL-002 (an
-# article, not a reference) and not a member ID (no dash).
-_REF = re.compile(r"\b[A-Z]{2,4}-\d{4,}\b")
-# Any id-shaped token, including a short one (CLM-900), for fix_references.
-_PARTIAL_REF = re.compile(r"\b[A-Z]{2,4}-\d+\b")
+# Record ids worth quoting: claim numbers (70412, 5 digits, P5-10) and the internal
+# ids PA-500101, PAY-000123. Not KB-CL-002 (an article, not a reference), not a
+# member ID (6 digits), and not an amount ($70412) or a decimal.
+_REF = re.compile(r"(?<![\w$.,-])(?:\d{5}|[A-Z]{2,4}-\d{4,})(?![\w]|[.,]\d)")
+# Any id-shaped token, including a short one (704, PA-5001), for fix_references.
+_PARTIAL_REF = re.compile(r"(?<![\w$.,-])(?:\d{3,4}|[A-Z]{2,4}-\d+)(?![\w%]|[.,]\d)")
+# A claim number said in two groups ("70 412"), for fix_references.
+_GROUPED_REF = re.compile(r"(?<![\w$.,-])(\d{2,3})[ -](\d{3})(?![\w]|[.,]\d)")
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[A-Z0-9\"'(])")
 
 SYSTEM = """\
@@ -102,11 +105,16 @@ class WrapUpInputs:
     plan: Sequence[PlanStepState] = ()
 
     def private_values(self) -> list[str]:
-        return [
-            str(self.intake[k]).strip()
-            for k in PRIVATE_INTAKE_KEYS
-            if str(self.intake.get(k) or "").strip()
-        ]
+        out: list[str] = []
+        for k in PRIVATE_INTAKE_KEYS:
+            v = str(self.intake.get(k) or "").strip()
+            if not v:
+                continue
+            out.append(v)
+            if k == "member_id" and len(v) == 6 and v.isdigit():
+                # Said in two groups of three (P5-10): 418 302, 418-302.
+                out += [f"{v[:3]} {v[3:]}", f"{v[:3]}-{v[3:]}"]
+        return out
 
 
 @dataclass(frozen=True)
@@ -170,8 +178,13 @@ def reference_numbers(inputs: WrapUpInputs) -> list[str]:
 
 
 def fix_references(text: str, known: Sequence[str]) -> str:
-    """Expand a partial reference (CLM-900, heard short at intake) to the one known
-    record id it is a prefix of. Unknown or ambiguous ids are left alone."""
+    """Expand a partial reference (704, heard short at intake) to the one known
+    record id it is a prefix of, and join one said in groups (70 412). Unknown or
+    ambiguous ids are left alone."""
+
+    def grouped(m: re.Match) -> str:
+        joined = m.group(1) + m.group(2)
+        return joined if joined in known else m.group(0)
 
     def repl(m: re.Match) -> str:
         ref = m.group(0)
@@ -180,7 +193,7 @@ def fix_references(text: str, known: Sequence[str]) -> str:
         hits = [k for k in known if k.startswith(ref)]
         return hits[0] if len(hits) == 1 else ref
 
-    return _PARTIAL_REF.sub(repl, text)
+    return _PARTIAL_REF.sub(repl, _GROUPED_REF.sub(grouped, text))
 
 
 def _action_text(a: AcceptedAction) -> str:

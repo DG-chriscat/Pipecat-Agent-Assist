@@ -340,13 +340,13 @@ def test_declined_timer_does_not_fire_later(svc, clock):
 
 async def test_accept_mints_token_for_room_and_returns_summary(svc, clock, minter):
     a = available_agent(svc, clock, "Ana")
-    enqueue(svc, 1, {"reason": "claim denied", "member_id": "EVM100231"})
+    enqueue(svc, 1, {"reason": "claim denied", "member_id": "418302"})
     res = await svc.accept(a.agent_id, "s1")
     assert minter.calls == [("caller-1", "Ana")]
     assert res.session_id == "s1"
     assert res.room_url == room(1)
     assert res.expires_at == 9999
-    assert res.summary == {"reason": "claim denied", "member_id": "EVM100231"}
+    assert res.summary == {"reason": "claim denied", "member_id": "418302"}
     accepted = [e for e in svc.events if e["type"] == "call_accepted"]
     assert accepted[0]["agent_id"] == a.agent_id
     assert accepted[0]["call"]["room_name"] == "caller-1"

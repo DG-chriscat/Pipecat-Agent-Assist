@@ -58,10 +58,10 @@ const ana: Agent = {
 };
 
 const summary = {
-  full_name: "Maria Alvarez",
+  full_name: "Maria Lopez",
   dob: "1984-03-12",
-  member_id: "EVM100231",
-  claim_number: "CLM-900001",
+  member_id: "418302",
+  claim_number: "70412",
   reason: "Caller asking why her MRI claim was denied",
   summary: "MRI claim was denied. She expected it to be covered and has the referral.",
   identity_checks: ["full_name", "dob", "member_id"],
@@ -74,7 +74,7 @@ const call: Call = {
   summary,
   outcome: "completed",
   identity_result: "verified",
-  member_id: "EVM100231",
+  member_id: "418302",
   flags: [],
   status: "queued",
   queued_at: NOW - 7,
@@ -93,10 +93,10 @@ const details: CallerDetails = {
   intake: summary,
   wait_secs: 102,
   member: {
-    member_id: "EVM100231",
-    name: "Maria Alvarez",
+    member_id: "418302",
+    name: "Maria Lopez",
     first_name: "Maria",
-    last_name: "Alvarez",
+    last_name: "Lopez",
     dob: "1984-03-12",
     plan_id: "PLN-HMO-SILVER",
     plan_name: "Evergreen HMO Silver",
@@ -114,7 +114,7 @@ const details: CallerDetails = {
     },
     {
       kind: "claim",
-      ref: "CLM-900001",
+      ref: "70412",
       occurred_on: "2026-10-30",
       status: "denied",
       summary: "MRI, knee, left claim denied, CO-197",
@@ -126,7 +126,7 @@ const wrapInfo: WrapUpInfo = {
   session_id: "s1",
   status: "ended",
   ended_by: "agent",
-  caller_name: "Maria Alvarez",
+  caller_name: "Maria Lopez",
   reason: "Caller asking why her MRI claim was denied",
   identity_result: "verified",
   duration_secs: 252,
@@ -253,7 +253,7 @@ function inCallProps(over: Partial<InCallProps>): InCallProps {
   return {
     shell: { name: "Agent Ana", online: true, theme: t, onTheme: setT, onSignOut: () => {} },
     caller: callerInfo({ summary, identity_result: "verified" }),
-    memberId: "EVM100231",
+    memberId: "418302",
     intake: summary,
     waitSecs: 102,
     details,
@@ -334,7 +334,7 @@ const SCREENS: Record<string, () => ReactNode> = {
       ack: { card: heroCard(), outcome: "accepted" },
       history: [
         ...s.history,
-        { key: "action:x", label: "Request retro auth review", detail: "Simulated · CLM-900001", atSecs: 190 },
+        { key: "action:x", label: "Request retro auth review", detail: "Simulated · 70412", atSecs: 190 },
       ],
       gone: [heroCard().id],
     };
@@ -361,7 +361,7 @@ const SCREENS: Record<string, () => ReactNode> = {
     <InCall
       {...inCallProps({
         caller: { ...callerInfo({ summary, identity_result: "close_match" }), name: "Linda Yuen" },
-        memberId: "EVM100234",
+        memberId: "741526",
         intake: { ...summary, full_name: "Linda Yuen", identity_checks: ["dob", "member_id"] },
         details: { ...details, identity_result: "close_match", not_verified: true, member: null, calls_30d: null, repeat_caller: false, recent_events: [] },
         transcript: LINES.slice(0, 1),
@@ -379,13 +379,13 @@ const SCREENS: Record<string, () => ReactNode> = {
     <InCall
       {...inCallProps({
         caller: { ...callerInfo({ summary, identity_result: "close_match" }), name: "Linda Yuen" },
-        memberId: "EVM100234",
+        memberId: "741526",
         intake: { ...summary, full_name: "Linda Yuen", identity_checks: ["dob", "member_id"] },
         details: {
           ...details,
           identity_result: "close_match",
           identity_decision: { decision: "verified", agent_id: "agent-1", agent_name: "Agent Ana", at: NOW },
-          member: { ...details.member!, member_id: "EVM100234", name: "Linda Nguyen", first_name: "Linda", last_name: "Nguyen", dob: "1958-01-30" },
+          member: { ...details.member!, member_id: "741526", name: "Linda Nguyen", first_name: "Linda", last_name: "Nguyen", dob: "1958-04-22" },
         },
         transcript: LINES.slice(0, 1),
         assist: {

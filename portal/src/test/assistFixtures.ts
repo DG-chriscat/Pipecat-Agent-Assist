@@ -3,7 +3,7 @@ import type { AssistCard, PlanStep } from "../state/assist";
 
 export function heroCard(over: Partial<AssistCard> = {}): AssistCard {
   return {
-    id: "nbs:retro_auth_review:CLM-900001",
+    id: "nbs:retro_auth_review:70412",
     kind: "next_step",
     title: "Next best step",
     pack_id: "claims_status",
@@ -21,13 +21,13 @@ export function heroCard(over: Partial<AssistCard> = {}): AssistCard {
     },
     source: {
       label: "Claims system, KB-CL-002 and KB-CL-009",
-      records: [{ connector: "claims", id: "CLM-900001" }],
+      records: [{ connector: "claims", id: "70412" }],
     },
     rule_id: "retro_auth_review",
     template_id: null,
     body: {
-      headline: "Start a retro authorization review for CLM-900001",
-      why: "CLM-900001 (MRI lumbar spine) was denied CO-197 because no prior authorization was on file.",
+      headline: "Start a retro authorization review for 70412",
+      why: "70412 (MRI lumbar spine) was denied CO-197 because no prior authorization was on file.",
       script: "I see why this happened. I can open a retro authorization review today.",
       action: { id: "request_retro_auth_review", label: "Request retro auth review" },
     },
@@ -45,14 +45,14 @@ export function recordCard(over: Partial<AssistCard> = {}): AssistCard {
     ai_suggested: true,
     locked: false,
     trigger: heroCard().trigger,
-    source: { label: "Claims system", records: [{ connector: "claims", id: "CLM-900001" }] },
+    source: { label: "Claims system", records: [{ connector: "claims", id: "70412" }] },
     rule_id: null,
     template_id: "denied_claim",
     body: {
       fields: ["claim_id", "service_date", "provider", "service", "billed_amount", "denial_code"],
       rows: [
         {
-          claim_id: "CLM-900001",
+          claim_id: "70412",
           service_date: "2026-10-28",
           provider: "Riverside Imaging Center",
           service: "MRI lumbar spine",
@@ -60,7 +60,7 @@ export function recordCard(over: Partial<AssistCard> = {}): AssistCard {
           denial_code: "CO-197",
         },
       ],
-      summary: "CLM-900001 MRI lumbar spine denied CO-197: no prior authorization",
+      summary: "70412 MRI lumbar spine denied CO-197: no prior authorization",
     },
     ...over,
   };
@@ -121,8 +121,8 @@ export function askCard(over: Partial<AssistCard> = {}): AssistCard {
     source: {
       label: "Claims system",
       records: [
-        { connector: "claims", id: "CLM-900001" },
-        { connector: "claims", id: "CLM-900002" },
+        { connector: "claims", id: "70412" },
+        { connector: "claims", id: "70358" },
       ],
     },
     rule_id: null,
@@ -131,7 +131,7 @@ export function askCard(over: Partial<AssistCard> = {}): AssistCard {
       fields: ["claim_id", "service_date", "provider", "service", "billed_amount", "status", "denial_code"],
       rows: [
         {
-          claim_id: "CLM-900001",
+          claim_id: "70412",
           service_date: "2026-10-13",
           provider: "Riverside Imaging Center",
           service: "MRI, knee, left",
@@ -140,7 +140,7 @@ export function askCard(over: Partial<AssistCard> = {}): AssistCard {
           denial_code: "CO-197",
         },
         {
-          claim_id: "CLM-900002",
+          claim_id: "70358",
           service_date: "2026-09-07",
           provider: "Lakeside Family Medicine",
           service: "Office visit, established patient",

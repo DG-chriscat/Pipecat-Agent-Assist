@@ -122,7 +122,7 @@ The current caller's member record with plan.
 - `payments_search`: `kind` (premium, copay, claim_balance, refund), `status`
   (posted, pending, reversed), `method` (card, bank, check, autopay), `paid_from`,
   `paid_to` (dates, inclusive), `limit`. Newest first.
-- `payments_get`: `payment_id`, e.g. `PAY-000064`.
+- `payments_get`: `payment_id`, e.g. `PAY-000067`.
 - Fields: `payment_id`, `paid_at`, `amount`, `kind`, `method`, `status`, `reference`.
 
 ### Referrals (source: Referral system, scoped)

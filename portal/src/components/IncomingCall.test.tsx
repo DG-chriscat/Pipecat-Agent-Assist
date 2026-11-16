@@ -7,10 +7,10 @@ const call: Call = {
   session_id: "s1",
   room_url: "https://x.daily.co/r1",
   room_name: "r1",
-  summary: { full_name: "Maria Alvarez", reason: "MRI claim from Oct 28 was denied", summary: "Denied MRI claim" },
+  summary: { full_name: "Maria Lopez", reason: "MRI claim from Oct 28 was denied", summary: "Denied MRI claim" },
   outcome: "completed",
   identity_result: "verified",
-  member_id: "EVM100231",
+  member_id: "418302",
   flags: [],
   status: "queued",
   queued_at: 1000,
@@ -39,7 +39,7 @@ describe("IncomingCall (AP-3)", () => {
   it("shows caller name, verified status, reason, and wait time", () => {
     setup();
     const card = screen.getByRole("dialog", { name: /incoming call/i });
-    expect(card).toHaveTextContent("Maria Alvarez");
+    expect(card).toHaveTextContent("Maria Lopez");
     expect(card).toHaveTextContent("Verified");
     expect(card).toHaveTextContent("MRI claim from Oct 28 was denied");
     // queued at 1000, now 1102: waited 1 min 42 s

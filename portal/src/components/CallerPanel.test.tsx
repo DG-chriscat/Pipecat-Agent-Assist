@@ -5,13 +5,13 @@ import type { MoodState } from "../state/assist";
 import { reading } from "../test/assistFixtures";
 import { CallerPanel, type CallerPanelProps } from "./CallerPanel";
 
-/** Accept summary for demo persona Maria Alvarez (docs/db.md). */
+/** Accept summary for demo persona Maria Lopez (docs/db.md). */
 const mariaIntake = {
-  full_name: "Maria Alvarez",
+  full_name: "Maria Lopez",
   dob: "1984-03-12",
-  member_id: "EVM100231",
+  member_id: "418302",
   reason: "MRI claim denied",
-  claim_number: "CLM-900001",
+  claim_number: "70412",
   summary: "MRI claim was denied. She expected it to be covered.",
 };
 
@@ -24,10 +24,10 @@ const mariaDetails: CallerDetails = {
   intake: mariaIntake,
   wait_secs: 102,
   member: {
-    member_id: "EVM100231",
-    name: "Maria Alvarez",
+    member_id: "418302",
+    name: "Maria Lopez",
     first_name: "Maria",
-    last_name: "Alvarez",
+    last_name: "Lopez",
     dob: "1984-03-12",
     plan_id: "PLN-HMO-SILVER",
     plan_name: "Evergreen HMO Silver",
@@ -52,7 +52,7 @@ const mariaDetails: CallerDetails = {
     },
     {
       kind: "claim",
-      ref: "CLM-900001",
+      ref: "70412",
       occurred_on: "2026-10-30",
       status: "denied",
       summary: "MRI, knee, left claim denied, CO-197",
@@ -61,9 +61,9 @@ const mariaDetails: CallerDetails = {
 };
 
 const danielIntake = {
-  full_name: "Daniel Okafor",
+  full_name: "Ben Cole",
   dob: "1990-06-17",
-  member_id: "EVM100235",
+  member_id: "852617",
   reason: "Knee surgery prior auth status",
   summary: "Asks about knee surgery authorization.",
 };
@@ -85,13 +85,13 @@ const danielDetails: CallerDetails = {
 function setup(over: Partial<CallerPanelProps> = {}) {
   const props: CallerPanelProps = {
     caller: {
-      name: "Maria Alvarez",
+      name: "Maria Lopez",
       verified: "verified",
       identity: "verified",
       reason: "MRI claim denied",
       summary: mariaIntake.summary,
     },
-    memberId: "EVM100231",
+    memberId: "418302",
     intake: { ...mariaIntake, identity_checks: ["full_name", "dob", "member_id"] },
     waitSecs: 102,
     details: null,
@@ -110,13 +110,13 @@ const row = (panel: HTMLElement, term: string) => {
 
 const daniel = {
   caller: {
-    name: "Daniel Okafor",
+    name: "Ben Cole",
     verified: "not_verified" as const,
     identity: "not_verified" as const,
     reason: danielIntake.reason,
     summary: danielIntake.summary,
   },
-  memberId: "EVM100235",
+  memberId: "852617",
   intake: { ...danielIntake, identity_checks: ["full_name", "member_id"] },
   waitSecs: 40,
   details: danielDetails,
@@ -126,12 +126,12 @@ const daniel = {
 describe("CallerPanel (AP-5, AP-13, AP-17, AP-18, DESIGN.md caller panel)", () => {
   it("fills from the accept summary at once, before the history arrives", () => {
     const { panel } = setup();
-    expect(within(panel).getByRole("heading", { name: "Maria Alvarez" })).toBeInTheDocument();
+    expect(within(panel).getByRole("heading", { name: "Maria Lopez" })).toBeInTheDocument();
     expect(within(panel).getByTestId("phi-member_id")).toHaveTextContent("••••31");
     const quote = within(panel).getByTestId("why");
     expect(quote).toHaveTextContent("In their words");
     expect(quote).toHaveTextContent("MRI claim denied");
-    expect(row(panel, "Claim")).toHaveTextContent("CLM-900001");
+    expect(row(panel, "Claim")).toHaveTextContent("70412");
     expect(row(panel, "Waited")).toHaveTextContent("1:42");
     expect(within(panel).getByTestId("history")).toHaveTextContent(/loading/i);
   });
@@ -144,7 +144,7 @@ describe("CallerPanel (AP-5, AP-13, AP-17, AP-18, DESIGN.md caller panel)", () =
     const id = within(panel).getByTestId("caller-id");
     expect(id).toHaveTextContent("Evergreen HMO Silver");
     expect(id).toHaveTextContent("••••31");
-    expect(id).not.toHaveTextContent("EVM100231");
+    expect(id).not.toHaveTextContent("418302");
     expect(row(panel, "Born")).toHaveTextContent("••/••/1984");
     expect(row(panel, "Born")).not.toHaveTextContent("Mar 12");
     expect(row(panel, "Claim")).toHaveClass("mono");
@@ -153,7 +153,7 @@ describe("CallerPanel (AP-5, AP-13, AP-17, AP-18, DESIGN.md caller panel)", () =
   it("Reveal shows the member ID and DOB and asks the parent to log each reveal (AP-17)", () => {
     const { panel, props } = setup({ details: mariaDetails, detailsState: "ready" });
     fireEvent.click(within(panel).getByRole("button", { name: "Reveal member ID" }));
-    expect(within(panel).getByTestId("phi-member_id")).toHaveTextContent("EVM100231");
+    expect(within(panel).getByTestId("phi-member_id")).toHaveTextContent("418302");
     fireEvent.click(within(panel).getByRole("button", { name: "Reveal date of birth" }));
     expect(row(panel, "Born")).toHaveTextContent("Mar 12, 1984");
     expect(props.onRevealPhi).toHaveBeenNthCalledWith(1, "member_id");
@@ -231,7 +231,7 @@ describe("CallerPanel (AP-5, AP-13, AP-17, AP-18, DESIGN.md caller panel)", () =
 
   it("not verified (Daniel): intake data only, a warning, no member record or history", () => {
     const { panel } = setup(daniel);
-    expect(within(panel).getByRole("heading", { name: "Daniel Okafor" })).toBeInTheDocument();
+    expect(within(panel).getByRole("heading", { name: "Ben Cole" })).toBeInTheDocument();
     expect(within(panel).getByTestId("caller-id")).toHaveTextContent("Not verified");
     expect(within(panel).getByTestId("caller-id")).not.toHaveTextContent("Harbor");
     expect(within(panel).getByTestId("phi-member_id")).toHaveTextContent("••••35");
@@ -261,7 +261,7 @@ describe("CallerPanel (AP-5, AP-13, AP-17, AP-18, DESIGN.md caller panel)", () =
 
   it("history error keeps the summary and says history is unavailable", () => {
     const { panel } = setup({ details: null, detailsState: "error" });
-    expect(within(panel).getByRole("heading", { name: "Maria Alvarez" })).toBeInTheDocument();
+    expect(within(panel).getByRole("heading", { name: "Maria Lopez" })).toBeInTheDocument();
     expect(within(panel).getByTestId("history")).toHaveTextContent(/history is unavailable/i);
     expect(within(panel).queryByText("Calls, 30 d")).not.toBeInTheDocument();
   });
@@ -308,8 +308,8 @@ const linda = {
     reason: "Dermatology claim denied",
     summary: "",
   },
-  memberId: "EVM100234",
-  intake: { full_name: "Linda Yuen", dob: "1958-01-30", reason: "Dermatology claim denied", identity_checks: ["dob", "member_id"] },
+  memberId: "741526",
+  intake: { full_name: "Linda Yuen", dob: "1958-04-22", reason: "Dermatology claim denied", identity_checks: ["dob", "member_id"] },
   waitSecs: 30,
   details: {
     ...danielDetails,
@@ -340,7 +340,7 @@ describe("CallerPanel human verification (IN-13)", () => {
         ...mariaDetails,
         identity_result: "close_match" as const,
         identity_decision: { decision: "verified" as const, agent_id: "a1", agent_name: "Ana", at: 1794800900 },
-        member: { ...mariaDetails.member!, name: "Linda Nguyen", first_name: "Linda", last_name: "Nguyen", member_id: "EVM100234" },
+        member: { ...mariaDetails.member!, name: "Linda Nguyen", first_name: "Linda", last_name: "Nguyen", member_id: "741526" },
       },
       identityGate: { state: "verified" as const, result: "close_match", checks: ["dob", "member_id"], by: "Ana", at: 1794800900 },
     };

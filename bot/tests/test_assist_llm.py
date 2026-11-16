@@ -36,7 +36,7 @@ class FakeService:
 def _request():
     return AssistRequest(
         pack=load_pack("claims_status"),
-        intake={"full_name": "Maria Alvarez", "claim_number": "CLM-900001"},
+        intake={"full_name": "Maria Lopez", "claim_number": "70412"},
         window=[{"role": "caller", "text": "It was denied.", "line_id": "caller-1", "ts": 1.0}],
         tools=[
             {
@@ -86,18 +86,18 @@ async def test_tool_calls_run_then_a_second_round_decides():
 
     async def run_tool(name, args):
         ran.append((name, args))
-        return {"tool": name, "count": 1, "items": [{"claim_id": "CLM-900001"}]}
+        return {"tool": name, "count": 1, "items": [{"claim_id": "70412"}]}
 
     svc = FakeService(
         _reply(tool_calls=[{"name": "claims_search", "args_json": '{"status": "denied"}'}]),
-        _reply(cards=[{"template_id": "claims_table", "ids": ["CLM-900001"]}]),
+        _reply(cards=[{"template_id": "claims_table", "ids": ["70412"]}]),
     )
     out = await assist_llm.LLMProposer(svc).propose(_request(), run_tool)
     assert ran == [("claims_search", {"status": "denied"})]
-    assert out["cards"] == [{"template_id": "claims_table", "ids": ["CLM-900001"]}]
+    assert out["cards"] == [{"template_id": "claims_table", "ids": ["70412"]}]
     second = svc.calls[1]["messages"]
     assert second[1]["role"] == "assistant" and second[2]["role"] == "user"
-    assert "CLM-900001" in second[2]["content"]
+    assert "70412" in second[2]["content"]
 
 
 async def test_rounds_are_capped():

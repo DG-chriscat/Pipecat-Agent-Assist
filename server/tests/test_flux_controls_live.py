@@ -12,7 +12,7 @@ schema is migrated, seeded, and dropped; settings persist in it, SETTINGS_PERSIS
    slow read backs on; screenshot the Voice section light and dark; Preview (real
    /v2/speak, the read back part at 0.9x); Save.
 2. A browser call (POST /calls/browser) with a daily-python caller answering intake as
-   Maria Alvarez, until the call is queued. The bot's log is kept in a file.
+   Maria Lopez, until the call is queued. The bot's log is kept in a file.
 3. Checks from the bot log: the [settings] line has speed=1.1 expressivity=1
    slow_readback=0.9; Flux connected once (no reconnect for a speed change); every
    `[timing] event=tts_speed` change was applied by Flux (ConfigureSuccess); the identity
@@ -41,7 +41,7 @@ from agent_assist_bot.timing import parse_timing
 from agent_assist_server.app import app
 from agent_assist_server.bot_launcher import BotLauncher, build_bot_command
 from agent_assist_server.daily import DailyRestClient
-from harness.intake_script import MARIA_ALVAREZ as SCRIPT
+from harness.intake_script import MARIA_LOPEZ as SCRIPT
 from harness.intake_script import next_line
 from harness.participant import SAMPLE_RATE, HarnessParticipant
 from harness.tts import synthesize

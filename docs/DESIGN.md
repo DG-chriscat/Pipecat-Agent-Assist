@@ -134,6 +134,9 @@ Reference mockups: docs/design/architecture/ (business light, technical dark, wa
 - Side panel (390 px): node details (what, why, measured stat tiles, doc links), the walk step, or with nothing selected the sections as tabs (Data and privacy, Prospect questions, PoC vs production).
 - Present: Fullscreen API, no rail or header, the tools move next to the title. Every external link opens in a new tab through ExternalLink.
 
+## Demos (P5-10)
+Rail icon (Lucide Play) above Architecture; route /agent/demos. A page title with a **Phone line** glass box on the right (mono number, the password hint). Below: feature filter chips (mono pills, `segment` style, AI tint when on) and a pack segmented control. Cards are glass panels (radius 26) in a grid, min 360 px: name (22 / 500), DOB and plan line, the member ID in groups in Azeret Mono 30 / 500, the case, Pack / To start, say / The audience sees as label plus value rows, feature chips (ok for verified, warn for identity checks and repeat caller, bad for alerts, not found, and the emergency, info for KB, AI for tone tip and wrap up), then Copy details, Start browser call (primary, opens a new tab), Show script. The hero demo card gets the AI chip "Hero demo" and a fuchsia ring. The emergency card shows a clay warning note. The script expands in place as a numbered list on the script background; agent lines carry an AI tinted label.
+
 ## Wrap up (P3-5, P5-1)
 Layout and content only; P3-5 shipped it in the Focus styling and the Studio restyle card (P4-0) restyles it with the screens above. After End or a caller hang up, the in-call frame closes and the center stage shows one glass card (max 600 px):
 - Head: info chip "Wrap up" and a faint label naming who ended it ("You ended the call" or "The caller hung up").

@@ -1,4 +1,4 @@
-"""Live P3-3: the portal caller panel fills from the real endpoint for Maria Alvarez.
+"""Live P3-3: the portal caller panel fills from the real endpoint for Maria Lopez.
 
 Run locally with a Postgres, DAILY_API_KEY, a built portal (npm run build in portal/),
 and Playwright's Chromium:
@@ -10,7 +10,7 @@ P3_SCREENSHOT_DIR (optional) keeps the 1600x1000 screenshot.
 The real server runs under uvicorn on a throwaway schema seeded with today's mock data
 (DATABASE_SCHEMA), so GET /calls/{id}/caller reads the seeded interactions, claims, and
 referrals. A real Daily room is created and the call is put in the queue with the
-intake answers the bot captures for demo persona Maria Alvarez (verified, EVM100231);
+intake answers the bot captures for demo persona Maria Lopez (verified, 418302);
 no bot or LLM is needed for the caller panel. The built portal in headless Chromium
 signs in, goes available, accepts with Enter, joins the room, and the caller panel
 must show the accept summary at once and then the member, plan, repeat chip, and the
@@ -50,15 +50,15 @@ CHROMIUM_ARGS = [
 ]
 # What the claims_status intake saves for Maria (docs/intake.md, harness script).
 MARIA_INTAKE = {
-    "full_name": "Maria Alvarez",
+    "full_name": "Maria Lopez",
     "dob": "1984-03-12",
-    "member_id": "EVM100231",
+    "member_id": "418302",
     "reason": "MRI claim was denied",
-    "claim_number": "CLM-900001",
+    "claim_number": "70412",
     "service_date": "About a month ago, Riverside Imaging Center",
     "claim_concern": "Denied, letter mentioned no prior authorization",
     "summary": (
-        "Maria Alvarez is calling about her MRI claim CLM-900001 from Riverside Imaging "
+        "Maria Lopez is calling about her MRI claim 70412 from Riverside Imaging "
         "Center, which was denied for no prior authorization."
     ),
 }
@@ -150,22 +150,22 @@ async def test_live_caller_panel_fills_for_maria(schema, shots, monkeypatch):
                 session_id,
                 room.url,
                 MARIA_INTAKE,
-                IntakeInfo(outcome="completed", identity_result="verified", member_id="EVM100231"),
+                IntakeInfo(outcome="completed", identity_result="verified", member_id="418302"),
             )
-            log(t0, f"call {session_id} queued as Maria Alvarez (verified)")
+            log(t0, f"call {session_id} queued as Maria Lopez (verified)")
             # Let her wait a little, like a real caller on hold.
             await asyncio.sleep(3)
 
             await toggle.click()
             card = page.get_by_role("dialog", name="Incoming call")
             await expect(card).to_be_visible(timeout=5_000)
-            await expect(card).to_contain_text("Maria Alvarez")
+            await expect(card).to_contain_text("Maria Lopez")
             log(t0, "incoming card up")
 
             accept_at = time.time()
             await page.keyboard.press("Enter")
             panel = page.get_by_role("complementary", name="Caller")
-            await expect(panel).to_contain_text("Maria Alvarez", timeout=10_000)
+            await expect(panel).to_contain_text("Maria Lopez", timeout=10_000)
             await expect(panel).to_contain_text("MRI claim was denied")
             timings["accept_to_summary_secs"] = time.time() - accept_at
             await expect(panel).to_contain_text("Evergreen HMO Silver", timeout=10_000)
@@ -184,7 +184,7 @@ async def test_live_caller_panel_fills_for_maria(schema, shots, monkeypatch):
                 log(t0, f"  before this call: {' '.join(e.split())}")
             id_line = await panel.get_by_test_id("caller-id").inner_text()
             log(t0, f"caller id line: {id_line}")
-            assert id_line == "EVM100231 · Evergreen HMO Silver"
+            assert id_line == "418302 · Evergreen HMO Silver"
             assert "CO-197" in " ".join(events)
 
             await expect(page.get_by_role("button", name="Mute")).to_be_enabled(timeout=30_000)

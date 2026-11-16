@@ -11,7 +11,7 @@ screenshots and the side by side comparisons with docs/design/in-call-focus.png.
 
 One call, start to finish:
 1. The real server starts the bot (POST /calls/browser); a daily-python caller (S1
-   harness) finishes intake as Maria Alvarez; the bot enqueues the call.
+   harness) finishes intake as Maria Lopez; the bot enqueues the call.
 2. Agent Ana's portal (headless Chromium) goes available, the card rings, Enter
    accepts. The caller is already talking; the page measures when the caller's own
    audio track first carries sound (accept to hearing the caller, target < 2 s).
@@ -51,7 +51,7 @@ from agent_assist_server.app import app
 from agent_assist_server.bot_launcher import BotLauncher
 from agent_assist_server.daily import DailyRestClient
 from agent_assist_server.portal import DEFAULT_DIST
-from harness.intake_script import MARIA_ALVAREZ as INTAKE
+from harness.intake_script import MARIA_LOPEZ as INTAKE
 from harness.intake_script import next_line
 from harness.participant import SAMPLE_RATE, HarnessParticipant
 from harness.tts import synthesize

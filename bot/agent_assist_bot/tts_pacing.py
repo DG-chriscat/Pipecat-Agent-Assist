@@ -50,12 +50,15 @@ _SEP = r"[\s,]+"
 _READBACK = re.compile(
     r"|".join(
         (
-            # A member ID or claim number as written: EVM100231, CLM-900001.
+            # A member ID (418302, 418 302) or claim number (70412, 70 412) as written,
+            # and older letter prefixed record ids (PA-500101).
+            r"\b\d{5,6}\b",
+            r"\b\d{2,3}[\s-]\d{3}\b",
             r"\b[a-z]{2,4}-?\d{5,}\b",
             # Spelled out: letters, then digits one at a time ("E V M, one zero zero").
             rf"\b[a-z](?:{_SEP}[a-z]){{1,3}}\b[\s,-]+(?:dash{_SEP})?{_DIGIT}(?:{_SEP}{_DIGIT}){{2,}}",
-            # Six or more digits said one at a time.
-            rf"\b{_DIGIT}(?:{_SEP}{_DIGIT}){{5,}}\b",
+            # Five or more digits said one at a time (a claim number has five).
+            rf"\b{_DIGIT}(?:{_SEP}{_DIGIT}){{4,}}\b",
             # A date of birth: 03/12/1984, 1984-03-12, March 12, 1984, 12th of March, 1984.
             r"\b\d{1,2}/\d{1,2}/\d{2,4}\b",
             r"\b\d{4}-\d{2}-\d{2}\b",

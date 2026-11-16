@@ -71,13 +71,11 @@ YUEN = Persona(
     dict(
         LINDA.lines,
         identity=(
-            "Sure. My name is Linda Yuen. My date of birth is January thirtieth, nineteen "
-            "fifty eight. And my member ID is E V M, one zero zero, two three four."
+            "Sure. My name is Linda Yuen. My date of birth is April twenty second, nineteen "
+            "fifty eight. And my member ID is seven four one, five two six."
         ),
         fix_name="No, my name is Linda Yuen.",
-        fix_both=(
-            "No. My name is Linda Yuen, and my member ID is E V M, one zero zero, two three four."
-        ),
+        fix_both=("No. My name is Linda Yuen, and my member ID is seven four one, five two six."),
     ),
 )
 CALLER_TRIGGER = "So why was my dermatology claim denied?"
@@ -193,7 +191,7 @@ async def test_verify_hero_then_records_unlock(schema, shots, monkeypatch):  # n
                 await expect(locked.first).to_be_visible(timeout=15_000)
                 log(t0, f"locked tile {time.time() - said_at:.2f}s after the question")
                 await expect(locked.first).to_contain_text("Verify the caller to see records")
-                await expect(page.locator(".shelf")).not_to_contain_text("CLM-900005")
+                await expect(page.locator(".shelf")).not_to_contain_text("52976")
                 await expect(hero).to_have_attribute("data-state", "verify")
                 await snap(page, shots / "in-call-verify-live-light.png", t0)
                 await set_theme(page, "dark")
@@ -207,7 +205,7 @@ async def test_verify_hero_then_records_unlock(schema, shots, monkeypatch):  # n
                 await hero.get_by_role("button", name="Mark verified").click()
                 await expect(hero).to_have_attribute("data-state", "verified", timeout=2_000)
                 await expect(locked).to_have_count(0, timeout=5_000)
-                await expect(page.locator(".shelf")).to_contain_text("CLM-900005", timeout=5_000)
+                await expect(page.locator(".shelf")).to_contain_text("52976", timeout=5_000)
                 await expect(panel.get_by_test_id("identity-badge")).to_have_text(
                     "Verified by agent"
                 )
@@ -223,7 +221,7 @@ async def test_verify_hero_then_records_unlock(schema, shots, monkeypatch):  # n
                 await snap(page, shots / "in-call-verified-live-dark.png", t0)
                 taken += ["in-call-verified-live-light.png", "in-call-verified-live-dark.png"]
                 await reveal.click()
-                await expect(panel.get_by_test_id("phi-member_id")).to_have_text("EVM100234")
+                await expect(panel.get_by_test_id("phi-member_id")).to_have_text("741526")
 
                 await page.get_by_role("button", name="End call").click()
                 await expect(page.get_by_role("region", name="Wrap up")).to_be_visible(

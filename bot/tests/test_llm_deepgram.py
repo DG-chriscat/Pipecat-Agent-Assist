@@ -275,7 +275,7 @@ async def test_streamed_tool_call_reaches_function_calls(monkeypatch):
                 ],
             }
         ),
-        _chunk({"tool_calls": [{"index": 0, "function": {"arguments": '"Maria Alvarez"}'}}]}),
+        _chunk({"tool_calls": [{"index": 0, "function": {"arguments": '"Maria Lopez"}'}}]}),
         _chunk({}, "tool_calls"),
     ]
     rec = Recorder(stream_chunks=chunks)
@@ -294,7 +294,7 @@ async def test_streamed_tool_call_reaches_function_calls(monkeypatch):
     monkeypatch.setattr(llm, "push_frame", fake_push)
     await llm._process_context(_context_with_everything())
     assert [(c.function_name, c.arguments) for c in seen] == [
-        ("save_identity", {"full_name": "Maria Alvarez"})
+        ("save_identity", {"full_name": "Maria Lopez"})
     ]
 
 

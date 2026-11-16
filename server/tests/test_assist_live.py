@@ -8,7 +8,7 @@ Needs DAILY_API_KEY, DEEPGRAM_API_KEY, ANTHROPIC_API_KEY, DATABASE_URL.
 
 Same setup as test_e2e_live.py: the real server under uvicorn starts the bot on
 POST /calls/browser with DATABASE_SCHEMA set to a throwaway migrated and seeded
-schema. A daily-python caller finishes intake as Maria Alvarez (CLM-900001, denied
+schema. A daily-python caller finishes intake as Maria Lopez (70412, denied
 CO-197). A websocket agent accepts and joins the room as a daily-python participant
 (the portal's assist UI is P4-4; this harness is the agent's client). Then:
 
@@ -17,7 +17,7 @@ CO-197). A websocket agent accepts and joins the room as a daily-python particip
 3. The agent client waits for the `hero` assist message.
 4. The agent accepts the hero with an RTVI client message (assist_feedback).
 
-Asserts: the hero is `retro_auth_review` for CLM-900001 with its trigger and source,
+Asserts: the hero is `retro_auth_review` for 70412 with its trigger and source,
 it reached the agent within 3 s of the caller saying "denied" (word time from
 Deepgram on the exact audio played), the plan ticks, the caller got no assist
 message, the bot did not speak after its accept line, and assist_events has the
@@ -47,7 +47,7 @@ from agent_assist_server import bot_settings
 from agent_assist_server.app import app
 from agent_assist_server.bot_launcher import BotLauncher
 from agent_assist_server.daily import DailyRestClient
-from harness.intake_script import MARIA_ALVAREZ as SCRIPT
+from harness.intake_script import MARIA_LOPEZ as SCRIPT
 from harness.intake_script import next_line
 from harness.participant import SAMPLE_RATE, HarnessParticipant
 from harness.tts import synthesize
@@ -69,8 +69,8 @@ VOICES = {"caller": "aura-2-arcas-en", "agent": "aura-2-thalia-en"}
 INTAKE_LINES = dict(
     SCRIPT,
     identity=(
-        "Sure. My name is Maria Alvarez, that's A L V A R E Z. My date of birth is March "
-        "twelfth, nineteen eighty four. And my member ID is E V M, one zero zero, two three one."
+        "Sure. My name is Maria Lopez, that's L O P E Z. My date of birth is March "
+        "twelfth, nineteen eighty four. And my member ID is four one eight, three zero two."
     ),
 )
 
@@ -368,9 +368,7 @@ async def test_live_trigger_to_hero_on_the_agent_screen(schema, monkeypatch):
                 (session_id,),
             )
             events = await cur.fetchall()
-            cur = await store._execute(
-                "SELECT status FROM claims WHERE claim_id = 'CLM-900001'", ()
-            )
+            cur = await store._execute("SELECT status FROM claims WHERE claim_id = '70412'", ())
             claim_status = (await cur.fetchone())[0]
     finally:
         for p in launcher.processes.values():
@@ -423,10 +421,10 @@ async def test_live_trigger_to_hero_on_the_agent_screen(schema, monkeypatch):
 
     # ---- assertions -----------------------------------------------------------------
     assert card["rule_id"] == "retro_auth_review"
-    assert card["id"] == "nbs:retro_auth_review:CLM-900001"
+    assert card["id"] == "nbs:retro_auth_review:70412"
     assert card["body"]["action"]["id"] == "request_retro_auth_review"
     assert card["trigger"]["role"] == "caller" and card["trigger"]["phrase"]
-    assert card["source"]["records"] == [{"connector": "claims", "id": "CLM-900001"}]
+    assert card["source"]["records"] == [{"connector": "claims", "id": "70412"}]
     assert timings["trigger_word_to_hero_secs"] < DC6_SECS, timings
     assert caller_events == [], "the caller received assist messages"
     assert spoke is None, f"bot spoke {spoke - quiet_from:.2f}s after its accept line"

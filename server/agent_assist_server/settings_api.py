@@ -38,7 +38,7 @@ LOCAL_SESSION = "local"
 # Preview sample (P5-8): a greeting sentence plus a member ID read back. With Flux and
 # slow read backs on, the read back part is made at readback_speed, as a call says it.
 PREVIEW_GREETING = "Hi, thanks for calling."
-PREVIEW_READBACK = "I have your member ID as E V M, one zero zero, two three one. Is that right?"
+PREVIEW_READBACK = "I have your member ID as four one eight, three zero two. Is that right?"
 PREVIEW_LINE = f"{PREVIEW_GREETING} {PREVIEW_READBACK}"
 MAX_PREVIEW = bs.MAX_GREETING
 # Calls whose settings are kept (oldest dropped first).

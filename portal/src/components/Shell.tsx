@@ -1,4 +1,4 @@
-import { Check, History, List, LogOut, Moon, Network, Phone, Settings, Sun } from "lucide-react";
+import { Check, History, List, LogOut, Moon, Network, Phone, Play, Settings, Sun } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import dTile from "../assets/d-tile.png";
 import wordmark from "../assets/wordmark.png";
@@ -89,7 +89,8 @@ function AgentMenu({ agent }: { agent: ShellAgent }) {
   );
 }
 
-/** Left rail (DESIGN.md "Left rail"): D tile, Calls, Queue, History, Architecture (P5-6),
+/** Left rail (DESIGN.md "Left rail"): D tile, Calls, Queue, History, Demos (P5-10),
+ * Architecture (P5-6),
  * Settings (P5-5), agent avatar. */
 function Rail({ agent }: { agent?: ShellAgent }) {
   const page = agent?.page ?? "calls";
@@ -117,6 +118,7 @@ function Rail({ agent }: { agent?: ShellAgent }) {
           <button type="button" className="ri" aria-label="History" title="History (coming later)" disabled>
             <History strokeWidth={1.7} aria-hidden="true" />
           </button>
+          {agent.onPage && item("demos", "Demos", <Play strokeWidth={1.7} aria-hidden="true" />)}
           {agent.onPage && item("architecture", "Architecture", <Network strokeWidth={1.7} aria-hidden="true" />)}
           {agent.onPage && item("settings", "Settings", <Settings strokeWidth={1.7} aria-hidden="true" />)}
           <AgentMenu agent={agent} />

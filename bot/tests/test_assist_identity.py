@@ -44,7 +44,7 @@ def verify_hero(h):
 
 
 def test_identity_gate_from_the_intake_check():
-    check = IdentityCheck("close_match", "EVM100234", ("dob", "member_id"), "Linda Nguyen")
+    check = IdentityCheck("close_match", "741526", ("dob", "member_id"), "Linda Nguyen")
     assert identity_gate(check, "Linda Yuen") == LINDA_GATE
     assert identity_gate(None, "") == {
         "result": "incomplete",
@@ -52,7 +52,7 @@ def test_identity_gate_from_the_intake_check():
         "heard_name": None,
         "on_file_name": None,
     }
-    assert identity_gate(IdentityCheck("verified", "EVM100231"), "Maria Alvarez") is None
+    assert identity_gate(IdentityCheck("verified", "418302"), "Maria Lopez") is None
 
 
 # --- verify hero -------------------------------------------------------------------------
@@ -127,7 +127,7 @@ async def test_record_cards_are_sent_locked_without_record_values(packs):
         assert c["locked"] is True
         assert c["body"] == {"locked": True}
         assert c["source"]["records"] == []
-        assert "CLM-900001" not in str(c) and "MRI" not in str(c["body"])
+        assert "70412" not in str(c) and "MRI" not in str(c["body"])
 
 
 async def test_articles_are_not_locked(packs):
@@ -162,10 +162,10 @@ async def test_mark_verified_unlocks_records_and_promotes_the_next_step(packs):
     assert h.engine.locked is False
     resent = [m["card"] for m in after if m["event"] == "card_added"]
     assert resent and all(c["locked"] is False for c in resent)
-    assert any("CLM-900001" in str(c["body"]) for c in resent)
+    assert any("70412" in str(c["body"]) for c in resent)
     hero = [m for m in after if m["event"] == "hero"][-1]
     assert hero["reason"] == "verified" and hero["replaces"] == VERIFY_CARD_ID
-    assert hero["card"]["id"] == "nbs:retro_auth_review:CLM-900001"
+    assert hero["card"]["id"] == "nbs:retro_auth_review:70412"
     identity = [m for m in after if m["event"] == "identity"][-1]
     assert identity["state"] == "verified" and identity["by"] == "Ana"
     assert identity["at"] == h.clock()
@@ -195,7 +195,7 @@ async def test_new_cards_after_verify_are_unlocked(packs):
     h = await gated(packs)
     await h.engine.on_feedback(Feedback(card_id=VERIFY_CARD_ID, action="mark_verified"))
     await h.say("caller", "The letter said it was denied, no prior authorization.")
-    assert h.engine.hero.id == "nbs:retro_auth_review:CLM-900001"
+    assert h.engine.hero.id == "nbs:retro_auth_review:70412"
     assert all(c["locked"] is False for c in h.added())
 
 

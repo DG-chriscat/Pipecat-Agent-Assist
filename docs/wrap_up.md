@@ -39,7 +39,7 @@ values are redacted from the prompt and from the summary.
 ## Summary rules
 
 - 3 to 5 sentences, facts only, third person, past tense.
-- Mentions every accepted action and its reference numbers (CLM-, PA-, PAY- ids).
+- Mentions every accepted action and its reference numbers (5 digit claim numbers, PA- and PAY- ids).
 - No clinical advice: the summary goes through the assist guardrail
   (`assist.clinical_advice`).
 
@@ -110,5 +110,5 @@ write-through (`QUEUE_PERSIST=1`) fills all four.
   with summary, bot key), `test_queue_service.py`, `test_queue_store.py` (columns).
 - Portal: `components/WrapUp.test.tsx` (editor, preselected code, late draft, edits
   kept), `CallFlow.test.tsx` (polling until the draft lands, Save with the summary).
-- Live: `server/tests/test_wrap_up_summary_live.py`: a Maria Alvarez call through
+- Live: `server/tests/test_wrap_up_summary_live.py`: a Maria Lopez call through
   wrap up; prints the drafted summary and code.

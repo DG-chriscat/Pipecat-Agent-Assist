@@ -6,10 +6,10 @@ const call = (over: Partial<Call> = {}): Call => ({
   session_id: "s1",
   room_url: "https://x.daily.co/r1",
   room_name: "r1",
-  summary: { full_name: "Maria Alvarez", reason: "MRI claim was denied", summary: "Denied MRI claim" },
+  summary: { full_name: "Maria Lopez", reason: "MRI claim was denied", summary: "Denied MRI claim" },
   outcome: "completed",
   identity_result: "verified",
-  member_id: "EVM100231",
+  member_id: "418302",
   flags: [],
   status: "queued",
   queued_at: 1000,
@@ -34,7 +34,7 @@ const agent = (over: Partial<Agent> = {}): Agent => ({
 describe("callerInfo", () => {
   it("reads name, verified status, and reason from the intake summary", () => {
     expect(callerInfo(call())).toEqual({
-      name: "Maria Alvarez",
+      name: "Maria Lopez",
       verified: "verified",
       identity: "verified",
       reason: "MRI claim was denied",

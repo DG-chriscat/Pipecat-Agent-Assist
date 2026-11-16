@@ -11,8 +11,8 @@ A Pipecat Flow (`pipecat.flows`, shipped inside pipecat-ai 1.15; the standalone
 1. **greeting**: fixed `tts_say` line, no LLM call (IN-1, IN-2).
 2. **identity**: full name, date of birth, member ID, then `save_identity` (saved, not
    yet checked). Entering this node turns the identity STT tuning on (see below).
-3. **identity_confirm**: fixed `tts_say` read back, "Thanks. I have Maria Alvarez,
-   member ID E V M, one zero zero, two three one. Is that right?" (never the DOB).
+3. **identity_confirm**: fixed `tts_say` read back, "Thanks. I have Maria Lopez,
+   member ID four one eight, three zero two. Is that right?" (never the DOB).
    `verify_identity` runs the check (IN-6) and turns the tuning off. The caller gets
    one fix (`MAX_IDENTITY_FIXES = 1`): a `correct_identity`, or one free-form re-ask via
    `say_to_caller`. After that the bot checks what it has and moves on, with no second
@@ -54,13 +54,31 @@ verified; member ID and DOB exact and the name close by spelling is close_match;
 member ID found but otherwise different is not_verified; unknown ID but name + DOB
 match exactly one member is not_verified; anything else is not_found. Any of the
 three still missing after the one fix is incomplete. Name alone never identifies
-(two seed members are named James Chen).
+(two seed members are named Mark Hill).
 
 Close by spelling (`name_part_close`): the name has a first and last part; one part
 matches exactly and the other is within 3 edits (Levenshtein) with similarity at
 least 0.5. From the STT spike: "Linda Yuen" for Linda Nguyen, "Ayesha Patel" for Aisha
 Patel, "Daniel Lokafor" are close; "Linda Wayne", "Daniel Luca Ford" are not. A close
 match never unlocks records by itself; the agent decides.
+
+## ID formats (P5-10, Nov 16)
+
+Demo data is set up so speech to text hears it right:
+
+- Member IDs are 6 digits, said in two groups of three ("four one eight, three zero
+  two" for 418302). No leading 0, no digit twice in a row, and no group shared by two
+  members. `calls.normalize_member_id` keeps the digits, written or spoken ("418 302",
+  "four one eight, three oh two", "four eighteen, three oh two" all give 418302);
+  `is_valid_member_id` checks there are exactly 6. A `save_identity` with another digit
+  count is refused once ("member_id must be 6 digits"), like a missing field.
+- Claim numbers are 5 digits, said as two and three ("seven zero, four one two" for
+  70412). `intake.normalize_claim_number` saves a `claim_number` answer as the digits
+  when it holds exactly 5; anything else ("unknown") is kept as said.
+- The read back says the member ID in groups (`speak_member_id`), and the slow read
+  back pacing (P5-8) spots bare 5 and 6 digit IDs as well as spelled out digits.
+- Pack keyterms no longer carry ID prefixes (EVM, CLM, PAY are gone); plan, provider,
+  and denial terms stay.
 
 At the end the row is `ready_for_queue` with `intake.summary`, and the bot calls
 `HandoffHook.on_intake_complete(IntakeHandoff)`. The queue (P2-4) implements the
@@ -102,7 +120,7 @@ connectors, cards, call plan, next best steps, keyterms) are in docs/packs.md.
   playing Deepgram TTS lines as each of the 5 demo personas (docs/db.md), throwaway
   schema. At the identity read back the scripted caller says yes or corrects what the
   bot got wrong. Needs all keys plus `DATABASE_URL`. `INTAKE_RUNS=2` runs each persona
-  twice, `INTAKE_PERSONAS=maria_alvarez,...` picks personas, `INTAKE_RESULTS=<file>`
+  twice, `INTAKE_PERSONAS=maria_lopez,...` picks personas, `INTAKE_RESULTS=<file>`
   appends one JSON line per run.
 
 ```

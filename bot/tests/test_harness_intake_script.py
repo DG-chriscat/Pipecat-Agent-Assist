@@ -1,8 +1,9 @@
 import pytest
-from harness.intake_script import MARIA_ALVAREZ, PERSONAS, next_line, persona
+from harness import intake_script as harness_script
+from harness.intake_script import MARIA_LOPEZ, PERSONAS, next_line, persona
 
-MARIA = persona("maria_alvarez")
-SAVED_RIGHT = {"full_name": "Maria Alvarez", "dob": "1984-03-12", "member_id": "EVM100231"}
+MARIA = persona("maria_lopez")
+SAVED_RIGHT = {"full_name": "Maria Lopez", "dob": "1984-03-12", "member_id": "418302"}
 
 
 def test_next_line_starts_with_identity():
@@ -12,7 +13,7 @@ def test_next_line_starts_with_identity():
 
 def test_next_line_follows_the_first_missing_field():
     assert next_line(SAVED_RIGHT, "verified") == "reason"
-    saved = {**SAVED_RIGHT, "reason": "y", "claim_number": "CLM-900001"}
+    saved = {**SAVED_RIGHT, "reason": "y", "claim_number": "70412"}
     assert next_line(saved, "verified") == "service_date"
 
 
@@ -25,7 +26,7 @@ def test_next_line_reads_back_once_every_field_is_saved():
 def test_script_has_a_line_for_every_step():
     steps = {next_line(None, None), "reason", "claim_number", "service_date", "claim_concern"}
     steps |= {"readback", "confirm_yes", "fix_member_id", "fix_name", "fix_both"}
-    assert steps <= set(MARIA_ALVAREZ)
+    assert steps <= set(MARIA_LOPEZ)
     for p in PERSONAS:
         assert steps <= set(p.lines), p.key
 
@@ -38,42 +39,62 @@ def test_confirms_a_correct_read_back():
 
 
 def test_corrects_a_misheard_member_id():
-    assert next_line({**SAVED_RIGHT, "member_id": "EVM00231"}, None) == "fix_member_id"
+    assert next_line({**SAVED_RIGHT, "member_id": "41832"}, None) == "fix_member_id"
 
 
 def test_corrects_a_misheard_name():
-    assert next_line({**SAVED_RIGHT, "full_name": "Marie Alvarez"}, None) == "fix_name"
+    assert next_line({**SAVED_RIGHT, "full_name": "Marie Lopez"}, None) == "fix_name"
 
 
 def test_corrects_both_when_both_are_wrong():
-    saved = {**SAVED_RIGHT, "full_name": "Marie Alvarez", "member_id": "EDM100231"}
+    saved = {**SAVED_RIGHT, "full_name": "Marie Lopez", "member_id": "418332"}
     assert next_line(saved, None) == "fix_both"
 
 
 def test_name_check_ignores_case_and_middle_names():
-    assert next_line({**SAVED_RIGHT, "full_name": "maria j. ALVAREZ"}, None) == "confirm_yes"
+    assert next_line({**SAVED_RIGHT, "full_name": "maria j. LOPEZ"}, None) == "confirm_yes"
 
 
 def test_member_id_check_ignores_spacing():
-    assert next_line({**SAVED_RIGHT, "member_id": "evm 100 231"}, None) == "confirm_yes"
+    assert next_line({**SAVED_RIGHT, "member_id": "four one eight, 302"}, None) == "confirm_yes"
 
 
-# ---- the five demo personas (docs/db.md) ------------------------------------------------
+# ---- the demo personas (docs/db.md) ------------------------------------------------------
 
 
-def test_five_demo_personas_match_docs_db():
-    got = {(p.full_name, p.dob, p.member_id) for p in PERSONAS}
-    assert got == {
-        ("Maria Alvarez", "1984-03-12", "EVM100231"),
-        ("James Chen", "1979-07-04", "EVM100232"),
-        ("Aisha Patel", "1992-11-28", "EVM100233"),
-        ("Linda Nguyen", "1958-01-30", "EVM100234"),
-        ("Daniel Okafor", "1990-05-17", "EVM100235"),
-    }
+def test_demo_personas_match_the_seed():
+    from agent_assist_server.db import seed
+
+    members = {m.member_id: m for m in seed.build_seed().members}
+    for p in PERSONAS:
+        m = members[p.member_id]
+        assert (p.full_name, p.dob) == (f"{m.first_name} {m.last_name}", m.dob.isoformat())
 
 
-def test_daniel_okafor_gives_a_wrong_dob_and_expects_not_verified():
-    daniel = persona("daniel_okafor")
+def test_claim_numbers_match_the_seed():
+    from agent_assist_server.db import seed
+
+    claims = {c.claim_id: c.member_id for c in seed.build_seed().claims}
+    for p in PERSONAS:
+        if p.claim_number:
+            assert claims[p.claim_number] == p.member_id, p.key
+            assert harness_script.say_digits(p.claim_number, split=2) in p.lines["claim_number"]
+
+
+def test_harness_covers_easy_names_and_linda():
+    keys = {p.key for p in PERSONAS}
+    assert {"maria_lopez", "james_carter", "sarah_miller", "mark_hill", "linda_nguyen"} <= keys
+
+
+def test_claim_heard_right():
+    assert harness_script.claim_heard_right("seven zero, four one two", "70412")
+    assert harness_script.claim_heard_right("Claim 70412.", "70412")
+    assert not harness_script.claim_heard_right("70 41", "70412")
+    assert not harness_script.claim_heard_right("anything", "")
+
+
+def test_ben_cole_gives_a_wrong_dob_and_expects_not_verified():
+    daniel = persona("ben_cole")
     assert daniel.expected_identity == "not_verified"
     assert "seventh" in daniel.lines["identity"]  # May 7, not May 17
     assert all(p.expected_identity == "verified" for p in PERSONAS if p is not daniel)
@@ -85,5 +106,5 @@ def test_unknown_persona_raises():
 
 
 def test_member_id_spoken_in_groups():
-    assert "E V M, one zero zero, two three one" in MARIA.lines["identity"]
-    assert "E V M, one zero zero, two three five" in persona("daniel_okafor").lines["identity"]
+    assert "four one eight, three zero two" in MARIA.lines["identity"]
+    assert "eight five two, six one seven" in persona("ben_cole").lines["identity"]

@@ -8,6 +8,15 @@
     body { font-family: system-ui, sans-serif; max-width: 520px; margin: 2rem auto; }
     button { margin-top: 1rem; margin-right: .5rem; padding: .5rem 1rem; }
     #status { margin-top: 1rem; color: #555; }
+    #persona { margin-top: 1.5rem; padding: 1rem; border: 1px solid #ddd; border-radius: 12px; }
+    #persona[hidden] { display: none; }
+    #persona h2 { margin: 0 0 .25rem; font-size: 1.1rem; }
+    #persona .ids { font-family: ui-monospace, monospace; font-size: 1.1rem; }
+    #persona .warn { color: #b3261e; font-weight: 600; }
+    #persona ol { padding-left: 1.25rem; }
+    #persona li { margin: .5rem 0; }
+    #persona .to { font-size: .75rem; text-transform: uppercase; color: #777; margin-right: .4rem; }
+    #persona .note { display: block; font-size: .85rem; color: #777; }
   </style>
 </head>
 <body>
@@ -20,6 +29,15 @@
 
   <div id="status">Idle.</div>
   <div id="audio"></div>
+
+  <!-- P5-10: /caller?persona=<key> from the portal's Demos page shows the lines to read. -->
+  <section id="persona" hidden aria-label="Demo caller script">
+    <h2 id="persona-name"></h2>
+    <div class="ids" id="persona-ids"></div>
+    <p id="persona-case"></p>
+    <p class="warn" id="persona-warning" hidden></p>
+    <ol id="persona-script"></ol>
+  </section>
 
   <script>
     const $ = (id) => document.getElementById(id);
@@ -112,6 +130,38 @@
     };
 
     $("hangup").onclick = () => { if (call) call.leave(); };
+
+    async function showPersona() {
+      const key = new URLSearchParams(location.search).get("persona");
+      if (!key) return;
+      try {
+        const resp = await fetch("/demo/personas");
+        if (!resp.ok) return;
+        const p = (await resp.json()).personas.find((x) => x.key === key);
+        if (!p) return;
+        $("persona-name").textContent = "You are " + p.name;
+        $("persona-ids").textContent =
+          "Born " + p.dob_said + " \u00b7 Member ID " + p.member_id_groups;
+        $("persona-case").textContent = p.case;
+        if (p.warning) { $("persona-warning").textContent = p.warning; $("persona-warning").hidden = false; }
+        for (const step of p.script) {
+          const li = document.createElement("li");
+          const to = document.createElement("span");
+          to.className = "to";
+          to.textContent = step.to === "bot" ? "To the bot" : "To the agent";
+          li.append(to, document.createTextNode(step.say));
+          if (step.note) {
+            const note = document.createElement("span");
+            note.className = "note";
+            note.textContent = step.note;
+            li.append(note);
+          }
+          $("persona-script").append(li);
+        }
+        $("persona").hidden = false;
+      } catch (err) { /* the call works without the script */ }
+    }
+    showPersona();
   </script>
 </body>
 </html>

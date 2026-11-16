@@ -7,13 +7,13 @@ import { InCall, type InCallProps } from "./InCall";
 function setup(over: Partial<InCallProps> = {}) {
   const props: InCallProps = {
     caller: {
-      name: "Maria Alvarez",
+      name: "Maria Lopez",
       verified: "verified",
       identity: "verified",
       reason: "MRI claim from Oct 28 was denied",
       summary: "Denied MRI claim",
     },
-    memberId: "EVM100231",
+    memberId: "418302",
     shell: { name: "Ana", online: true, theme: "light", onTheme: vi.fn(), onSignOut: vi.fn() },
     onRevealPhi: vi.fn(),
     phase: "live",
@@ -37,7 +37,7 @@ describe("InCall shell (AP-4)", () => {
   it("close match: island says so, then Verified by agent once the agent marks verified (IN-13)", () => {
     const caller = { name: "Linda Yuen", verified: "close_match" as const, identity: "close_match" as const, reason: "x", summary: "" };
     const pending = applyAssist(emptyAssist(), parseAssistMessage(identityMsg("pending"))!, 0);
-    const { rerender, props } = setup({ caller, memberId: "EVM100234", assist: pending });
+    const { rerender, props } = setup({ caller, memberId: "741526", assist: pending });
     const island = () => screen.getByRole("group", { name: /call/i });
     expect(within(island()).getByText("Close match")).toHaveClass("chip-warn");
     expect(screen.getByRole("button", { name: "Reveal member ID" })).toBeDisabled();
@@ -50,7 +50,7 @@ describe("InCall shell (AP-4)", () => {
   it("shows the call island: caller, verified chip, waveform, mood placeholder, timer", () => {
     setup();
     const island = screen.getByRole("group", { name: /call/i });
-    expect(within(island).getByText("Maria Alvarez")).toBeInTheDocument();
+    expect(within(island).getByText("Maria Lopez")).toBeInTheDocument();
     expect(within(island).getByText("Verified")).toBeInTheDocument();
     expect(within(island).getByTestId("waveform")).toBeInTheDocument();
     expect(within(island).getByTestId("mood-chip")).toBeInTheDocument();
@@ -86,10 +86,10 @@ describe("InCall shell (AP-4)", () => {
   it("lays out caller panel, assist column with the Studio placeholders, and conversation", () => {
     setup();
     const caller = screen.getByRole("complementary", { name: /caller/i });
-    expect(within(caller).getByText("Maria Alvarez", { exact: false })).toBeInTheDocument();
+    expect(within(caller).getByText("Maria Lopez", { exact: false })).toBeInTheDocument();
     // AP-17: masked in the panel.
-    expect(within(caller).getByTestId("phi-member_id")).toHaveTextContent("••••31");
-    expect(within(caller).queryByText("EVM100231")).not.toBeInTheDocument();
+    expect(within(caller).getByTestId("phi-member_id")).toHaveTextContent("••••02");
+    expect(within(caller).queryByText("418302")).not.toBeInTheDocument();
     expect(within(caller).getByText("MRI claim from Oct 28 was denied")).toBeInTheDocument();
     const assist = screen.getByRole("region", { name: /assist/i });
     // Hero listening state, three empty shelf tiles, Earlier this call, Ask bar (P4-6: live).

@@ -127,7 +127,7 @@ Card:
 
 ```
 {
-  "id": "nbs:retro_auth_review:CLM-900001",
+  "id": "nbs:retro_auth_review:70412",
   "kind": "next_step" | "record" | "article" | "alert" | "tone_tip",
   "title": "Next best step",
   "pack_id": "claims_status",
@@ -137,7 +137,7 @@ Card:
               "role": "caller", "line_id": "caller-1", "start": 28, "end": 34,
               "heard_at": 1794800787.43},
   "source": {"label": "Claims system, KB-CL-002 and KB-CL-009",
-             "records": [{"connector": "claims", "id": "CLM-900001"}]},
+             "records": [{"connector": "claims", "id": "70412"}]},
   "rule_id": "retro_auth_review",        // next_step only
   "template_id": null,                   // record, article, alert
   "body": {...}
@@ -171,7 +171,7 @@ caller's and the REST API's are ignored.
 ```
 {"label": "rtvi-ai", "type": "client-message", "id": "...",
  "data": {"t": "assist_feedback",
-          "d": {"v": 1, "card_id": "nbs:retro_auth_review:CLM-900001",
+          "d": {"v": 1, "card_id": "nbs:retro_auth_review:70412",
                 "action": "accept" | "dismiss" | "pin" | "unpin" | "rate",
                 "rating": "up" | "down"}}}        // rating with rate only
 ```
@@ -294,7 +294,7 @@ wrap up summary draft (P5-1, docs/wrap_up.md).
   `test_assist_runtime.py`: accept start, member scope, agent only delivery, resync on
   join, feedback from the agent only, event logging. `test_bot.py`: wiring and
   keyterms. `test_calls_db.py`: `add_assist_event` and RLS on Postgres.
-- Live: `server/tests/test_assist_live.py` (Maria Alvarez through intake and accept;
+- Live: `server/tests/test_assist_live.py` (Maria Lopez through intake and accept;
   the agent client gets the retro authorization hero; timings printed).
 
 ## Portal (P4-4)
@@ -321,7 +321,7 @@ wrap up summary draft (P5-1, docs/wrap_up.md).
   steps done, stamped with call time.
 - Trigger words of the cards on screen are marked in the conversation.
 - Live: `server/tests/test_assist_ui_live.py` (the portal in headless Chromium on the
-  Maria Alvarez call; screenshots in `docs/screenshots/p4-4/`).
+  Maria Lopez call; screenshots in `docs/screenshots/p4-4/`).
 
 ## Ask bar in the portal (P4-6)
 

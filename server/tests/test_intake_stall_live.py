@@ -1,5 +1,5 @@
 """Live replay of the Nov 16 prod stall (session a9a276e8): name wrong, corrected to
-James Chen, "Correctamundo". The call must reach POST /queue/calls and a websocket
+James Carter, "Correctamundo". The call must reach POST /queue/calls and a websocket
 agent must get the offer.
 
 Run locally with keys and a Postgres in the environment:
@@ -10,7 +10,7 @@ Needs DAILY_API_KEY, DEEPGRAM_API_KEY, ANTHROPIC_API_KEY, DATABASE_URL.
 Same setup as test_e2e_live.py: the real server under uvicorn starts the bot on POST
 /calls/browser; the caller is a daily-python client speaking Deepgram TTS audio.
 The script follows the calls row: the first identity line gives the wrong last name
-("Chang"), the read back is corrected to James Chen, and every confirm is
+("Carver"), the read back is corrected to James Carter, and every confirm is
 "Correctamundo." (the reply the prod LLM answered in text instead of calling
 verify_identity).
 """
@@ -45,14 +45,14 @@ pytestmark = pytest.mark.live
 REQUIRED = ("DAILY_API_KEY", "DEEPGRAM_API_KEY", "ANTHROPIC_API_KEY", "DATABASE_URL")
 AGENT_NAME = "Agent Ana"
 MAX_TURNS = 16
-JAMES = persona("james_chen")
+JAMES = persona("james_carter")
 SCRIPT = {
     # Wrong last name on purpose, as in the prod call.
     "identity": (
-        "Sure. My name is James Chang. My date of birth is July fourth, nineteen "
-        "seventy nine. And my member ID is E V M, one zero zero, two three two."
+        "Sure. My name is James Carver. My date of birth is July fourth, nineteen "
+        "seventy nine. And my member ID is five two seven, one nine four."
     ),
-    "fix_name": "No, my name is James Chen. Chen, C H E N.",
+    "fix_name": "No, my name is James Carter. Carter, C A R T E R.",
     "fix_member_id": JAMES.lines["fix_member_id"],
     "confirm": "Correctamundo.",
     "reason": JAMES.lines["reason"],
@@ -69,7 +69,7 @@ def next_key(intake: dict | None, identity_result: str | None) -> str:
         return "identity"
     if not identity_result:
         name = (intake.get("full_name") or "").lower().split()
-        if name[-1:] != ["chen"]:
+        if name[-1:] != ["carter"]:
             return "fix_name"
         mid = "".join(c for c in intake.get("member_id", "") if c.isalnum()).upper()
         return "confirm" if mid == JAMES.member_id else "fix_member_id"
@@ -209,7 +209,7 @@ async def test_live_nov16_script_reaches_the_queue_and_an_agent(schema, monkeypa
                 log(t0, f"queued summary: {json.dumps(queued['summary'])}")
                 assert "fix_name" in said and "confirm" in said, said
                 assert row["status"] == "ready_for_queue"
-                assert row["intake"]["full_name"].lower().endswith("chen")
+                assert row["intake"]["full_name"].lower().endswith("carter")
 
                 async with websockets.connect(f"ws://127.0.0.1:{port}/ws/queue") as ws:
                     assert json.loads(await ws.recv())["type"] == "snapshot"

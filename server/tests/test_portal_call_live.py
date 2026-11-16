@@ -10,7 +10,7 @@ P3_SCREENSHOT_DIR (optional) keeps the two 1600x1000 screenshots.
 
 Same setup as the Phase 2 exit test (test_e2e_live.py): the real server under
 uvicorn starts the bot on POST /calls/browser, a daily-python caller (S1 harness)
-finishes intake as demo persona Maria Alvarez, and the bot enqueues the call. Then,
+finishes intake as demo persona Maria Lopez, and the bot enqueues the call. Then,
 instead of a websocket agent, the built portal at /agent runs in headless Chromium
 (fake mic): sign in, go available, the incoming card rings, Enter accepts, the
 portal joins the room with the Pipecat client SDK and the Daily transport, and the
@@ -40,7 +40,7 @@ from agent_assist_server.app import app
 from agent_assist_server.bot_launcher import BotLauncher
 from agent_assist_server.daily import DailyRestClient
 from agent_assist_server.portal import DEFAULT_DIST
-from harness.intake_script import MARIA_ALVAREZ as SCRIPT
+from harness.intake_script import MARIA_LOPEZ as SCRIPT
 from harness.intake_script import next_line
 from harness.participant import SAMPLE_RATE, HarnessParticipant
 from harness.tts import synthesize

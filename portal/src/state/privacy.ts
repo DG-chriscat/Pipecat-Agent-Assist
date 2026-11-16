@@ -7,7 +7,7 @@ export const REVEAL_SECS = 30;
 
 const DOT = "•";
 
-/** "EVM100231" -> "••••31" (DESIGN.md caller panel). */
+/** "418302" -> "••••02" (DESIGN.md caller panel). */
 export function maskMemberId(id: string): string {
   const s = id.trim();
   return DOT.repeat(4) + (s.length > 2 ? s.slice(-2) : "");

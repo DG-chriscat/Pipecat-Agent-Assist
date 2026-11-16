@@ -51,15 +51,15 @@ async def row(store, call_id):
 @pytest.mark.parametrize(
     "name, dob, member_id, want",
     [
-        ("Maria Alvarez", "1984-03-12", "EVM100231", ("verified", "EVM100231")),
-        ("maria alvarez", "1984-03-12", "evm 100 231", ("verified", "EVM100231")),
-        # Daniel Okafor's scripted wrong DOB (docs/db.md).
-        ("Daniel Okafor", "1990-07-15", "EVM100235", ("not_verified", "EVM100235")),
-        # Second James Chen, wrong ID, right name + DOB: one member matches.
-        ("James Chen", "1986-02-09", "EVM000000", ("not_verified", "EVM100236")),
+        ("Maria Lopez", "1984-03-12", "418302", ("verified", "418302")),
+        ("maria lopez", "1984-03-12", "four one eight, three zero two", ("verified", "418302")),
+        # Ben Cole's scripted wrong DOB (docs/db.md).
+        ("Ben Cole", "1990-07-15", "852617", ("not_verified", "852617")),
+        # Second Mark Hill, wrong ID, right name + DOB: one member matches.
+        ("Mark Hill", "1986-02-09", "999999", ("not_verified", "396127")),
         # Name shared by two members, DOB matches neither.
-        ("James Chen", "1990-01-01", "EVM000000", ("not_found", None)),
-        ("Nobody Real", "2000-01-01", "ZZZ999999", ("not_found", None)),
+        ("Mark Hill", "1990-01-01", "999999", ("not_found", None)),
+        ("Nobody Real", "2000-01-01", "618205", ("not_found", None)),
     ],
 )
 async def test_verify_identity_against_seed(store, name, dob, member_id, want):
@@ -76,34 +76,34 @@ async def test_create_call_inserts_intake_row_and_is_idempotent_per_session(stor
 
 async def test_save_intake_merges_fields_as_captured(store):
     call_id = await store.create_call("sess-2")
-    await store.save_intake(call_id, {"full_name": "Maria Alvarez"})
-    assert (await row(store, call_id))[2] == {"full_name": "Maria Alvarez"}
+    await store.save_intake(call_id, {"full_name": "Maria Lopez"})
+    assert (await row(store, call_id))[2] == {"full_name": "Maria Lopez"}
     await store.save_intake(call_id, {"reason": "denied MRI claim"})
     await store.save_intake(call_id, {"reason": "denied MRI claim, CO-197"})
     assert (await row(store, call_id))[2] == {
-        "full_name": "Maria Alvarez",
+        "full_name": "Maria Lopez",
         "reason": "denied MRI claim, CO-197",
     }
 
 
 async def test_set_identity_and_flags(store):
     call_id = await store.create_call("sess-3")
-    await store.set_identity(call_id, "not_verified", "EVM100235")
+    await store.set_identity(call_id, "not_verified", "852617")
     await store.add_flag(call_id, "identity_not_verified")
     await store.add_flag(call_id, "identity_not_verified")
     await store.add_flag(call_id, "emergency")
     _, member_id, _, identity, flags = await row(store, call_id)
-    assert (identity, member_id) == ("not_verified", "EVM100235")
+    assert (identity, member_id) == ("not_verified", "852617")
     assert flags == ["identity_not_verified", "emergency"]
 
 
 async def test_mark_ready_for_queue_stores_summary(store):
     call_id = await store.create_call("sess-4")
     await store.save_intake(call_id, {"reason": "claim denied"})
-    await store.mark_ready_for_queue(call_id, "Maria Alvarez, MRI claim denied.")
+    await store.mark_ready_for_queue(call_id, "Maria Lopez, MRI claim denied.")
     status, _, intake, _, _ = await row(store, call_id)
     assert status == "ready_for_queue"
-    assert intake == {"reason": "claim denied", "summary": "Maria Alvarez, MRI claim denied."}
+    assert intake == {"reason": "claim denied", "summary": "Maria Lopez, MRI claim denied."}
 
 
 async def test_add_transcript_line_saves_final_lines_for_wrap_up(store):
@@ -152,7 +152,7 @@ async def test_add_assist_event_logs_feedback_on_the_call(store):
     await store.add_assist_event(
         call_id,
         "accept",
-        "nbs:retro_auth_review:CLM-900001",
+        "nbs:retro_auth_review:70412",
         {"action_id": "request_retro_auth_review", "simulated": True},
     )
     await store.add_assist_event(call_id, "card_sent", "card:denied_claim", {"latency_ms": 812.5})
@@ -163,13 +163,13 @@ async def test_add_assist_event_logs_feedback_on_the_call(store):
     assert await cur.fetchall() == [
         (
             "accept",
-            "nbs:retro_auth_review:CLM-900001",
+            "nbs:retro_auth_review:70412",
             {"action_id": "request_retro_auth_review", "simulated": True},
         ),
         ("card_sent", "card:denied_claim", {"latency_ms": 812.5}),
     ]
     # Source systems are untouched (DC-2, DC-9).
-    cur = await store._execute("SELECT status FROM claims WHERE claim_id = 'CLM-900001'")
+    cur = await store._execute("SELECT status FROM claims WHERE claim_id = '70412'")
     assert await cur.fetchone() == ("denied",)
 
 
@@ -186,15 +186,15 @@ async def test_assist_events_table_has_rls(store, schema):
 async def test_identity_v2_results_are_stored(store, result):
     # IN-6 v2 (migration 0009): close_match and incomplete are valid results.
     call_id = await store.create_call(f"sess-{result}")
-    await store.set_identity(call_id, result, "EVM100234")
+    await store.set_identity(call_id, result, "741526")
     assert (await row(store, call_id))[3] == result
 
 
 async def test_close_match_against_seed(store):
-    check = await store.verify_identity("Linda Yuen", "1958-01-30", "EVM100234")
+    check = await store.verify_identity("Linda Yuen", "1958-04-22", "741526")
     assert (check.result, check.member_id, check.on_file_name) == (
         "close_match",
-        "EVM100234",
+        "741526",
         "Linda Nguyen",
     )
 

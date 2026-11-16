@@ -138,6 +138,15 @@ def test_caller_page_served():
         assert button_id in html
 
 
+def test_caller_page_shows_the_persona_script_when_asked():
+    # P5-10: /caller?persona=<key> (opened from the Demos page) loads the persona from
+    # GET /demo/personas and shows the lines to read; without it the page is unchanged.
+    html = TestClient(app).get("/caller?persona=maria_lopez").text
+    assert 'id="persona"' in html
+    assert "/demo/personas" in html
+    assert 'get("persona")' in html
+
+
 def test_browser_room_body():
     body = build_browser_room_body(now=1000.0, room_name="r1")
     assert body == {

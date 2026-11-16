@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import httpx
@@ -63,9 +64,24 @@ class QueueHandoff:
         bot_key: str | None = None,
     ):
         self.server_url = server_url.rstrip("/")
+        self.bot_key = bot_key
         self._transport = transport
         self._timeout = timeout
         self._headers = {"authorization": f"Bearer {bot_key}"} if bot_key else {}
+        self._enqueued: list[Callable[[str], Awaitable[None]]] = []
+        self._closers: list[Callable[[], Awaitable[None]]] = []
+
+    def add_enqueued_listener(self, fn: Callable[[str], Awaitable[None]]) -> None:
+        """Called with the session id once the call is in the queue (QH-5b: the bot
+        opens its socket to the server then)."""
+        self._enqueued.append(fn)
+
+    def add_closer(self, fn: Callable[[], Awaitable[None]]) -> None:
+        self._closers.append(fn)
+
+    async def close(self) -> None:
+        for fn in self._closers:
+            await fn()
 
     def _client(self) -> httpx.AsyncClient:
         return httpx.AsyncClient(
@@ -89,6 +105,8 @@ class QueueHandoff:
             handoff.outcome,
             r.json().get("position"),
         )
+        for fn in self._enqueued:
+            await fn(handoff.session_id)
 
     async def on_call_ended(self, session_id: str) -> None:
         try:

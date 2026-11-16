@@ -252,6 +252,7 @@ def test_bot_told_when_queued_and_when_accepted(client, daily):
         "type": queue_api.BOT_MESSAGE_TYPE,
         "event": "agent_accepted",
         "agent_name": "Ana",
+        "id": accepted["data"]["id"],  # QH-5b: same id as the bot socket copy
     }
     assert "tok-" not in json.dumps(daily.app_messages())
 

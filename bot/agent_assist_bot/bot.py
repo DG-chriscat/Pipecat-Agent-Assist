@@ -31,6 +31,8 @@ from __future__ import annotations
 import os
 import time
 import uuid
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 from loguru import logger
 from pipecat.audio.vad.silero import SileroVADAnalyzer
@@ -59,13 +61,14 @@ from agent_assist_bot.calls import CallStore, MemoryCallStore, PostgresCallStore
 from agent_assist_bot.dialin import DEFAULT_DAILY_API_URL as DEFAULT_DAILY_API_URL
 from agent_assist_bot.dialin import DialinConfig as DialinConfig
 from agent_assist_bot.dialin import DialinForwarder, DialinForwardError, sip_uri_from_ready
-from agent_assist_bot.handoff import agent_left, end_call, handoff_from_env
+from agent_assist_bot.handoff import QueueHandoff, agent_left, end_call, handoff_from_env
 from agent_assist_bot.hold import BotGate, HoldController, HoldState, hold_interval_from_env
 from agent_assist_bot.hold_music import HoldMusicMixer, hold_music_from_env
 from agent_assist_bot.intake import GREETING as GREETING  # re-export (PRD IN-2)
 from agent_assist_bot.intake import ROLE_MESSAGE, HandoffHook, IntakeSession, NoopHandoff
 from agent_assist_bot.llm import create_llm
 from agent_assist_bot.packs import DEFAULT_PACK, MAX_KEYTERMS, Pack, load_pack, load_packs
+from agent_assist_bot.server_channel import ServerChannel
 from agent_assist_bot.stt_tuning import IdentitySTTTuning, build_intake_stt
 from agent_assist_bot.timing import FirstAudioTimer, log_timing
 from agent_assist_bot.transcript import (
@@ -81,6 +84,8 @@ STT_MODEL = "nova-3-general"
 TTS_VOICE = "aura-2-thalia-en"
 PACK_ENV = "INTAKE_PACK"
 REQUIRED_KEYS = ("DAILY_API_KEY", "DEEPGRAM_API_KEY", "ANTHROPIC_API_KEY")
+
+ServerMessageHandler = Callable[[Any], Awaitable[None]]
 
 
 class MissingKeyError(RuntimeError):
@@ -173,10 +178,13 @@ def register_handlers(
     forwarder: DialinForwarder | None = None,
     roles: CallRoles | None = None,
     assist=None,
-) -> None:
+) -> ServerMessageHandler:
     """Start intake for the first participant (the caller); end when they leave.
 
-    Queue app messages from the server go to `hold` (QH-5, QH-6). When the caller
+    Queue app messages from the server go to `hold` (QH-5, QH-6). Returns the handler
+    for the same messages arriving on the bot's socket to the server (QH-5b,
+    `server_channel.py`); whichever copy comes first acts, the other is dropped.
+    When the caller
     leaves, `handoff.on_call_ended` (QueueHandoff only) tells the queue so a waiting
     or ringing call is cleared. For a dial-in call (`dialin` set) the bot warms a
     Daily API connection on join and forwards the held call into the room when Daily
@@ -225,7 +233,18 @@ def register_handlers(
 
     @transport.event_handler("on_app_message")
     async def on_app_message(transport, message, sender):
-        await hold.on_app_message(message, sender)
+        await on_queue_message(message, sender)
+
+    async def on_server_message(message) -> None:
+        # QH-5b: the same queue messages, straight from the server's bot socket.
+        await on_queue_message(message, None)
+
+    async def on_queue_message(message, sender) -> None:
+        """`sender` None: from the bot socket (trusted like Daily's "api" sender)."""
+        if sender is None:
+            await hold.on_server_message(message)
+        else:
+            await hold.on_app_message(message, sender)
         if hold.state is HoldState.WITH_AGENT and not roles.listening:
             roles.agent_accepted(hold.agent_name)
             logger.info("[bot] agent accepted: listen only, live transcript to the agent")
@@ -243,7 +262,7 @@ def register_handlers(
             await worker.queue_frames([EndFrame()])
             if on_ended is not None:
                 await on_ended()
-        elif assist is not None:
+        elif assist is not None and sender is not None:
             await assist.on_app_message(message, sender)
 
     @transport.event_handler("on_participant_left")
@@ -299,6 +318,8 @@ def register_handlers(
     async def on_dialin_error(transport, data):
         logger.error(f"[bot] dial-in error: {data}")
         await worker.cancel()
+
+    return on_server_message
 
 
 def listen_keyterms(packs) -> list[str]:
@@ -456,8 +477,11 @@ def build_worker(
         await assist.close()
         await recorder.close()
         await session.store.close()
+        close = getattr(handoff, "close", None)
+        if close is not None:
+            await close()
 
-    register_handlers(
+    on_server_message = register_handlers(
         transport,
         worker,
         on_caller_joined=on_caller_joined,
@@ -471,7 +495,31 @@ def build_worker(
         roles=roles,
         assist=assist,
     )
+    open_server_channel(handoff, on_server_message)
     return worker, transport
+
+
+def open_server_channel(handoff: HandoffHook, on_message: ServerMessageHandler) -> None:
+    """QH-5b: once the call is queued, listen on the server's bot socket too, so
+    agent_accepted does not wait on the REST hop through Daily. QueueHandoff only."""
+    if not isinstance(handoff, QueueHandoff):
+        return
+    channel: dict[str, ServerChannel] = {}
+
+    async def on_enqueued(session_id: str) -> None:
+        if session_id in channel:
+            return
+        channel[session_id] = ServerChannel(
+            handoff.server_url, session_id, on_message, bot_key=handoff.bot_key
+        )
+        channel[session_id].start()
+
+    async def close() -> None:
+        for ch in channel.values():
+            await ch.close()
+
+    handoff.add_enqueued_listener(on_enqueued)
+    handoff.add_closer(close)
 
 
 async def run_bot(

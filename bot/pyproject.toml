@@ -11,6 +11,8 @@ dependencies = [
     "psycopg[binary]>=3.2",
     "pydantic>=2",
     "pyyaml>=6",
+    # QH-5b: the bot's socket to the server (server_channel.py).
+    "websockets>=13",
 ]
 
 [build-system]

@@ -20,6 +20,8 @@ export interface CallMedia {
   /** Join the room, audio only, mic on. Resolves once joined. */
   join(roomUrl: string, token: string): Promise<void>;
   setMic(on: boolean): void;
+  /** RTVI client message to the bot (assist feedback, P4-4). No-op before join. */
+  sendClientMessage(msgType: string, data: unknown): void;
   leave(): Promise<void>;
 }
 

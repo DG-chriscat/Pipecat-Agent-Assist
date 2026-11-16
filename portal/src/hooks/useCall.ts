@@ -1,6 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AcceptResult, CallerDetails } from "../api/types";
 import type { CallMedia, CreateMedia } from "../call/media";
+import {
+  applyAssist,
+  ASSIST_VERSION,
+  emptyAssist,
+  localAssist,
+  parseAssistMessage,
+  type AssistState,
+  type LocalAction,
+} from "../state/assist";
 import { callerInfo, type CallerInfo } from "../state/offer";
 import {
   applyTranscript,
@@ -33,11 +42,16 @@ export interface ActiveCall {
   transcript: TranscriptLine[];
   /** Trigger word ranges underlined in the transcript (Phase 4 sets them). */
   highlights: HighlightRange[];
+  /** Assist column state from the bot's assist messages and the agent's actions (P4-4). */
+  assist: AssistState;
 }
 
 export interface StartOptions {
   waitSecs?: number | null;
 }
+
+/** Call time in seconds, for "Earlier this call" stamps. */
+const callSecs = (c: ActiveCall) => Math.max(0, (Date.now() - c.startedAtMs) / 1000);
 
 const JOIN_FAILED = "Could not connect the call audio. Check your microphone, or end the call.";
 
@@ -49,6 +63,11 @@ const JOIN_FAILED = "Could not connect the call audio. Check your microphone, or
  */
 export function useCall(createMedia: CreateMedia) {
   const [call, setCall] = useState<ActiveCall | null>(null);
+  /** The rendered call, for handlers that must not change identity every audio level tick. */
+  const callRef = useRef<ActiveCall | null>(null);
+  useEffect(() => {
+    callRef.current = call;
+  }, [call]);
   const media = useRef<CallMedia | null>(null);
   /** Warmed while the offer rings (prepare), adopted by start, or discarded. */
   const warm = useRef<CallMedia | null>(null);
@@ -76,6 +95,15 @@ export function useCall(createMedia: CreateMedia) {
       },
       onServerMessage(data) {
         if (media.current !== m) return;
+        const assist = parseAssistMessage(data);
+        if (assist) {
+          setCall((c) => {
+            if (!c) return c;
+            const next = applyAssist(c.assist, assist, callSecs(c));
+            return next === c.assist ? c : { ...c, assist: next };
+          });
+          return;
+        }
         const msg = parseTranscriptMessage(data);
         if (!msg) return;
         setCall((c) => {
@@ -128,6 +156,7 @@ export function useCall(createMedia: CreateMedia) {
         error: null,
         transcript: [],
         highlights: [],
+        assist: emptyAssist(),
       });
       const m = warm.current ?? makeMedia();
       warm.current = null;
@@ -183,6 +212,24 @@ export function useCall(createMedia: CreateMedia) {
   /** Underline trigger words: replaces the current set (empty clears). */
   const highlight = useCallback((ranges: HighlightRange[]) => patch({ highlights: ranges }), [patch]);
 
+  /**
+   * The agent acted on an assist card or the call plan: update the screen at once and
+   * tell the bot (docs/assist.md "Portal to bot: feedback"). Manual plan ticks and the
+   * end of the accepted or dismissed hero state are portal only.
+   */
+  const assistAction = useCallback((a: LocalAction) => {
+    const c = callRef.current;
+    if (!c || localAssist(c.assist, a, 0) === c.assist) return;
+    const sessionId = c.sessionId;
+    setCall((cur) =>
+      cur && cur.sessionId === sessionId ? { ...cur, assist: localAssist(cur.assist, a, callSecs(cur)) } : cur,
+    );
+    if (a.type === "tick" || a.type === "settle") return;
+    const d: Record<string, unknown> = { v: ASSIST_VERSION, card_id: a.cardId, action: a.type };
+    if (a.type === "rate") d.rating = a.rating;
+    media.current?.sendClientMessage("assist_feedback", d);
+  }, []);
+
   // Leave the room if the component goes away mid call (sign out, reload).
   useEffect(
     () => () => {
@@ -194,5 +241,5 @@ export function useCall(createMedia: CreateMedia) {
     [],
   );
 
-  return { call, start, prepare, discard, setDetails, leave, toggleMute, toggleHold, highlight };
+  return { call, start, prepare, discard, setDetails, leave, toggleMute, toggleHold, highlight, assistAction };
 }

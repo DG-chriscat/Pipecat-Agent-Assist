@@ -41,6 +41,12 @@ export class FakeMedia implements CallMedia {
     this.mic.push(on);
   }
 
+  /** Client messages sent to the bot, as [type, data]. */
+  sent: [string, unknown][] = [];
+  sendClientMessage(msgType: string, data: unknown): void {
+    this.sent.push([msgType, data]);
+  }
+
   async leave(): Promise<void> {
     this.left += 1;
   }

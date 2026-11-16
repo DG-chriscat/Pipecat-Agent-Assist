@@ -1,6 +1,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { AcceptResult } from "../api/types";
+import { heroCard, msg, planMsg, recordCard } from "../test/assistFixtures";
 import { createFakeMedia, FakeMedia } from "../test/fakeMedia";
 import { useCall } from "./useCall";
 
@@ -89,5 +90,58 @@ describe("useCall warm up while ringing (P3-5: accept to audio under 2 s)", () =
     act(() => result.current.start(res));
     expect(FakeMedia.last().prepared).toBe(0);
     expect(FakeMedia.last().joined).not.toBeNull();
+  });
+});
+
+describe("useCall assist (P4-4, docs/assist.md)", () => {
+  beforeEach(() => FakeMedia.reset());
+
+  it("applies assist messages, ignores other versions, and starts empty on each call", () => {
+    const { result } = renderHook(() => useCall(createFakeMedia));
+    act(() => result.current.start(res));
+    expect(result.current.call?.assist.hero).toBeNull();
+    act(() => FakeMedia.last().events.onServerMessage({ ...msg("hero", { card: heroCard(), reason: "new" }), v: 2 }));
+    expect(result.current.call?.assist.hero).toBeNull();
+    act(() => FakeMedia.last().events.onServerMessage(msg("hero", { card: heroCard(), reason: "new", replaces: null })));
+    expect(result.current.call?.assist.hero?.id).toBe(heroCard().id);
+    act(() => FakeMedia.last().events.onServerMessage(planMsg()));
+    expect(result.current.call?.assist.plan?.steps).toHaveLength(4);
+    act(() => result.current.start({ ...res, session_id: "s2" }));
+    expect(result.current.call?.assist.hero).toBeNull();
+    expect(result.current.call?.assist.plan).toBeNull();
+  });
+
+  it("sends each feedback action to the bot as an assist_feedback client message", () => {
+    const { result } = renderHook(() => useCall(createFakeMedia));
+    act(() => result.current.start(res));
+    const m = FakeMedia.last();
+    act(() => m.events.onServerMessage(planMsg()));
+    act(() => m.events.onServerMessage(msg("card_added", { card: recordCard() })));
+    act(() => m.events.onServerMessage(msg("hero", { card: heroCard(), reason: "new", replaces: null })));
+    act(() => result.current.assistAction({ type: "pin", cardId: "card:denied_claim" }));
+    act(() => result.current.assistAction({ type: "unpin", cardId: "card:denied_claim" }));
+    act(() => result.current.assistAction({ type: "rate", cardId: "card:denied_claim", rating: "down" }));
+    act(() => result.current.assistAction({ type: "dismiss", cardId: "card:denied_claim" }));
+    act(() => result.current.assistAction({ type: "accept", cardId: heroCard().id }));
+    act(() => result.current.assistAction({ type: "tick", stepId: "confirm_claim", done: true }));
+    act(() => result.current.assistAction({ type: "settle" }));
+    expect(m.sent).toEqual([
+      ["assist_feedback", { v: 1, card_id: "card:denied_claim", action: "pin" }],
+      ["assist_feedback", { v: 1, card_id: "card:denied_claim", action: "unpin" }],
+      ["assist_feedback", { v: 1, card_id: "card:denied_claim", action: "rate", rating: "down" }],
+      ["assist_feedback", { v: 1, card_id: "card:denied_claim", action: "dismiss" }],
+      ["assist_feedback", { v: 1, card_id: heroCard().id, action: "accept" }],
+    ]);
+    expect(result.current.call?.assist.history.map((h) => h.label)).toEqual([
+      "Request retro auth review",
+      "Confirm which claim the caller means",
+    ]);
+  });
+
+  it("does not send feedback for a hero that is not on screen", () => {
+    const { result } = renderHook(() => useCall(createFakeMedia));
+    act(() => result.current.start(res));
+    act(() => result.current.assistAction({ type: "accept", cardId: heroCard().id }));
+    expect(FakeMedia.last().sent).toEqual([]);
   });
 });

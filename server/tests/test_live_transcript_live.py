@@ -283,6 +283,8 @@ async def test_live_transcript_reaches_the_agent_only(schema, shots, monkeypatch
     port = free_port()
     base = f"http://127.0.0.1:{port}"
     monkeypatch.setenv(SERVER_URL_ENV, base)
+    # Hold music (QH-5) would read as bot speech to the RMS turn detection.
+    monkeypatch.setenv("HOLD_MUSIC", "off")
     monkeypatch.setenv(DATABASE_SCHEMA_ENV, schema)
     monkeypatch.delenv("QUEUE_PERSIST", raising=False)
     monkeypatch.delenv("APP_PASSWORD", raising=False)

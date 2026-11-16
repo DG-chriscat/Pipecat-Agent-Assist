@@ -295,3 +295,133 @@ async def test_queue_handoff_reports_agent_left():
     await handoff.agent_left(h, "s1")
     assert [(r.method, r.url.path) for r in seen] == [("POST", "/queue/calls/s1/agent-left")]
     await handoff.agent_left(intake.NoopHandoff(), "s1")  # no method, no error
+
+
+# ---- hold music (QH-5) --------------------------------------------------------------
+
+
+class Music:
+    """Records enable/disable in order, with what had been spoken at that moment."""
+
+    def __init__(self, spoken: Spoken):
+        self.spoken = spoken
+        self.enabled = False
+        self.log: list[tuple[str, int]] = []
+
+    def enable(self):
+        self.enabled = True
+        self.log.append(("on", len(self.spoken.lines)))
+
+    def disable(self):
+        self.enabled = False
+        self.log.append(("off", len(self.spoken.lines)))
+
+
+@pytest.fixture
+def music(spoken):
+    return Music(spoken)
+
+
+@pytest.fixture
+def mctl(spoken, music):
+    c = hold.HoldController(spoken, interval=0.05, music=music)
+    yield c
+    c.stop()
+
+
+async def test_music_off_during_intake(mctl, music):
+    await mctl.on_app_message(msg("position", position=2), "some-participant-id")
+    await mctl.on_app_message(msg("requeued", position=1), "api")  # not with an agent
+    await mctl.on_app_message(msg("call_ended"), "api")
+    assert mctl.state == hold.HoldState.INTAKE
+    assert not music.enabled
+    assert ("on", 0) not in music.log
+
+
+async def test_music_on_when_queued(mctl, music):
+    await mctl.on_app_message(msg("queued", position=1), "api")
+    assert music.enabled
+    await mctl.on_app_message(msg("position", position=1), "api")
+    assert music.log == [("on", 0)]  # once
+
+
+async def test_music_keeps_playing_through_hold_updates(mctl, music, spoken):
+    await mctl.on_app_message(msg("queued", position=1), "api")
+    await asyncio.sleep(0.13)
+    assert len(spoken.lines) == 2  # updates are spoken over the music (the mixer ducks)
+    assert music.enabled
+    assert music.log == [("on", 0)]
+
+
+async def test_music_stops_before_connecting_line(mctl, music, spoken):
+    await mctl.on_app_message(msg("queued", position=1), "api")
+    await mctl.on_app_message(msg("agent_accepted", agent_name="Ana"), "api")
+    assert not music.enabled
+    assert music.log[-1] == ("off", 0)  # off before "Connecting you now." is queued
+    assert spoken.lines == [hold.CONNECTING_LINE]
+
+
+async def test_music_back_on_when_requeued_then_off_on_next_accept(mctl, music, spoken):
+    await mctl.on_app_message(msg("queued", position=1), "api")
+    await mctl.on_app_message(msg("agent_accepted", agent_name="Ana"), "api")
+    await mctl.on_app_message(msg("requeued", position=1), "api")
+    assert music.enabled
+    assert music.log[-1] == ("on", 2)  # with the requeue line; the mixer waits for it
+    await mctl.on_app_message(msg("agent_accepted", agent_name="Ben"), "api")
+    assert not music.enabled
+
+
+async def test_music_off_on_call_ended(mctl, music):
+    await mctl.on_app_message(msg("queued", position=1), "api")
+    await mctl.on_app_message(msg("agent_accepted", agent_name="Ana"), "api")
+    await mctl.on_app_message(msg("call_ended"), "api")
+    assert not music.enabled
+    assert all(state == "off" for state, _ in music.log[1:])
+
+
+async def test_music_off_when_the_controller_stops(mctl, music):
+    # The caller hung up while on hold.
+    await mctl.on_app_message(msg("queued", position=1), "api")
+    mctl.stop()
+    assert not music.enabled
+
+
+async def test_no_music_configured_is_fine(ctl, spoken):
+    await ctl.on_app_message(msg("queued", position=1), "api")
+    await ctl.on_app_message(msg("agent_accepted", agent_name="Ana"), "api")
+    assert spoken.lines == [hold.CONNECTING_LINE]
+
+
+async def test_hold_update_ducks_the_real_mixer(spoken, tmp_path):
+    # End to end in memory: queued turns the mixer on; a hold update's audio ducks it.
+    import numpy as np
+    from agent_assist_bot.hold_music import HoldMusicMixer
+
+    rate, n = 16000, 640
+    t = np.arange(rate * 2) / rate
+    track = tmp_path / "t.wav"
+    import soundfile as sf
+
+    sf.write(track, 0.5 * np.sin(2 * np.pi * 330 * t), rate, subtype="PCM_16")
+    mixer = HoldMusicMixer(track, volume=1.0)
+    await mixer.start(rate)
+    c = hold.HoldController(spoken, interval=60, music=mixer)
+    silence = b"\x00" * n * 2
+    assert await mixer.mix(silence) == silence  # intake: nothing
+    await c.on_app_message(msg("queued", position=1), "api")
+    for _ in range(100):
+        out = await mixer.mix(silence)
+
+    def rms(b):
+        return float(np.sqrt(np.mean(np.frombuffer(b, dtype=np.int16).astype(float) ** 2)))
+
+    full = rms(out)
+    voice = (6000 * np.sin(2 * np.pi * 220 * np.arange(n) / rate)).astype(np.int16)
+    for _ in range(25):
+        out = await mixer.mix(voice.tobytes())
+    under = np.frombuffer(out, dtype=np.int16).astype(int) - voice
+    assert 20 * np.log10(rms(under.astype(np.int16).tobytes()) / full) == pytest.approx(-12, abs=2)
+    await c.on_app_message(msg("agent_accepted", agent_name="Ana"), "api")
+    await mixer.mix(silence)  # the ramp down chunk
+    assert await mixer.mix(silence) == silence
+    c.stop()

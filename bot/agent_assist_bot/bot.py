@@ -22,7 +22,8 @@ The greeting is the flow's first node: a fixed `tts_say` pre-action with no LLM 
 so the first utterance needs only a TTS round trip to hit the <2 s target (PRD IN-1).
 
 Env: DATABASE_URL (calls row + identity check; in memory when unset),
-INTAKE_PACK (pack id, default claims_status).
+INTAKE_PACK (pack id, default claims_status), HOLD_MUSIC / HOLD_MUSIC_VOLUME /
+HOLD_MUSIC_PATH (hold music while queued, QH-5, `hold_music.py`).
 """
 
 from __future__ import annotations
@@ -59,7 +60,8 @@ from agent_assist_bot.dialin import DEFAULT_DAILY_API_URL as DEFAULT_DAILY_API_U
 from agent_assist_bot.dialin import DialinConfig as DialinConfig
 from agent_assist_bot.dialin import DialinForwarder, DialinForwardError, sip_uri_from_ready
 from agent_assist_bot.handoff import agent_left, end_call, handoff_from_env
-from agent_assist_bot.hold import BotGate, HoldController, HoldState
+from agent_assist_bot.hold import BotGate, HoldController, HoldState, hold_interval_from_env
+from agent_assist_bot.hold_music import HoldMusicMixer, hold_music_from_env
 from agent_assist_bot.intake import GREETING as GREETING  # re-export (PRD IN-2)
 from agent_assist_bot.intake import ROLE_MESSAGE, HandoffHook, IntakeSession, NoopHandoff
 from agent_assist_bot.llm import create_llm
@@ -109,13 +111,18 @@ class TurnLogger(FrameProcessor):
         await self.push_frame(frame, direction)
 
 
-def build_transport(room_url: str, token: str | None = None) -> DailyTransport:
+def build_transport(
+    room_url: str, token: str | None = None, *, mixer: HoldMusicMixer | None = None
+) -> DailyTransport:
     """No `dialin_settings`: for dial-in calls the bot forwards the held call itself
-    (see agent_assist_bot.dialin for why Pipecat's built-in forwarding is not used)."""
+    (see agent_assist_bot.dialin for why Pipecat's built-in forwarding is not used).
+
+    `mixer` is the hold music (QH-5); it is silent until the call is queued."""
     params = DailyParams(
         audio_in_enabled=True,
         audio_in_user_tracks=True,  # one audio stream per participant (S2, P3-4)
         audio_out_enabled=True,
+        audio_out_mixer=mixer,
         camera_out_enabled=False,
     )
     return DailyTransport(room_url, token, BOT_NAME, params)
@@ -348,7 +355,8 @@ def build_worker(
     AGENT_ASSIST_SERVER_URL is set, else NoopHandoff."""
     session_id = session_id or str(uuid.uuid4())
     handoff = handoff or handoff_from_env()
-    transport = build_transport(room_url, token)
+    music = hold_music_from_env()
+    transport = build_transport(room_url, token, mixer=music)
     pack = pack or load_pack(os.environ.get(PACK_ENV) or DEFAULT_PACK)
     # Intake STT: the pack's fixed keyterms; identity step tuning in stt_tuning.py.
     stt = build_intake_stt(os.environ["DEEPGRAM_API_KEY"], STT_MODEL, pack.keyterms)
@@ -440,7 +448,9 @@ def build_worker(
         worker,
         on_caller_joined=on_caller_joined,
         on_ended=on_ended,
-        hold=HoldController(worker.queue_frames, gate=gate),
+        hold=HoldController(
+            worker.queue_frames, gate=gate, interval=hold_interval_from_env(), music=music
+        ),
         handoff=handoff,
         session_id=session_id,
         dialin=dialin,

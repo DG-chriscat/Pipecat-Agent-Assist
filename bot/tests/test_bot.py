@@ -1,5 +1,7 @@
 """Bot wiring: greeting, dial-in option, handlers, CLI parsing. No network."""
 
+import asyncio
+
 import pytest
 from agent_assist_bot import __main__ as cli
 from agent_assist_bot import bot, hold
@@ -70,6 +72,8 @@ async def test_first_participant_joined_starts_intake_once():
 
     bot.register_handlers(transport, worker, on_caller_joined=start)
     await transport.handlers["on_first_participant_joined"](transport, {"id": "caller"})
+    await transport.handlers["on_first_participant_joined"](transport, {"id": "caller"})
+    await asyncio.sleep(0)  # intake starts in its own task
     assert started == [True]
 
 
@@ -164,6 +168,34 @@ async def test_participant_left_ends_session():
     bot.register_handlers(transport, worker)
     await transport.handlers["on_participant_left"](transport, {"id": "caller"}, "hangup")
     assert worker.cancelled
+
+
+async def test_caller_leaving_during_the_greeting_does_not_strand_intake_start():
+    """Live bug (P5-2): start_intake waits in Flows for the greeting to finish playing.
+    If the caller hangs up first, the worker is cancelled and the greeting never
+    finishes, so the join handler never returned and Daily's cleanup (which waits for
+    its event handlers) hung the bot process forever, even on SIGTERM."""
+    transport, worker = FakeTransport(), FakeWorker()
+    greeting_done = asyncio.Event()
+    cancelled = []
+
+    async def start():
+        try:
+            await greeting_done.wait()  # never set: the call ends mid greeting
+        except asyncio.CancelledError:
+            cancelled.append(True)
+            raise
+
+    bot.register_handlers(transport, worker, on_caller_joined=start)
+    # The join handler hands intake off and returns at once.
+    await asyncio.wait_for(
+        transport.handlers["on_first_participant_joined"](transport, {"id": "caller"}), 1
+    )
+    await asyncio.sleep(0)
+    await transport.handlers["on_participant_left"](transport, {"id": "caller"}, "leftCall")
+    await asyncio.sleep(0)
+    assert worker.cancelled
+    assert cancelled == [True]
 
 
 def _p(pid: str, name: str) -> dict:

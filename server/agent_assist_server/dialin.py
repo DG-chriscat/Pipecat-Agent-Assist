@@ -4,7 +4,8 @@ Flow, modeled on Pipecat's Daily dial-in example (room_creation_api):
   Daily POSTs {callId, callDomain, To, From, ...} to this endpoint
   -> create a SIP dial-in room via the Daily REST API
   -> mint an owner meeting token for the bot
-  -> start the bot with call_id/call_domain; when the room's SIP endpoint is
+  -> start the bot with call_id/call_domain (after the response; a warm one from the
+     pool when ready, P5-2); when the room's SIP endpoint is
      ready the bot calls /dialin/pinlessCallUpdate so Daily forwards the call.
 """
 
@@ -16,14 +17,18 @@ import hmac
 import json
 import logging
 import os
-import time
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from agent_assist_server.bot_launcher import BotLauncher, BotLaunchRequest
+from agent_assist_server.bot_launcher import (
+    BotLaunchRequest,
+    get_launcher,
+    launch_in_background,
+)
+from agent_assist_server.bot_launcher import log_timing as _log_timing
 from agent_assist_server.daily import DailyAPIError, DailyConfigError, DailyRestClient
 from agent_assist_server.queue_api import get_queue
 
@@ -54,10 +59,7 @@ def is_test_ping(data: Any) -> bool:
 
 def log_timing(event: str, **fields: object) -> float:
     """Call timeline line, same format as agent_assist_bot.timing (PRD IN-1 test)."""
-    t = time.time()
-    extra = "".join(f" {k}={v}" for k, v in fields.items() if v not in (None, ""))
-    logger.info("[timing] event=%s t=%.3f%s", event, t, extra)
-    return t
+    return _log_timing(event, log=logger, **fields)
 
 
 def compute_signature(secret_b64: str, timestamp: str, body: str) -> str:
@@ -87,16 +89,8 @@ def _daily_client(request: Request) -> DailyRestClient:
     return factory() if factory else DailyRestClient.from_env()
 
 
-def _bot_launcher(request: Request) -> BotLauncher:
-    launcher = getattr(request.app.state, "bot_launcher", None)
-    if launcher is None:
-        launcher = BotLauncher()
-        request.app.state.bot_launcher = launcher
-    return launcher
-
-
 @router.post(DIALIN_WEBHOOK_PATH)
-async def daily_dialin_webhook(request: Request) -> dict[str, Any]:
+async def daily_dialin_webhook(request: Request, background: BackgroundTasks) -> dict[str, Any]:
     raw = await request.body()
     try:
         data = json.loads(raw or b"null")
@@ -141,16 +135,19 @@ async def daily_dialin_webhook(request: Request) -> dict[str, Any]:
         logger.error("Daily room setup failed: %s", e)
         raise HTTPException(status_code=502, detail="Failed to create Daily room") from None
 
-    await _bot_launcher(request).launch(
+    get_queue(request.app).register_session(session_id, room.url)
+    # P5-2: the launch runs after the response (it may wait for a warm bot to finish
+    # loading). bot_launched is logged once the bot has its call.
+    background.add_task(
+        launch_in_background,
+        get_launcher(request.app),
         BotLaunchRequest(
             room_url=room.url,
             token=token,
             call_id=call.call_id,
             call_domain=call.call_domain,
             session_id=session_id,
-        )
+        ),
     )
-    log_timing("bot_launched", session=session_id)
-    get_queue(request.app).register_session(session_id, room.url)
 
     return {"status": "OK", "sessionId": session_id, "dailyRoom": room.url}

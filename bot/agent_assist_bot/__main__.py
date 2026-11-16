@@ -2,6 +2,8 @@
 
 Dial-in call:    `python -m agent_assist_bot --room-url ... --call-id ... --call-domain ...`
 Browser caller:  `python -m agent_assist_bot --room-url ...` (PRD IN-12, ADR 0002)
+Warm (P5-2):     `python -m agent_assist_bot --warm` (preload, then the call arrives on
+                 stdin; see agent_assist_bot.warm)
 
 Both run the same build_worker and greeting; dial-in only adds the transport's
 dialin_settings. The meeting token comes from the DAILY_ROOM_TOKEN env var so it
@@ -17,6 +19,7 @@ import sys
 import uuid
 from dataclasses import dataclass
 
+from agent_assist_bot import warm
 from agent_assist_bot.bot import (
     DEFAULT_DAILY_API_URL,
     DialinConfig,
@@ -24,8 +27,10 @@ from agent_assist_bot.bot import (
     require_keys,
     run_bot,
 )
+from agent_assist_bot.timing import log_timing
 
 TOKEN_ENV = "DAILY_ROOM_TOKEN"
+WARM_FLAG = "--warm"
 
 
 @dataclass(frozen=True)
@@ -71,17 +76,44 @@ def parse_args(argv: list[str] | None = None, env: dict[str, str] | None = None)
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    if argv == [WARM_FLAG]:
+        return warm_main()
     args = parse_args(argv)
     try:
         keys = require_keys()
     except MissingKeyError as e:
         print(f"agent_assist_bot: {e}", file=sys.stderr)
         return 2
+    return run_call(args, keys)
+
+
+def run_call(args: DialinArgs, keys: dict[str, str]) -> int:
     api_url = os.environ.get("DAILY_API_URL", DEFAULT_DAILY_API_URL)
     dialin = args.dialin_config(keys["DAILY_API_KEY"], api_url)
     session_id = args.session_id or str(uuid.uuid4())
     asyncio.run(run_bot(args.room_url, args.token, dialin, session_id=session_id))
     return 0
+
+
+def warm_main() -> int:
+    """P5-2: load everything, say so on stdout, then wait for the server's call."""
+    try:
+        keys = require_keys()
+    except MissingKeyError as e:
+        print(f"agent_assist_bot: {e}", file=sys.stderr)
+        return 2
+    warm.preload()
+    print(warm.READY_LINE, flush=True)
+    try:
+        args = warm.read_assignment(sys.stdin)
+    except warm.AssignmentError as e:
+        print(f"agent_assist_bot: {e}", file=sys.stderr)
+        return 2
+    if args is None:
+        return 0
+    log_timing("warm_bot_assigned", session=args.session_id)
+    return run_call(args, keys)
 
 
 if __name__ == "__main__":

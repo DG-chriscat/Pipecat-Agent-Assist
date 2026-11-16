@@ -28,6 +28,7 @@ HOLD_MUSIC_PATH (hold music while queued, QH-5, `hold_music.py`).
 
 from __future__ import annotations
 
+import asyncio
 import os
 import time
 import uuid
@@ -209,6 +210,25 @@ def register_handlers(
     # Set once the call is over (caller left, or the agent pressed End), so the end
     # path runs once.
     done = {"ended": False}
+    # Intake start runs as its own task, not inside Daily's join handler: it waits in
+    # Flows for the greeting to finish playing, and if the caller hangs up first that
+    # never happens. Daily's cleanup waits for its event handlers, so a stuck handler
+    # kept the bot process alive forever after the call (found in P5-2).
+    intake: dict[str, asyncio.Task | None] = {"task": None}
+
+    def stop_intake_start() -> None:
+        task = intake["task"]
+        if task is not None and not task.done():
+            task.cancel()
+
+    async def run_intake_start() -> None:
+        try:
+            await on_caller_joined()
+        except asyncio.CancelledError:
+            logger.info("[bot] call ended before intake finished starting")
+            raise
+        except Exception as e:  # noqa: BLE001 - log it; the call itself goes on
+            logger.exception(f"[bot] intake start failed: {type(e).__name__}: {e}")
 
     @transport.event_handler("on_joined")
     async def on_joined(transport, data):
@@ -223,8 +243,8 @@ def register_handlers(
         roles.set_caller(participant["id"])
         log_timing("caller_joined", session=session_id)
         logger.info(f"[bot] first participant joined: {name!r}")
-        if on_caller_joined is not None:
-            await on_caller_joined()
+        if on_caller_joined is not None and intake["task"] is None:
+            intake["task"] = asyncio.create_task(run_intake_start(), name="intake_start")
 
     @transport.event_handler("on_participant_joined")
     async def on_participant_joined(transport, participant):
@@ -260,6 +280,7 @@ def register_handlers(
             # P3-5: the agent pressed End. Goodbye is queued; end once it has played.
             done["ended"] = True
             logger.info("[bot] the agent ended the call; leaving after goodbye")
+            stop_intake_start()
             await worker.queue_frames([EndFrame()])
             if on_ended is not None:
                 await on_ended()
@@ -280,11 +301,13 @@ def register_handlers(
         if done["ended"]:
             # The agent already ended the call and the queue knows. Make sure the bot
             # stops even if the goodbye EndFrame has not finished yet.
+            stop_intake_start()
             await worker.cancel()
             return
         done["ended"] = True
         logger.info(f"[bot] caller left ({reason}); ending")
         hold.stop()
+        stop_intake_start()
         if session_id:
             await end_call(handoff, session_id)
         await worker.cancel()

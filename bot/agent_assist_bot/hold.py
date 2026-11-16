@@ -63,6 +63,14 @@ class HoldState(StrEnum):
     ENDED = "ended"  # the agent ended the call (P3-5); the bot leaves
 
 
+def _must_say(text: str) -> TTSSpeakFrame:
+    """A line the caller must hear in full (QH-9 requeue, P3-5 goodbye): the caller
+    talking over it does not cut it off or hand the turn to the LLM."""
+    frame = TTSSpeakFrame(text)
+    frame.interruptible = False
+    return frame
+
+
 class BotGate(FrameProcessor):
     """Sits between the user aggregator and the LLM. Closed after accept: caller turns
     no longer reach the LLM, so the bot stops replying. TTSSpeakFrames still pass.
@@ -139,14 +147,14 @@ class HoldController:
             self.position = message.get("position")
             self.gate.reopen()
             logger.info(f"[hold] agent dropped; requeued at position {self.position}")
-            await self._queue_frames([TTSSpeakFrame(REQUEUED_LINE)])
+            await self._queue_frames([_must_say(REQUEUED_LINE)])
             self._start_loop()
         elif event == "call_ended" and self.state is HoldState.WITH_AGENT:
             # The agent pressed End (P3-5): say goodbye; the bot then leaves.
             self.state = HoldState.ENDED
             self.stop()
             logger.info("[hold] the agent ended the call; saying goodbye")
-            await self._queue_frames([TTSSpeakFrame(GOODBYE_LINE)])
+            await self._queue_frames([_must_say(GOODBYE_LINE)])
 
     def _start_loop(self) -> None:
         self.stop()

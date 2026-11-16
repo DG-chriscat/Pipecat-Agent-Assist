@@ -126,11 +126,13 @@ async def test_queue_handoff_end_swallows_errors():
 class Spoken:
     def __init__(self):
         self.lines: list[str] = []
+        self.frames: list[TTSSpeakFrame] = []
 
     async def __call__(self, frames):
         for f in frames:
             assert isinstance(f, TTSSpeakFrame)
             self.lines.append(f.text)
+            self.frames.append(f)
 
 
 def msg(event, **kw):
@@ -250,6 +252,18 @@ async def test_call_ended_by_agent_says_goodbye_once(ctl, spoken):
     await ctl.on_app_message(msg("requeued", position=1), "api")
     assert ctl.state == hold.HoldState.ENDED
     assert spoken.lines == [hold.CONNECTING_LINE, hold.GOODBYE_LINE]
+
+
+async def test_requeued_and_goodbye_lines_are_not_cut_off_by_the_caller(ctl, spoken):
+    # Live run: the caller's speech interrupted the requeue line and the LLM answered
+    # instead. These lines must play in full.
+    await ctl.on_app_message(msg("agent_accepted", agent_name="Ana"), "api")
+    await ctl.on_app_message(msg("requeued", position=1), "api")
+    await ctl.on_app_message(msg("agent_accepted", agent_name="Ben"), "api")
+    await ctl.on_app_message(msg("call_ended"), "api")
+    by_text = {f.text: f for f in spoken.frames}
+    assert by_text[hold.REQUEUED_LINE].interruptible is False
+    assert by_text[hold.GOODBYE_LINE].interruptible is False
 
 
 async def test_call_ended_before_an_agent_is_ignored(ctl, spoken):

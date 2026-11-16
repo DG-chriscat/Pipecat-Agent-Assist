@@ -15,7 +15,8 @@ Two ways in, one bot:
 
 After an agent accepts (QH-6) the bot says "Connecting you now." and goes listen only:
 intake hears nothing more and the caller and the agent are transcribed on their own
-tracks, each line sent to the agent's portal only (P3-4, `transcript.py`).
+tracks, each line sent to the agent's portal only (P3-4, `transcript.py`). The assist
+(P4-3, `assist.py`) turns those lines into ranked cards for the agent's portal only.
 
 The greeting is the flow's first node: a fixed `tts_say` pre-action with no LLM call,
 so the first utterance needs only a TTS round trip to hit the <2 s target (PRD IN-1).
@@ -50,6 +51,9 @@ from pipecat.services.deepgram.tts import DeepgramTTSService
 from pipecat.transports.daily.transport import DailyParams, DailyTransport
 from pipecat.workers.runner import WorkerRunner
 
+from agent_assist_bot.assist import LLM_DEBOUNCE_SECS
+from agent_assist_bot.assist_llm import LLMProposer
+from agent_assist_bot.assist_runtime import AssistSession
 from agent_assist_bot.calls import CallStore, MemoryCallStore, PostgresCallStore
 from agent_assist_bot.dialin import DEFAULT_DAILY_API_URL as DEFAULT_DAILY_API_URL
 from agent_assist_bot.dialin import DialinConfig as DialinConfig
@@ -59,7 +63,7 @@ from agent_assist_bot.hold import BotGate, HoldController, HoldState
 from agent_assist_bot.intake import GREETING as GREETING  # re-export (PRD IN-2)
 from agent_assist_bot.intake import ROLE_MESSAGE, HandoffHook, IntakeSession, NoopHandoff
 from agent_assist_bot.llm import create_llm
-from agent_assist_bot.packs import DEFAULT_PACK, Pack, load_pack
+from agent_assist_bot.packs import DEFAULT_PACK, MAX_KEYTERMS, Pack, load_pack, load_packs
 from agent_assist_bot.timing import FirstAudioTimer, log_timing
 from agent_assist_bot.transcript import (
     ROLES,
@@ -158,6 +162,7 @@ def register_handlers(
     dialin: DialinConfig | None = None,
     forwarder: DialinForwarder | None = None,
     roles: CallRoles | None = None,
+    assist=None,
 ) -> None:
     """Start intake for the first participant (the caller); end when they leave.
 
@@ -170,6 +175,9 @@ def register_handlers(
     `roles` (P3-4) learns who the caller and the agent are: the caller is the first
     participant; on the server's agent_accepted message the agent is whoever joined
     with the accepting agent's name, and the bot switches to listen only.
+
+    `assist` (P4-3, AssistSession) starts on accept, gets every app message (it
+    keeps only the agent's feedback), and resends its state when the agent joins.
     """
     hold = hold or HoldController(worker.queue_frames)
     roles = roles or CallRoles()
@@ -202,6 +210,8 @@ def register_handlers(
     @transport.event_handler("on_participant_joined")
     async def on_participant_joined(transport, participant):
         roles.joined(participant["id"], participant.get("info", {}).get("userName"))
+        if assist is not None:
+            await assist.on_participant_joined(participant["id"])
 
     @transport.event_handler("on_app_message")
     async def on_app_message(transport, message, sender):
@@ -209,6 +219,9 @@ def register_handlers(
         if hold.state is HoldState.WITH_AGENT and not roles.listening:
             roles.agent_accepted(hold.agent_name)
             logger.info("[bot] agent accepted: listen only, live transcript to the agent")
+            if assist is not None:
+                # Once per call; after a QH-9 drop the next agent's join resyncs it.
+                await assist.on_accept()
         elif hold.state is HoldState.QUEUED and roles.listening:
             # QH-9: the agent dropped off; intake hears the caller again.
             roles.agent_dropped()
@@ -220,6 +233,8 @@ def register_handlers(
             await worker.queue_frames([EndFrame()])
             if on_ended is not None:
                 await on_ended()
+        elif assist is not None:
+            await assist.on_app_message(message, sender)
 
     @transport.event_handler("on_participant_left")
     async def on_participant_left(transport, participant, reason):
@@ -276,14 +291,43 @@ def register_handlers(
         await worker.cancel()
 
 
-def listen_branch(role: str, roles: CallRoles, on_final) -> list[FrameProcessor]:
+def listen_keyterms(packs) -> list[str]:
+    """Every pack's fixed STT keyterms for the listen branches, deduped, max 100.
+
+    The listen branches run before anyone knows which pack the conversation will
+    land on, so they boost all packs' terms (never per member).
+    """
+    seen: set[str] = set()
+    out: list[str] = []
+    for p in packs.values():
+        for t in p.keyterms:
+            if t.lower() not in seen:
+                seen.add(t.lower())
+                out.append(t)
+    return out[:MAX_KEYTERMS]
+
+
+class FanOut:
+    """One `on_final` callback that calls each target in order."""
+
+    def __init__(self, *targets):
+        self.targets = targets
+
+    def __call__(self, data) -> None:
+        for t in self.targets:
+            t(data)
+
+
+def listen_branch(
+    role: str, roles: CallRoles, on_final, keyterms: list[str] | None = None
+) -> list[FrameProcessor]:
     """One role's live transcript (S2): its own audio, VAD, and Deepgram stream."""
     return [
         AudioRoute(role, roles),
         VADProcessor(vad_analyzer=SileroVADAnalyzer()),
         DeepgramSTTService(
             api_key=os.environ["DEEPGRAM_API_KEY"],
-            settings=DeepgramSTTService.Settings(model=STT_MODEL),
+            settings=DeepgramSTTService.Settings(model=STT_MODEL, keyterm=keyterms or None),
         ),
         TranscriptRelay(role, roles, on_final=on_final),
     ]
@@ -330,10 +374,23 @@ def build_worker(
 
     # After an agent accepts, the gate stops caller turns reaching the LLM (QH-6),
     # intake hears nothing more, and the listen branches transcribe both people.
+    # Each final line is saved for wrap up and fed to the assist (P4-3).
     gate = BotGate()
     roles = CallRoles()
     recorder = TranscriptRecorder(store, lambda: session.call_id)
-    listen = [listen_branch(role, roles, recorder.add) for role in ROLES]
+    packs = load_packs()
+    assist = AssistSession(
+        packs=packs,
+        roles=roles,
+        output=transport.output(),
+        store=store,
+        intake=session,
+        llm_factory=LLMProposer.from_env,
+        llm_debounce_secs=LLM_DEBOUNCE_SECS,
+    )
+    on_final = FanOut(recorder.add, assist.on_final)
+    keyterms = listen_keyterms(packs)
+    listen = [listen_branch(role, roles, on_final, keyterms) for role in ROLES]
     pipeline = Pipeline(
         [
             transport.input(),
@@ -372,6 +429,7 @@ def build_worker(
         await start_intake(session, flow_manager)
 
     async def on_ended() -> None:
+        await assist.close()
         await recorder.close()
         await session.store.close()
 
@@ -385,6 +443,7 @@ def build_worker(
         session_id=session_id,
         dialin=dialin,
         roles=roles,
+        assist=assist,
     )
     return worker, transport
 

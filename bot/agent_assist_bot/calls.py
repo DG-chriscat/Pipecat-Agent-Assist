@@ -7,6 +7,7 @@ The bot writes its own `calls` row (schema in db/migrations/0001_init.sql):
 - `add_flag` appends to `calls.flags` (no duplicates).
 - `mark_ready_for_queue` sets status `ready_for_queue` and stores the intake summary.
 - `add_transcript_line` saves one final live transcript line (P3-4) for wrap up.
+- `add_assist_event` logs what the assist showed and what the agent did (P4-3, DC-9).
 
 `verify_identity` matches name + date of birth + member ID against `members`.
 Two seed members share a name, so the name alone never identifies anyone.
@@ -118,6 +119,9 @@ class CallStore(Protocol):
     async def add_transcript_line(
         self, call_id: str, speaker_role: str, text: str, ts: float
     ) -> None: ...
+    async def add_assist_event(
+        self, call_id: str, kind: str, card_id: str | None, data: dict[str, Any]
+    ) -> None: ...
     async def verify_identity(self, full_name: str, dob: str, member_id: str) -> IdentityCheck: ...
     async def close(self) -> None: ...
 
@@ -132,6 +136,7 @@ class CallRecord:
     identity_result: str | None = None
     flags: list[str] = field(default_factory=list)
     transcript: list[tuple[str, str, float]] = field(default_factory=list)
+    assist_events: list[tuple[str, str | None, dict[str, Any]]] = field(default_factory=list)
 
 
 class MemoryCallStore:
@@ -178,6 +183,12 @@ class MemoryCallStore:
     ) -> None:
         self.calls[call_id].transcript.append((speaker_role, text, ts))
         self.writes.append(("transcript", speaker_role))
+
+    async def add_assist_event(
+        self, call_id: str, kind: str, card_id: str | None, data: dict[str, Any]
+    ) -> None:
+        self.calls[call_id].assist_events.append((kind, card_id, dict(data)))
+        self.writes.append(("assist", kind))
 
     async def verify_identity(self, full_name: str, dob: str, member_id: str) -> IdentityCheck:
         by_id = self.members.get(normalize_member_id(member_id))
@@ -285,6 +296,16 @@ class PostgresCallStore:
             "INSERT INTO transcript_lines (call_id, speaker_role, text, ts) "
             "VALUES (%s, %s, %s, to_timestamp(%s))",
             (call_id, speaker_role, text, ts),
+        )
+
+    async def add_assist_event(
+        self, call_id: str, kind: str, card_id: str | None, data: dict[str, Any]
+    ) -> None:
+        from psycopg.types.json import Jsonb
+
+        await self._execute(
+            "INSERT INTO assist_events (call_id, kind, card_id, data) VALUES (%s, %s, %s, %s)",
+            (call_id, kind, card_id, Jsonb(data)),
         )
 
     async def verify_identity(self, full_name: str, dob: str, member_id: str) -> IdentityCheck:

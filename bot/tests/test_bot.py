@@ -5,7 +5,7 @@ from agent_assist_bot import __main__ as cli
 from agent_assist_bot import bot, hold
 from agent_assist_bot.calls import MemoryCallStore, PostgresCallStore
 from agent_assist_bot.intake import IntakeSession
-from agent_assist_bot.packs import load_pack
+from agent_assist_bot.packs import load_pack, load_packs
 from agent_assist_bot.transcript import CallRoles, TranscriptRelay
 from pipecat.frames.frames import EndFrame
 from pipecat.pipeline.parallel_pipeline import ParallelPipeline
@@ -200,6 +200,73 @@ async def test_accept_from_a_participant_does_not_start_listening():
     accepted = {"type": hold.MESSAGE_TYPE, "event": "agent_accepted", "agent_name": "x"}
     await transport.handlers["on_app_message"](transport, accepted, "some-participant")
     assert not roles.listening
+
+
+class FakeAssist:
+    def __init__(self):
+        self.calls = []
+
+    async def on_accept(self):
+        self.calls.append(("accept",))
+
+    async def on_app_message(self, message, sender):
+        self.calls.append(("message", sender))
+
+    async def on_participant_joined(self, pid):
+        self.calls.append(("joined", pid))
+
+
+async def test_accept_starts_assist_once_and_forwards_messages_and_joins():
+    # P4-3: the assist starts on accept; agent feedback and (re)joins reach it.
+    transport, worker = FakeTransport(), FakeWorker()
+    roles, assist = CallRoles(), FakeAssist()
+    bot.register_handlers(transport, worker, roles=roles, assist=assist)
+    h = transport.handlers
+    await h["on_first_participant_joined"](transport, _p("c1", "caller"))
+    await h["on_participant_joined"](transport, _p("c1", "caller"))
+    accepted = {"type": hold.MESSAGE_TYPE, "event": "agent_accepted", "agent_name": "Agent Ana"}
+    await h["on_app_message"](transport, accepted, "api")
+    await h["on_app_message"](transport, accepted, "api")
+    await h["on_participant_joined"](transport, _p("a1", "Agent Ana"))
+    await h["on_app_message"](transport, {"label": "rtvi-ai"}, "a1")
+    assert assist.calls.count(("accept",)) == 1
+    assert ("joined", "a1") in assist.calls
+    assert ("message", "a1") in assist.calls
+    # The accept line is the last thing the bot says.
+    assert [f.text for f in worker.queued] == [hold.CONNECTING_LINE]
+
+
+def test_listen_branches_boost_pack_keyterms(api_keys):
+    worker, _ = bot.build_worker(ROOM, "tok", store=MemoryCallStore())
+    inner = next(p for p in worker._pipeline.processors if type(p).__name__ == "Pipeline")
+    par = next(p for p in inner.processors if isinstance(p, ParallelPipeline))
+    stts = [
+        x
+        for b in par._pipelines[1:]
+        for x in b.processors
+        if type(x).__name__ == "DeepgramSTTService"
+    ]
+    assert len(stts) == 2
+    for stt in stts:
+        terms = stt._settings.keyterm
+        assert "CO-197" in terms and "charged twice" in terms and "EOB" in terms
+        assert len(terms) == len(set(terms)) <= 100
+
+
+def test_keyterms_are_deduped_across_packs():
+    terms = bot.listen_keyterms(load_packs())
+    assert len(terms) == len(set(t.lower() for t in terms))
+    assert "EVM" in terms
+
+
+def test_listen_branch_finals_reach_transcript_store_and_assist(api_keys):
+    worker, _ = bot.build_worker(ROOM, "tok", store=MemoryCallStore())
+    inner = next(p for p in worker._pipeline.processors if type(p).__name__ == "Pipeline")
+    par = next(p for p in inner.processors if isinstance(p, ParallelPipeline))
+    relays = [x for b in par._pipelines for x in b.processors if isinstance(x, TranscriptRelay)]
+    for r in relays:
+        targets = {getattr(f, "__self__", None).__class__.__name__ for f in r._on_final.targets}
+        assert targets == {"TranscriptRecorder", "AssistSession"}
 
 
 def test_pipeline_has_intake_and_two_listen_branches(api_keys):

@@ -33,13 +33,13 @@ class Out:
         return [f.message["data"] for f in self.frames]
 
 
-async def make(identity="verified", *, agent_joined=True, llm=None):
+async def make(identity="verified", *, agent_joined=True, llm=None, member_id="EVM100231"):
     store = MemoryCallStore()
     call_id = await store.create_call("s1")
     intake = SimpleNamespace(
         pack=load_pack("claims_status"),
         intake=dict(INTAKE),
-        identity=IdentityCheck(identity, "EVM100231"),
+        identity=IdentityCheck(identity, member_id),
         call_id=call_id,
     )
     roles = CallRoles()
@@ -77,7 +77,7 @@ async def test_accept_starts_the_engine_with_the_verified_member():
     s, roles, out, _, call_id, made = await make()
     await accept(s, roles)
     assert made == {"call_id": call_id, "member_id": "EVM100231"}
-    assert [d["event"] for d in out.data()] == ["assist_status", "plan_update"]
+    assert [d["event"] for d in out.data()] == ["assist_status", "plan_update", "identity"]
     assert all(f.participant_id == "a1" for f in out.frames)
     assert all(f.message["label"] == "rtvi-ai" for f in out.frames)
     assert all(f.message["type"] == "server-message" for f in out.frames)
@@ -85,10 +85,37 @@ async def test_accept_starts_the_engine_with_the_verified_member():
     assert "dob" not in s.engine.intake
 
 
-async def test_unverified_caller_gets_no_member_scope():
-    s, roles, _, _, _, made = await make("not_verified")
+async def test_unverified_caller_is_scoped_to_the_id_match_but_locked():
+    # IN-13: records of the member matched by member ID are fetched, but go to the
+    # agent as locked tiles until the agent marks the caller verified.
+    s, roles, out, store, _, made = await make("close_match")
+    await accept(s, roles)
+    assert made["member_id"] == "EVM100231"
+    assert s.engine.locked is True and s.engine.agent_name == "Agent Ana"
+    hero = [d for d in out.data() if d["event"] == "hero"][0]
+    assert hero["card"]["kind"] == "verify"
+    s.on_final(transcript_message("caller", "It was denied.", True, 1.0, "caller-1"))
+    await s.drain()
+    added = [d["card"] for d in out.data() if d["event"] == "card_added"]
+    assert added and all(c["locked"] for c in added)
+    await s.on_app_message(_feedback("verify:identity", "mark_verified"), "a1")
+    assert s.engine.locked is False
+    await s.close()
+    decisions = [w for w in store.writes if w == ("assist", "identity_decision")]
+    assert decisions
+
+
+async def test_not_found_caller_gets_no_member_scope():
+    s, roles, _, _, _, made = await make("not_found", member_id=None)
     await accept(s, roles)
     assert made["member_id"] is None
+
+
+async def test_verified_caller_is_not_gated():
+    s, roles, out, _, _, _ = await make()
+    await accept(s, roles)
+    assert s.engine.locked is False
+    assert [d["state"] for d in out.data() if d["event"] == "identity"] == ["verified"]
 
 
 async def test_final_lines_make_cards_for_the_agent_only():

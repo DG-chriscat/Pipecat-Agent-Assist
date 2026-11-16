@@ -69,6 +69,7 @@ from agent_assist_bot.assist_contract import (
     card_added_message,
     card_removed_message,
     hero_message,
+    identity_message,
     mood_message,
     plan_update_message,
     status_message,
@@ -100,6 +101,45 @@ DC6_TARGET_MS = 3000
 IDENTITY_INTAKE_KEYS = frozenset({"full_name", "member_id", "dob"})
 # A trigger phrase split across two final lines of one speaker counts within this gap.
 SPLIT_PHRASE_SECS = 3.0
+
+# --- human verification on handoff (IN-13) ------------------------------------------------
+
+VERIFY_CARD_ID = "verify:identity"
+VERIFY_HEADLINE = "Confirm who you're speaking with."
+VERIFY_RANK = 1000  # nothing outranks it; it leaves only on the agent's decision
+# Cards built from member records: locked tiles until the agent marks the caller
+# verified. Articles (knowledge base), tone tips, and the call plan always show.
+LOCKED_KINDS = frozenset({"next_step", "record", "alert"})
+CALLBACK_STEP = {"id": "offer_callback", "label": "Offer a callback after identity is confirmed"}
+LOCKED_ASK_MESSAGE = "Verify the caller to see records."
+_VERIFY_ITEMS = (("member_id", "Member ID"), ("dob", "Date of birth"), ("full_name", "Name"))
+# Say this, for the first item that did not match (member ID, then DOB, then name).
+_VERIFY_SCRIPT = {
+    "member_id": "Could you read me the member ID on your card, please?",
+    "dob": "Could you confirm your date of birth for me, please?",
+    "full_name": "Thanks. So I have it right, could you spell your last name for me, please?",
+}
+_VERIFY_WHY = {
+    "close_match": "Member ID and date of birth match; the name was heard differently.",
+    "not_verified": "Some details did not match the member on file.",
+    "not_found": "No member matched the details from intake.",
+    "incomplete": "Intake did not catch every detail.",
+}
+
+
+def identity_gate(check: Any, heard_name: str | None) -> dict[str, Any] | None:
+    """The verify hero's input from the intake identity check, or None when the
+    caller is fully verified. No check at all (the caller asked for a person before
+    giving details) is `incomplete`."""
+    if check is not None and check.result == "verified":
+        return None
+    return {
+        "result": check.result if check is not None else "incomplete",
+        "checks": list(check.checks) if check is not None else [],
+        "heard_name": (heard_name or "").strip() or None,
+        "on_file_name": getattr(check, "on_file_name", None) if check is not None else None,
+    }
+
 
 ID_FIELD = {c.name: c.id_field for c in CONNECTORS}
 _PLACEHOLDER = re.compile(r"\{([^{}]*)\}")
@@ -252,25 +292,50 @@ class AssistEngine:
         self._flush_task: asyncio.Task | None = None
         self._n_test_lines = 0
         self.stopped = False
+        # Identity gate (IN-13). `gate` is identity_gate(...) or None (verified).
+        self.gate: dict[str, Any] | None = None
+        self.locked = False
+        self.identity_state = "verified"
+        self.decision: dict[str, Any] | None = None
+        # Shown on the decision ("Verified by agent"); set by AssistSession.
+        self.agent_name: str | None = None
+        self._extra_steps: list[dict[str, str]] = []
 
     # ---- lifecycle ----
 
-    async def start(self, intake: Mapping[str, Any], default_pack: str) -> None:
+    async def start(
+        self,
+        intake: Mapping[str, Any],
+        default_pack: str,
+        identity: Mapping[str, Any] | None = None,
+    ) -> None:
         """On accept: pick the pack from intake, tell the portal we are listening.
 
         The pack whose triggers match the intake answers most wins. When there are
         answers and no pack's triggers match them, the call is a general question and
         starts on the fallback pack (P4-6); with no answers at all, `default_pack`.
+
+        `identity` (identity_gate) set: the caller is not fully verified, so the verify
+        hero comes first and record cards are locked until the agent decides (IN-13).
         """
         self.intake = {k: v for k, v in dict(intake).items() if v not in (None, "")}
         text = " ".join(str(v) for k, v in self.intake.items() if k not in IDENTITY_INTAKE_KEYS)
         chosen = select_pack(text, self.packs) if text.strip() else None
         self.pack = chosen or self.packs.get(default_pack) or next(iter(self.packs.values()))
-        logger.info(f"[assist] listening; pack={self.pack.id}")
+        self.gate = dict(identity) if identity else None
+        self.locked = self.gate is not None
+        self.identity_state = "pending" if self.locked else "verified"
+        logger.info(f"[assist] listening; pack={self.pack.id} identity={self.identity_state}")
         await self._set_status("listening", force=True)
         await self._send_plan()
+        await self._send_identity()
         if self.trend.readings:
             await self._send_mood()
+        if self.gate is not None:
+            card = self._verify_card()
+            self.hero = card
+            await self._emit(hero_message(card, **self._stamp(), reason="new", replaces=None))
+            self._log_sent(card, self._clock())
 
     async def stop(self) -> None:
         self.stopped = True
@@ -285,12 +350,21 @@ class AssistEngine:
             return
         await self._set_status(self._status[0] if self._status else "listening", force=True)
         await self._send_plan()
+        await self._send_identity()
         if self.trend.readings:
             await self._send_mood()
         if self.hero is not None:
-            await self._emit(hero_message(self.hero, **self._stamp(), reason="new", replaces=None))
+            await self._emit(
+                hero_message(
+                    self.hero,
+                    **self._stamp(),
+                    reason="new",
+                    replaces=None,
+                    locked=self._is_locked(self.hero),
+                )
+            )
         for card in self.supporting.values():
-            await self._emit(card_added_message(card, **self._stamp()))
+            await self._emit(self._added(card))
 
     # ---- input ----
 
@@ -364,6 +438,11 @@ class AssistEngine:
             card = self._card(fb.card_id)
             if card is None:
                 logger.info(f"[assist] feedback for unknown card {fb.card_id}: {fb.action}")
+                return
+            if card.kind == "verify" or fb.action in ("mark_verified", "could_not_verify"):
+                # Only the agent's decision closes the verify hero (IN-13).
+                if card.kind == "verify" and fb.action in ("mark_verified", "could_not_verify"):
+                    await self._decide(fb.action == "mark_verified")
                 return
             data: dict[str, Any] = {"kind": card.kind, "pack_id": card.pack_id}
             if fb.action == "accept":
@@ -567,7 +646,7 @@ class AssistEngine:
             if card is not None:
                 status, message = "answered", None
                 self.supporting[card.id] = card
-                await self._emit(card_added_message(card, **self._stamp()))
+                await self._emit(self._added(card))
                 self._log_sent(card, started, ask=True)
             logger.info(f"[assist] ask {ask.ask_id} {status} card={card.id if card else None}")
             await self._emit(
@@ -857,9 +936,12 @@ class AssistEngine:
         return ([self.hero] if self.hero else []) + list(self.supporting.values())
 
     def _card(self, card_id: str) -> Card | None:
-        if self.hero is not None and self.hero.id == card_id:
+        if self.hero is not None and card_id in (self.hero.id, self.hero.wire_id(True)):
             return self.hero
-        return self.supporting.get(card_id)
+        if card_id in self.supporting:
+            return self.supporting[card_id]
+        # A locked tile's feedback names its wire id (IN-13).
+        return next((c for c in self.supporting.values() if c.wire_id(True) == card_id), None)
 
     def _known(self, card_id: str) -> bool:
         return (
@@ -919,7 +1001,11 @@ class AssistEngine:
     async def _show_new(self, c: _Candidate) -> None:
         card = c.card
         self._sent_at.append(self._clock())
-        if card.kind == "next_step" and (self.hero is None or card.rank > self.hero.rank):
+        if (
+            card.kind == "next_step"
+            and not self.locked
+            and (self.hero is None or card.rank > self.hero.rank)
+        ):
             old = self.hero
             self.hero = card
             reason = "new" if old is None else "higher_rank"
@@ -928,14 +1014,14 @@ class AssistEngine:
             )
             if old is not None:
                 self.supporting[old.id] = old
-                await self._emit(card_added_message(old, **self._stamp()))
+                await self._emit(self._added(old))
         else:
             if card.kind == "tone_tip":
                 for old in [c for c in self.supporting.values() if c.kind == "tone_tip"]:
                     del self.supporting[old.id]
                     await self._emit(card_removed_message(old.id, "replaced", **self._stamp()))
             self.supporting[card.id] = card
-            await self._emit(card_added_message(card, **self._stamp()))
+            await self._emit(self._added(card))
         self._log_sent(card, c.line_ts)
 
     def _log_sent(self, card: Card, line_ts: float, *, ask: bool = False) -> None:
@@ -962,31 +1048,156 @@ class AssistEngine:
         return list(self._latencies)
 
     async def _close(self, card: Card, reason: str) -> None:
-        """Accepted or dismissed: the card goes; a closed hero is replaced by the best."""
+        """Accepted or dismissed: the card goes; a closed hero is replaced by the best.
+
+        While records are locked (IN-13) a record based next step never becomes the
+        hero, and a removed locked tile is named by its wire id."""
         self.closed.add(card.id)
         if self.hero is not None and card.id == self.hero.id:
             self.hero = None
-            nxt = max(
-                (c for c in self.supporting.values() if c.kind == "next_step"),
-                key=lambda c: c.rank,
-                default=None,
-            )
-            if nxt is None:
+            nxt = None if self.locked else self._best_supporting_step()
+            if nxt is None and not self.locked:
                 pend = [p for p in self._pending if p.card.kind == "next_step"]
                 if pend:
                     best = max(pend, key=lambda p: p.card.rank)
                     self._pending.remove(best)
                     nxt = best.card
                     self._log_sent(nxt, best.line_ts)
-            else:
+            elif nxt is not None:
                 del self.supporting[nxt.id]
                 await self._emit(card_removed_message(nxt.id, "promoted", **self._stamp()))
             self.hero = nxt
             await self._emit(hero_message(nxt, **self._stamp(), reason=reason, replaces=card.id))
         else:
             self.supporting.pop(card.id, None)
-            await self._emit(card_removed_message(card.id, reason, **self._stamp()))
+            wire = card.wire_id(self._is_locked(card))
+            await self._emit(card_removed_message(wire, reason, **self._stamp()))
         await self._after_offer()
+
+    def _best_supporting_step(self) -> Card | None:
+        return max(
+            (c for c in self.supporting.values() if c.kind == "next_step"),
+            key=lambda c: c.rank,
+            default=None,
+        )
+
+    # ---- identity gate (IN-13) ----
+
+    def _is_locked(self, card: Card) -> bool:
+        return self.locked and card.kind in LOCKED_KINDS
+
+    def _added(self, card: Card) -> dict[str, Any]:
+        return card_added_message(card, **self._stamp(), locked=self._is_locked(card))
+
+    async def _send_identity(self) -> None:
+        gate = self.gate or {}
+        d = self.decision or {}
+        await self._emit(
+            identity_message(
+                self.identity_state,
+                **self._stamp(),
+                result=gate.get("result", "verified"),
+                checks=list(gate.get("checks", ["full_name", "dob", "member_id"])),
+                by=d.get("by"),
+                at=d.get("at"),
+            )
+        )
+
+    def _verify_card(self) -> Card:
+        """The verification step (IN-13): what matched, what did not, a line to confirm
+        the first item that did not match, and the two decisions."""
+        gate = self.gate or {}
+        checks = set(gate.get("checks") or [])
+        items = []
+        for fld, label in _VERIFY_ITEMS:
+            ok = fld in checks
+            name_miss = fld == "full_name" and not ok
+            items.append(
+                {
+                    "field": fld,
+                    "label": label,
+                    "ok": ok,
+                    "heard": gate.get("heard_name") if name_miss else None,
+                    "on_file": gate.get("on_file_name") if name_miss else None,
+                }
+            )
+        miss = next((i["field"] for i in items if not i["ok"]), "full_name")
+        result = str(gate.get("result") or "incomplete")
+        now = self._clock()
+        return Card(
+            id=VERIFY_CARD_ID,
+            kind="verify",
+            title="Verify caller",
+            pack_id=self.pack.id if self.pack else "",
+            rank=VERIFY_RANK,
+            trigger=Trigger(
+                phrase=None,
+                text="Identity check at intake",
+                role="intake",
+                line_id="intake",
+                start=None,
+                end=None,
+                heard_at=now,
+            ),
+            source=Source(label="Intake identity check"),
+            body={
+                "headline": VERIFY_HEADLINE,
+                "why": _VERIFY_WHY.get(result, _VERIFY_WHY["incomplete"]),
+                "result": result,
+                "items": items,
+                "script": _VERIFY_SCRIPT[miss],
+                "actions": [
+                    {"id": "mark_verified", "label": "Mark verified"},
+                    {"id": "could_not_verify", "label": "Could not verify"},
+                ],
+            },
+        )
+
+    async def _decide(self, verified: bool) -> None:
+        """The agent's decision on the verify hero. Logged on the call record
+        (assist_events `identity_decision`: decision, who, when). Once per call."""
+        if self.decision is not None or self.hero is None or self.hero.kind != "verify":
+            return
+        verify = self.hero
+        decision = "verified" if verified else "not_verified"
+        self.decision = {
+            "decision": decision,
+            "by": self.agent_name,
+            "at": self._clock(),
+            "intake_result": (self.gate or {}).get("result"),
+        }
+        self._record("identity_decision", verify.id, dict(self.decision))
+        logger.info(f"[assist] identity decision: {decision}")
+        self.closed.add(verify.id)
+        self.hero = None
+        self.identity_state = decision
+        if not verified:
+            # Records stay locked for the call; the plan gets a callback step.
+            if CALLBACK_STEP not in self._extra_steps:
+                self._extra_steps.append(dict(CALLBACK_STEP))
+            await self._send_identity()
+            await self._send_plan()
+            await self._emit(
+                hero_message(None, **self._stamp(), reason="not_verified", replaces=verify.id)
+            )
+            return
+        # Unlock: every locked tile goes out again with its records.
+        locked_ids = {c.id: c.wire_id(True) for c in self.supporting.values() if self._is_locked(c)}
+        self.locked = False
+        await self._send_identity()
+        nxt = self._best_supporting_step()
+        if nxt is not None:
+            del self.supporting[nxt.id]
+            await self._emit(card_removed_message(locked_ids[nxt.id], "promoted", **self._stamp()))
+        for card in list(self.supporting.values()):
+            wire = locked_ids.get(card.id)
+            if wire is None:
+                continue
+            if wire != card.id:
+                await self._emit(card_removed_message(wire, "unlocked", **self._stamp()))
+            await self._emit(self._added(card))
+        self.hero = nxt
+        await self._emit(hero_message(nxt, **self._stamp(), reason="verified", replaces=verify.id))
 
     # ---- call plan ----
 
@@ -1020,6 +1231,8 @@ class AssistEngine:
             }
             for s in self.pack.call_plan
         ]
+        # Steps the call added (IN-13 callback), after the pack's own.
+        steps += [{**s, "done": False, "by": None} for s in self._extra_steps]
         await self._emit(plan_update_message(self.pack.id, self.pack.name, steps, **self._stamp()))
 
     # ---- helpers ----

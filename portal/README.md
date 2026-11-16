@@ -41,3 +41,15 @@ Call flow (docs/queue.md):
 
 Fonts are self hosted through `@fontsource` (Work Sans 400/500/600, Azeret Mono
 400/500). Icons: `lucide-react`, stroke 1.8.
+
+Screen gallery (P5-3, dev only): `npm run dev` also serves
+`/agent/screens.html?screen=<name>&theme=<light|dark>` (`src/dev/screens.tsx`), every
+screen in a fixed state with mock data: sign in, home, incoming call, in call
+(listening, suggestion, accepted), wrap up, and the empty, loading, and error states.
+It is not in the production build. To screenshot them all in both themes:
+
+```
+PLAYWRIGHT_BROWSERS_PATH=... uv run --with playwright python portal/scripts/shoot_screens.py OUT_DIR \
+    [--size 1440x900] [--only in-call-suggestion,wrap-up] [--port 5173]
+uv run --with pillow python portal/scripts/pair_sheets.py BEFORE_DIR AFTER_DIR OUT_DIR NAME...
+```

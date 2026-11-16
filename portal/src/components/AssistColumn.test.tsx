@@ -9,7 +9,7 @@ import {
   type LocalAction,
 } from "../state/assist";
 import { askCard, heroCard, msg, PLAN_STEPS, planMsg, recordCard, toneTipCard } from "../test/assistFixtures";
-import { ACK_MS, AssistColumn } from "./AssistColumn";
+import { ACK_MS, AssistColumn, SLOW_ASK_MS } from "./AssistColumn";
 
 function state(...raws: Record<string, unknown>[]): AssistState {
   return raws.reduce((s, r) => applyAssist(s, parseAssistMessage(r)!, 10), emptyAssist());
@@ -37,6 +37,21 @@ describe("AssistColumn hero (DESIGN.md Assist column, docs/assist.md)", () => {
   it("listening: says when suggestions are held back by the rate limit", () => {
     const { hero } = setup(state(msg("assist_status", { state: "rate_limited", pending: 2 })));
     expect(within(hero()).getByText(/2 more suggestions/i)).toBeInTheDocument();
+  });
+
+  it("listening after an LLM error: says the model is unavailable and record cards still come", () => {
+    const { hero } = setup(
+      state(msg("assist_status", { state: "error", message: "assist model unavailable" }), msg("assist_status", { state: "listening" })),
+    );
+    expect(hero()).toHaveAttribute("data-state", "listening");
+    expect(hero()).toHaveAttribute("data-degraded", "error");
+    expect(within(hero()).getByRole("status")).toHaveTextContent(/suggestions are paused/i);
+    expect(within(hero()).getByRole("status")).toHaveTextContent(/records and the call plan still update/i);
+  });
+
+  it("listening after the assist stopped: says so", () => {
+    const { hero } = setup(state(msg("assist_status", { state: "stopped" })));
+    expect(within(hero()).getByRole("status")).toHaveTextContent(/assist stopped/i);
   });
 
   it("suggestion: chip, AI suggested, trigger line, headline, why, Say this, action, source", () => {
@@ -381,6 +396,30 @@ describe("AssistColumn Ask bar (P4-6, AP-8)", () => {
     expect(onAction).not.toHaveBeenCalled();
     expect(input).not.toHaveFocus();
     expect(input).toHaveValue("");
+  });
+
+  it("Ctrl+K hint on Windows and Linux, ⌘ K on Mac (P5-3)", () => {
+    const nav = vi.spyOn(window.navigator, "platform", "get");
+    nav.mockReturnValue("Win32");
+    const win = setup(emptyAssist());
+    expect(within(win.region).getByTestId("ask-kbd")).toHaveTextContent("Ctrl K");
+    win.unmount();
+    nav.mockReturnValue("MacIntel");
+    const mac = setup(emptyAssist());
+    expect(within(mac.region).getByTestId("ask-kbd")).toHaveTextContent("⌘ K");
+    nav.mockRestore();
+  });
+
+  it("a slow lookup says it is still looking (slow connector, P5-3)", () => {
+    vi.useFakeTimers();
+    const s = localAssist(state(planMsg()), { type: "ask", askId: "q1", text: "Show the last 3 claims" }, 20);
+    const { region } = setup(s);
+    expect(within(region).getByRole("status")).toHaveTextContent(/Looking up “Show the last 3 claims”/);
+    expect(within(region).getByRole("status")).not.toHaveTextContent(/still looking/i);
+    act(() => {
+      vi.advanceTimersByTime(SLOW_ASK_MS + 10);
+    });
+    expect(within(region).getByRole("status")).toHaveTextContent(/still looking/i);
   });
 
   it("shows the question while it is answered, and the reason when there is no answer", () => {

@@ -13,6 +13,8 @@ export interface TranscriptColumnProps {
   highlights: HighlightRange[];
   /** For the caller's avatar initials. */
   callerName?: string;
+  /** The call audio is still connecting: the empty state says so (P5-3). */
+  connecting?: boolean;
 }
 
 function LineText({ line, highlights }: { line: TranscriptLine; highlights: HighlightRange[] }) {
@@ -31,7 +33,7 @@ function LineText({ line, highlights }: { line: TranscriptLine; highlights: High
  * highlighter. Follows new lines while the agent is at the bottom; scrolling up pauses
  * that ("Nothing moves under the cursor") until they scroll back down or jump to latest.
  */
-export function TranscriptColumn({ lines, highlights, callerName }: TranscriptColumnProps) {
+export function TranscriptColumn({ lines, highlights, callerName, connecting = false }: TranscriptColumnProps) {
   const box = useRef<HTMLDivElement>(null);
   const [follow, setFollow] = useState(true);
 
@@ -57,11 +59,15 @@ export function TranscriptColumn({ lines, highlights, callerName }: TranscriptCo
     <aside className="panel transcript" aria-label="Conversation">
       <div className="transcript-head">
         <span className="label">Conversation</span>
-        <span className="live">Live</span>
+        {connecting ? <span className="chip chip-neutral">Connecting</span> : <span className="live">Live</span>}
       </div>
       <div className="transcript-scroll" data-testid="transcript-scroll" ref={box} onScroll={onScroll}>
         {lines.length === 0 ? (
-          <p className="muted-note">The conversation shows up here once the caller and you talk.</p>
+          <p className="muted-note">
+            {connecting
+              ? "Connecting the call audio. The conversation shows up here as soon as you are on the line."
+              : "The conversation shows up here once the caller and you talk."}
+          </p>
         ) : (
           <ol className="tr-list" aria-live="polite">
             {lines.map((l) => (

@@ -155,7 +155,12 @@ export function InCall(props: InCallProps) {
           onRevealPhi={props.onRevealPhi}
         />
         <AssistColumn assist={assist} onAction={onAssist} firstName={firstName} />
-        <TranscriptColumn lines={props.transcript} highlights={highlights} callerName={props.caller.name} />
+        <TranscriptColumn
+          lines={props.transcript}
+          highlights={highlights}
+          callerName={props.caller.name}
+          connecting={props.phase === "connecting"}
+        />
       </main>
     </Shell>
   );

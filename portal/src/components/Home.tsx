@@ -1,4 +1,4 @@
-import { ClipboardCheck, Headphones, WifiOff } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ClipboardCheck, Headphones, WifiOff } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   acceptRest,
@@ -421,8 +421,13 @@ export function Home({ agent: signedIn, theme, onTheme, createSocket, createMedi
               </div>
             </dl>
             {notice && (
-              <p className="notice" role="status">
-                {notice}
+              <p className={`notice ${notice === SAVED ? "is-ok" : "is-warn"}`} role="status">
+                {notice === SAVED ? (
+                  <CheckCircle2 strokeWidth={1.7} aria-hidden="true" />
+                ) : (
+                  <AlertTriangle strokeWidth={1.7} aria-hidden="true" />
+                )}
+                <span>{notice}</span>
               </p>
             )}
             {orphaned && (

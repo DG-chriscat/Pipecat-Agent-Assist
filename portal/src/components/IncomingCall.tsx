@@ -37,7 +37,9 @@ export function IncomingCall({ offer, windowSecs, nowMs, busy, error, onAccept, 
       // Keys pressed inside the rail menu belong to the menu, not the call card.
       if (e.target instanceof Element && e.target.closest("[role=menu]")) return;
       const k = keys.current;
-      if (e.key === "Enter" && k.canAccept) {
+      // Enter on a focused button presses that button (tab order); it is not Accept.
+      const onButton = e.target instanceof Element && !!e.target.closest("button, a, [role=button]");
+      if (e.key === "Enter" && k.canAccept && !onButton) {
         e.preventDefault();
         k.onAccept();
       } else if (e.key === "Escape" && k.canDecline) {

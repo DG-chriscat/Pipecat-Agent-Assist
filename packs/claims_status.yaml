@@ -36,9 +36,9 @@ questions:
 
 readback:
   prompt: >-
-    Read back a short summary in one or two sentences: their name, why they called,
-    and the claim details you have. Then ask if that is right. If they correct
-    something, fix it and confirm.
+    Read back one short sentence: their name, why they called, and the problem with
+    the claim. Do not repeat the claim number, the member ID, or the date of birth.
+    Then ask if that is right. If they correct something, fix it and confirm.
 
 # --- Assist (after handoff) ---------------------------------------------------------
 

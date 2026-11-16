@@ -21,6 +21,7 @@ caller mid intake.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol, runtime_checkable
 
@@ -50,6 +51,45 @@ EMERGENCY_LINE = (
     "I'm flagging this call, and if you stay on the line a person will join."
 )
 HANDOFF_LINE = "Thanks. I'm passing you to a person now. Please stay on the line."
+# Identity read back before the check (identity card). Fixed text so the member ID is
+# always said in groups and the date of birth is never read back.
+READBACK_LINE = "Thanks. I have {name}, member ID {member_id}. Is that right?"
+# The first read back plus at most one more after a correction (2 minute target).
+MAX_IDENTITY_READBACKS = 2
+
+_DIGIT_WORDS = "zero one two three four five six seven eight nine".split()
+
+
+def speak_member_id(raw: str) -> str:
+    """Member ID as TTS should say it: letters spaced, digits as words in threes.
+
+    "EVM100231" -> "E V M, one zero zero, two three one".
+    """
+    mid = normalize_member_id(raw)
+    letters = " ".join(c for c in mid if c.isalpha())
+    words = [_DIGIT_WORDS[int(c)] for c in mid if c.isdigit()]
+    groups = [" ".join(words[i : i + 3]) for i in range(0, len(words), 3)]
+    return ", ".join(p for p in [letters, *groups] if p)
+
+
+def _identity_properties() -> dict[str, dict[str, str]]:
+    return {
+        "full_name": {"type": "string", "description": "First and last name."},
+        "date_of_birth": {"type": "string", "description": "Date of birth as YYYY-MM-DD."},
+        "member_id": {
+            "type": "string",
+            "description": "Member ID, letters and digits, e.g. EVM100231.",
+        },
+    }
+
+
+def _identity_fields(args: FlowArgs) -> dict[str, str]:
+    return {
+        "full_name": str(args.get("full_name") or "").strip(),
+        "dob": str(args.get("date_of_birth") or "").strip(),
+        "member_id": normalize_member_id(str(args.get("member_id") or "")),
+    }
+
 
 ROLE_MESSAGE = (
     "You are the intake assistant for a health plan's billing and claims line. You are "
@@ -126,16 +166,21 @@ class IntakeSession:
         store: CallStore,
         session_id: str,
         handoff: HandoffHook | None = None,
+        identity_tuning: Callable[[bool], Awaitable[None]] | None = None,
     ):
         self.pack = pack
         self.store = store
         self.session_id = session_id
         self.handoff = handoff or NoopHandoff()
+        # Turns the identity step's STT settings on/off (stt_tuning.IdentitySTTTuning).
+        self.identity_tuning = identity_tuning
         self.call_id: str | None = None
         self.intake: dict[str, Any] = {}
         self.identity: IdentityCheck | None = None
         self.flags: list[str] = []
         self.handed_off: Outcome | None = None
+        self._readbacks = 0
+        self._tuned = False
 
     # ---- call record -------------------------------------------------------
 
@@ -167,6 +212,11 @@ class IntakeSession:
         if self.handed_off is not None:
             return
         self.handed_off = outcome
+        # Details given but intake ended before the caller confirmed the read back
+        # (asked for a person, emergency): check them anyway so the agent sees a result.
+        if self.identity is None and self.intake.get("full_name"):
+            await self._check_identity()
+        await self._tune(False)
         summary = summary or build_summary(self.intake, self._identity_result())
         self.intake["summary"] = summary
         await self._safe(
@@ -187,6 +237,14 @@ class IntakeSession:
 
     def _identity_result(self) -> str | None:
         return self.identity.result if self.identity else None
+
+    async def _tune(self, active: bool) -> None:
+        if self.identity_tuning is not None and active != self._tuned:
+            self._tuned = active
+            await self._safe("identity STT tuning", self.identity_tuning(active))
+
+    async def _on_identity_entered(self, action: dict, flow_manager: FlowManager) -> None:
+        await self._tune(True)
 
     # ---- shared functions (IN-7, IN-9) ----------------------------------------
 
@@ -250,37 +308,107 @@ class IntakeSession:
         return {
             "name": "identity",
             "task_messages": self._task(
-                f"{self.pack.identity.prompt} When you have all three, call verify_identity. "
-                "Pass the date of birth as YYYY-MM-DD and the member ID as letters and "
-                "digits with no spaces."
+                f"{self.pack.identity.prompt} When you have all three, call save_identity "
+                "right away without saying anything; the next step reads them back. Pass "
+                "the date of birth as YYYY-MM-DD; a date written like 03/12/1984 is "
+                "MM/DD/YYYY. Pass the member ID as letters and digits with no spaces. If "
+                "part of the member ID seems missing, save what you heard; the caller can "
+                "correct it at the read back."
+            ),
+            "functions": [
+                FlowsFunctionSchema(
+                    name="save_identity",
+                    description=(
+                        "Save the caller's name, date of birth, and member ID once you have "
+                        "all three. They are read back to the caller before the check."
+                    ),
+                    properties=_identity_properties(),
+                    required=["full_name", "date_of_birth", "member_id"],
+                    handler=self._on_save_identity,
+                ),
+                *self._escape_functions(),
+            ],
+            # Identity STT settings on for this step only (stt_tuning.py).
+            "pre_actions": [{"type": "identity_stt_on", "handler": self._on_identity_entered}],
+        }
+
+    async def _on_save_identity(self, args: FlowArgs, flow_manager: FlowManager):
+        fields = _identity_fields(args)
+        if missing := [k for k, v in fields.items() if not v]:
+            return {"error": f"missing {', '.join(missing)}; ask the caller for it"}, None
+        await self._save(fields)
+        self._readbacks = 0
+        return {"saved": "identity"}, self.identity_confirm_node()
+
+    def identity_confirm_node(self) -> NodeConfig:
+        """Read the name and member ID back before the check (identity card).
+
+        STT mishears spelled IDs and names (docs/spikes/phase2.md). A fixed TTS line
+        (no LLM wording, so the ID is always in groups and the DOB is never said) lets
+        the caller correct them. At most one repeat read back, then the check runs, so
+        intake stays under the 2 minute target.
+        """
+        self._readbacks += 1
+        text = READBACK_LINE.format(
+            name=self.intake.get("full_name") or "your name",
+            member_id=speak_member_id(self.intake.get("member_id", "")) or "not caught",
+        )
+        return {
+            "name": "identity_confirm",
+            "task_messages": self._task(
+                f'You just said: "{text}" If the caller says yes, call verify_identity '
+                "right away without saying anything. If they correct their name, member "
+                "ID, or date of birth, call correct_identity right away without saying "
+                "anything, with only the corrected values (member ID as letters and "
+                "digits, no spaces). If they spell a name letter by letter, join the "
+                "letters into the name."
             ),
             "functions": [
                 FlowsFunctionSchema(
                     name="verify_identity",
-                    description="Check the caller's identity once you have all three details.",
-                    properties={
-                        "full_name": {"type": "string", "description": "First and last name."},
-                        "date_of_birth": {
-                            "type": "string",
-                            "description": "Date of birth as YYYY-MM-DD.",
-                        },
-                        "member_id": {
-                            "type": "string",
-                            "description": "Member ID, letters and digits, e.g. EVM100231.",
-                        },
-                    },
-                    required=["full_name", "date_of_birth", "member_id"],
+                    description="The caller confirmed the read back. Checks their identity.",
+                    properties={},
+                    required=[],
                     handler=self._on_verify_identity,
+                ),
+                FlowsFunctionSchema(
+                    name="correct_identity",
+                    description="The caller corrected their name, member ID, or date of birth.",
+                    properties=_identity_properties(),
+                    required=[],
+                    handler=self._on_correct_identity,
                 ),
                 *self._escape_functions(),
             ],
+            "pre_actions": [{"type": "tts_say", "text": text}],
+            "respond_immediately": False,
         }
 
+    async def _on_correct_identity(self, args: FlowArgs, flow_manager: FlowManager):
+        fields = {k: v for k, v in _identity_fields(args).items() if v}
+        if fields:
+            await self._save(fields)
+        if self._readbacks < MAX_IDENTITY_READBACKS:
+            return {"saved": sorted(fields)}, self.identity_confirm_node()
+        return await self._on_verify_identity({}, flow_manager)
+
     async def _on_verify_identity(self, args: FlowArgs, flow_manager: FlowManager):
-        name = str(args.get("full_name", "")).strip()
-        dob = str(args.get("date_of_birth", "")).strip()
-        member_id = normalize_member_id(str(args.get("member_id", "")))
-        await self._save({"full_name": name, "dob": dob, "member_id": member_id})
+        check = await self._check_identity()
+        await self._tune(False)
+        if check.result == "verified":
+            note = "Identity verified. Thank them briefly and move on."
+        else:
+            note = (
+                "Identity could not be confirmed. Do not say which detail did not match. "
+                "Say a person will help confirm it, and move on."
+            )
+        return {"identity": check.result, "note": note}, self.reason_node()
+
+    async def _check_identity(self) -> IdentityCheck:
+        """Check the saved details against members (IN-6), record and flag the result."""
+        name = self.intake.get("full_name", "")
+        dob = self.intake.get("dob", "")
+        member_id = self.intake.get("member_id", "")
         try:
             check = await self.store.verify_identity(name, dob, member_id)
         except Exception as e:  # noqa: BLE001
@@ -294,14 +422,7 @@ class IntakeSession:
             await self._flag(FLAG_NOT_VERIFIED)
         elif check.result == "not_found":
             await self._flag(FLAG_NOT_FOUND)
-        if check.result == "verified":
-            note = "Identity verified. Thank them briefly and move on."
-        else:
-            note = (
-                "Identity could not be confirmed. Do not say which detail did not match. "
-                "Say a person will help confirm it, and move on."
-            )
-        return {"identity": check.result, "note": note}, self.reason_node()
+        return check
 
     def reason_node(self) -> NodeConfig:
         return {
@@ -369,6 +490,8 @@ class IntakeSession:
             "name": "readback",
             "task_messages": self._task(
                 f"{self.pack.readback.prompt} Captured so far: {captured or 'nothing'}. "
+                "Do not spell out the member ID or the claim number; both are on file, "
+                "so leave them out. "
                 "If the caller corrects something, call correct_field, then read back the "
                 "fixed part. When they agree it is right, call confirm_summary."
             ),

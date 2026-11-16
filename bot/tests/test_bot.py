@@ -292,6 +292,20 @@ def test_pipeline_has_intake_and_two_listen_branches(api_keys):
     assert set(listen) <= observer._ignored_sources
 
 
+def test_intake_stt_uses_the_active_pack_keyterms(api_keys):
+    # Identity card: fixed keyterms from the active pack (P4-2 `keyterms`) on the
+    # intake STT; the identity step's numerals/endpointing go to this STT only.
+    pack = load_pack("claims_status")
+    worker, _ = bot.build_worker(ROOM, "tok", pack=pack, store=MemoryCallStore())
+    inner = next(p for p in worker._pipeline.processors if type(p).__name__ == "Pipeline")
+    par = next(p for p in inner.processors if isinstance(p, ParallelPipeline))
+    intake_stt = next(
+        x for x in par._pipelines[0].processors if type(x).__name__ == "DeepgramSTTService"
+    )
+    assert intake_stt._settings.keyterm == pack.keyterms
+    assert "EVM" in intake_stt._settings.keyterm
+
+
 class FakeForwarder:
     def __init__(self, error: Exception | None = None):
         self.error = error

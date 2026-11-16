@@ -103,10 +103,13 @@ def log(t0: float, msg: str) -> None:
     print(f"[{time.time() - t0:7.2f}s] {msg}", flush=True)
 
 
-async def intake_row(store: PostgresCallStore, session_id: str) -> dict | None:
-    cur = await store._execute("SELECT intake FROM calls WHERE session_id = %s", (session_id,))
+async def intake_row(store: PostgresCallStore, session_id: str) -> tuple[dict | None, str | None]:
+    """(intake, identity_result) for next_line."""
+    cur = await store._execute(
+        "SELECT intake, identity_result FROM calls WHERE session_id = %s", (session_id,)
+    )
     row = await cur.fetchone()
-    return row[0] if row else None
+    return (row[0], row[1]) if row else (None, None)
 
 
 async def queued_call(http: httpx.AsyncClient, session_id: str) -> dict | None:
@@ -129,7 +132,7 @@ async def run_intake(http, store, caller, rec, session_id, audio, after) -> dict
             break
         if q := await queued_call(http, session_id):
             return q
-        key = next_line(await intake_row(store, session_id))
+        key = next_line(*await intake_row(store, session_id))
         _, after = await asyncio.wait_for(caller.play(audio[key]), 60)
     end = time.time() + 10
     while time.time() < end:

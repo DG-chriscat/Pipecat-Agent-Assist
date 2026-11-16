@@ -9,12 +9,19 @@ A Pipecat Flow (`pipecat.flows`, shipped inside pipecat-ai 1.15; the standalone
 `pipecat-ai-flows` package is deprecated and pinned to pipecat-ai < 1.5):
 
 1. **greeting**: fixed `tts_say` line, no LLM call (IN-1, IN-2).
-2. **identity**: full name, date of birth, member ID, then `verify_identity` (IN-6).
-3. **reason**: `save_reason`.
-4. **one node per pack question**: `save_answer`, in pack order.
-5. **readback**: the bot reads a short summary; `correct_field` fixes a field and
-   stays; `confirm_summary` ends intake (IN-8).
-6. **handoff**: "passing you to a person" line; no more questions.
+2. **identity**: full name, date of birth, member ID, then `save_identity` (saved, not
+   yet checked). Entering this node turns the identity STT tuning on (see below).
+3. **identity_confirm**: fixed `tts_say` read back, "Thanks. I have Maria Alvarez,
+   member ID E V M, one zero zero, two three one. Is that right?" (never the DOB).
+   `verify_identity` runs the check (IN-6) and turns the tuning off; `correct_identity`
+   saves the corrected fields and reads back once more. A second correction checks
+   without a third read back (2 minute target). Asking for a person or an emergency
+   during the read back still checks what was saved, so the agent sees a result.
+4. **reason**: `save_reason`.
+5. **one node per pack question**: `save_answer`, in pack order.
+6. **readback**: the bot reads a short summary (no claim number, member ID, or DOB);
+   `correct_field` fixes a field and stays; `confirm_summary` ends intake (IN-8).
+7. **handoff**: "passing you to a person" line; no more questions.
 
 On every intake node the LLM also has:
 
@@ -46,6 +53,20 @@ drop the caller.
 Env: `DATABASE_URL` (in memory when unset), optional `DATABASE_SCHEMA`,
 `INTAKE_PACK` (default `claims_status`).
 
+## Identity STT tuning
+
+`bot/agent_assist_bot/stt_tuning.py`, measured in `docs/spikes/identity.md`. While the
+identity and identity_confirm nodes are active, the intake STT (not the listen only
+transcript branches) gets Deepgram `numerals=true`, `smart_format=true`,
+`endpointing=800` ms, and the intake VAD `stop_secs` goes from 0.2 s to 0.8 s, so a
+pause between digit groups does not end the caller's turn. Everything returns to the
+defaults when the check runs or intake ends. The Deepgram change is an
+`STTUpdateSettingsFrame(service=<intake stt>)`; Pipecat 1.15 reconnects the Deepgram
+stream between turns and buffers audio meanwhile.
+
+The intake STT also carries the active pack's fixed `keyterms` (P4-2, Nova 3 keyterm
+prompting) for the whole call.
+
 ## Packs
 
 `packs/<id>.yaml` holds the wording for identity, reason, and read back, plus the use
@@ -61,9 +82,13 @@ connectors, cards, call plan, next best steps, keyterms) are in docs/packs.md.
   network.
 - `bot/tests/test_calls_db.py`: needs `DATABASE_URL`; throwaway schema per test.
 - `bot/tests/test_live_intake.py` (`-m live`): real bot process, S1 harness caller
-  playing Deepgram TTS lines as persona Maria Alvarez, throwaway schema. Needs all
-  keys plus `DATABASE_URL`.
+  playing Deepgram TTS lines as each of the 5 demo personas (docs/db.md), throwaway
+  schema. At the identity read back the scripted caller says yes or corrects what the
+  bot got wrong. Needs all keys plus `DATABASE_URL`. `INTAKE_RUNS=2` runs each persona
+  twice, `INTAKE_PERSONAS=maria_alvarez,...` picks personas, `INTAKE_RESULTS=<file>`
+  appends one JSON line per run.
 
 ```
 uv run pytest -m live bot/tests/test_live_intake.py -s -v
+INTAKE_RUNS=2 INTAKE_RESULTS=/tmp/identity.jsonl uv run pytest -m live bot/tests/test_live_intake.py -s -v
 ```

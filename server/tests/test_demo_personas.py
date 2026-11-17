@@ -115,6 +115,10 @@ def test_endpoint_returns_personas_and_the_phone_line():
     body = client.get("/demo/personas").json()
     assert [p["key"] for p in body["personas"]] == [p["key"] for p in PERSONAS]
     assert body["phone_line"] == {"number": "+1 (612) 746-7133", "password_hint": "ask Chris"}
+    maria = body["personas"][0]
+    assert maria["talk_track"][0]["phase"] == "intake"
+    assert maria["script"][0]["say"] == maria["talk_track"][0]["say"]
+    assert {k["id"] for k in body["expect_kinds"]} == set(demo_personas.EXPECT_KINDS)
 
 
 def test_endpoint_needs_the_login():

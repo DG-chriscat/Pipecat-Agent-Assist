@@ -1,14 +1,38 @@
 # Demo personas for the portal's Demos page (P5-10, docs/demos.md). Mock data only.
 #
-# Source of truth for the Demos page and the browser caller's script panel
-# (/caller?persona=<key>). server/tests/test_demo_personas.py fails if a persona's
-# name, DOB, member ID, plan, or claim does not match server/agent_assist_server/db/seed.py.
-# `in_seed: false` marks the one caller who is deliberately not a member.
+# Source of truth for the Demos page and the browser caller page (/caller?persona=<key>).
+# server/tests/test_demo_personas.py fails if a persona's name, DOB, member ID, plan, or
+# claim does not match server/agent_assist_server/db/seed.py. `in_seed: false` marks the
+# one caller who is deliberately not a member.
 #
 # Per persona: what to say to start (`start_line`), what the audience should see
 # (`audience_sees`), the feature chips (`features`, vocabulary in demo_personas.py),
-# and the step by step `script`: lines to say to the bot (intake answers) first, then
-# lines to say to the agent to trigger the cards.
+# and the caller talk track (P5-11).
+#
+# talk_track: the caller's side of the call, in call order. The agent is never
+# scripted: the assist is the agent's script. Each beat:
+#   phase     intake (to the bot), agent (the conversation), or closing
+#   to        bot or agent
+#   step      intake only: which bot question it answers (identity, confirm, reason,
+#             claim_number, service_date, claim_concern, readback)
+#   say       the main line
+#   if_asked  up to three backup lines for likely questions
+#   note      a hint for the caller (shown on the caller page too)
+#   agent_note  for the tester only: what the agent should do (never on the caller page)
+#   optional, feature  optional feature beats: tone_tip, ask_bar, verify
+#   expect    what should show on the AGENT screen after the beat: {kind, text, id?}
+#             kinds in demo_personas.EXPECT_KINDS. ids: hero nbs:<rule>:<record> or
+#             verify:identity, card card:<template> or alert:<template>:<ids>, kb
+#             article id, plan step id, ask (the record or article the Ask bar shows),
+#             wrap_up (reason_code and refs, the reference numbers in the summary).
+# server/tests/test_talk_tracks.py fails when an expect item names a rule, card, plan
+# step, article, or reason code the packs or seed do not have, or a number in a line
+# does not match the seed. The P5-10 `script` is derived from the non optional beats.
+#
+# Two rules from the P5-4 runs (docs/demo.md): say names plainly, never spelled to the
+# bot (spelled names mid sentence were misheard), and the agent presses Accept on the
+# hero before End (otherwise the wrap up has no logged action and the reason code
+# falls back).
 
 phone_line:
   number: "+1 (612) 746-7133"
@@ -32,16 +56,90 @@ personas:
       cards: [Denied claim 70412 (CO-197), Call plan, Repeat caller badge, KB-CL-002 article]
     features: [identity_verified, repeat_caller, wrap_up]
     kb_articles: [KB-CL-002, KB-CL-009]
-    script:
-      - {to: bot, say: "My name is Maria Lopez. My date of birth is March twelfth, nineteen eighty four. My member ID is four one eight, three zero two."}
-      - {to: bot, say: "Yes, that's right."}
-      - {to: bot, say: "My MRI claim was denied and I don't know why."}
-      - {to: bot, say: "Yes, the claim number is seven zero, four one two."}
-      - {to: bot, say: "About a month ago, at Riverside Imaging Center."}
-      - {to: bot, say: "It was denied. The letter said something about no prior authorization."}
-      - {to: bot, say: "Yes, that's right."}
-      - {to: agent, say: "Hi, my MRI claim was denied. They said there was no prior authorization.", note: The hero appears with the retro review.}
-      - {to: agent, say: "So what do I do now?", note: "Agent presses Enter to accept, then End: the wrap up draft names 70412."}
+    talk_track:
+      - phase: intake
+        to: bot
+        step: identity
+        say: "My name is Maria Lopez. My date of birth is March twelfth, nineteen eighty four. My member ID is four one eight, three zero two."
+        if_asked:
+          - "If the bot asks for one detail again, say just that one, for example: My member ID is four one eight, three zero two."
+        note: Say your name plainly. Do not spell it.
+      - phase: intake
+        to: bot
+        step: confirm
+        say: "Yes, that's right."
+        if_asked:
+          - "If the bot read the ID back wrong: No, my member ID is four one eight, three zero two."
+      - phase: intake
+        to: bot
+        step: reason
+        say: "I'm calling about a claim for my MRI. It was denied and I don't know why."
+      - phase: intake
+        to: bot
+        step: claim_number
+        say: "Yes, the claim number is seven zero, four one two."
+      - phase: intake
+        to: bot
+        step: service_date
+        say: "About a month ago, at Riverside Imaging Center."
+      - phase: intake
+        to: bot
+        step: claim_concern
+        say: "It was denied. The letter said something about no prior authorization."
+      - phase: intake
+        to: bot
+        step: readback
+        say: "Yes, that's right. Thank you."
+        note: Hold music plays until the agent picks up. Keep saying hello until you hear them.
+        expect:
+          - {kind: queue, text: "The call rings in the portal: Maria Lopez, Verified chip, why she called"}
+      - phase: agent
+        to: agent
+        say: "Hi, yes. So why did my MRI claim get denied?"
+        if_asked:
+          - "If the agent asks for the claim number: The claim number is seven zero, four one two."
+          - "If the agent asks when or where: About a month ago, at Riverside Imaging Center."
+          - "If the agent asks if your doctor got approval first: The office told me it was handled."
+        agent_note: Wait for the hero, then answer in your own words. The hero's script is a guide, not a line to read.
+        expect:
+          - {kind: identity, text: "Caller panel: Maria Lopez, Evergreen HMO Silver, Verified"}
+          - {kind: repeat_caller, text: "Repeat caller chip (two calls about this MRI in the last 30 days)"}
+          - {kind: hero, id: "nbs:retro_auth_review:70412", text: "Hero, about 1 s after \"denied\": Start a retro authorization review for 70412"}
+          - {kind: card, id: "card:denied_claim", text: "Denied claim tile: 70412, MRI, knee, left, CO-197"}
+          - {kind: kb, id: KB-CL-002, via: hero_source, text: "Hero source names KB-CL-002 and KB-CL-009"}
+      - phase: agent
+        to: agent
+        optional: true
+        feature: tone_tip
+        say: "This is my third call about this and nobody has fixed it. I'm really frustrated."
+        note: Say it like you mean it. The tone reader goes by your words.
+        expect:
+          - {kind: tone_tip, text: "Tone tip tile: Acknowledge, then act (or Reassure first), and the mood chip moves to Frustrated or Worried"}
+      - phase: agent
+        to: agent
+        optional: true
+        feature: ask_bar
+        say: "While I have you, was my office visit at Lakeside Family Medicine paid?"
+        agent_note: "Press Cmd+K and type: show paid claims"
+        expect:
+          - {kind: ask, ask: show paid claims, id: "70358", text: "Ask bar answer tile: Claims, 70358 at Lakeside Family Medicine, paid, $25 member share"}
+      - phase: agent
+        to: agent
+        say: "So what do I do now? Do I have to file an appeal?"
+        if_asked:
+          - "If the agent offers the retro review: Yes, please do that."
+        expect:
+          - {kind: plan, id: explain_status, via: agent_words, phrase: denied because, text: "Call plan ticks Explain the status when the agent says \"denied because\""}
+      - phase: closing
+        to: agent
+        say: "Okay, thank you. So I'll get a letter once the review is done?"
+        if_asked:
+          - "If the agent asks if there is anything else: No, that's all. Thank you."
+        note: Say goodbye and wait for the agent to end the call.
+        agent_note: Press Accept on the hero (Request retro auth review) before End, then End. Without the Accept the wrap up says no logged actions and the reason code falls back.
+        expect:
+          - {kind: plan, id: take_next_step, text: "Call plan ticks Take the next step on Accept"}
+          - {kind: wrap_up, reason_code: appeal_started, refs: ["70412"], text: "Wrap up: Appeal or retro review started is suggested; the summary names 70412 and the retro authorization review"}
 
   - key: james_carter
     name: James Carter
@@ -54,20 +152,82 @@ personas:
     case: Premium drafted twice this month, refund the duplicate
     start_line: I was charged twice for this month's premium.
     audience_sees:
-      headline: Refund the duplicate premium draft.
-      cards: [Possible duplicate premium charge alert, Payment history, KB-BL-001 article]
+      headline: Refund the duplicate premium draft PAY-000067.
+      cards: [Possible duplicate premium charge alert, Payment history, KB-BL-001 source]
     features: [identity_verified, duplicate_charge, wrap_up]
     kb_articles: [KB-BL-001]
-    script:
-      - {to: bot, say: "My name is James Carter. My date of birth is July fourth, nineteen seventy nine. My member ID is five two seven, one nine four."}
-      - {to: bot, say: "Yes, that's right."}
-      - {to: bot, say: "I was charged twice for this month's premium."}
-      - {to: bot, say: "No, I don't have a claim number. It's my premium payment."}
-      - {to: bot, say: "On the first of this month."}
-      - {to: bot, say: "The premium was taken out of my bank account twice."}
-      - {to: bot, say: "Yes, that's right."}
-      - {to: agent, say: "Hi, I was charged twice for my premium this month.", note: The duplicate charge alert and the refund hero appear.}
-      - {to: agent, say: "Can I get a refund for the second one?"}
+    talk_track:
+      - phase: intake
+        to: bot
+        step: identity
+        say: "My name is James Carter. My date of birth is July fourth, nineteen seventy nine. My member ID is five two seven, one nine four."
+        note: Say your name plainly. Do not spell it.
+      - phase: intake
+        to: bot
+        step: confirm
+        say: "Yes, that's right."
+        if_asked:
+          - "If the bot read the ID back wrong: No, my member ID is five two seven, one nine four."
+      - phase: intake
+        to: bot
+        step: reason
+        say: "I was charged twice for this month's premium."
+      - phase: intake
+        to: bot
+        step: claim_number
+        say: "No, I don't have a claim number. It's my premium payment."
+      - phase: intake
+        to: bot
+        step: service_date
+        say: "On the first of this month."
+      - phase: intake
+        to: bot
+        step: claim_concern
+        say: "The premium was taken out of my bank account twice."
+      - phase: intake
+        to: bot
+        step: readback
+        say: "Yes, that's right. Thank you."
+        note: Keep saying hello until you hear the agent.
+        expect:
+          - {kind: queue, text: "The call rings in the portal: James Carter, Verified chip"}
+      - phase: agent
+        to: agent
+        say: "Hi. I looked at my bank account and I was charged twice for my premium."
+        if_asked:
+          - "If the agent asks how much: $610 each time."
+          - "If the agent asks when: Both on the first of this month, a couple of minutes apart."
+          - "If the agent asks how you pay: Autopay from my bank account."
+        expect:
+          - {kind: identity, text: "Caller panel: James Carter, Summit PPO Gold, Verified"}
+          - {kind: hero, id: "nbs:duplicate_premium_refund:PAY-000067", text: "Hero: Refund the duplicate premium draft PAY-000067"}
+          - {kind: card, id: "alert:duplicate_charge:PAY-000067", text: "Alert tile: Possible duplicate premium charge, PAY-000067, $610"}
+          - {kind: card, id: "card:payment_history", text: "Payment history tile with both drafts on the first"}
+          - {kind: kb, id: KB-BL-001, via: hero_source, text: "Hero source names KB-BL-001"}
+      - phase: agent
+        to: agent
+        optional: true
+        feature: ask_bar
+        say: "Can you tell me what I've paid for my premium the last few months?"
+        agent_note: "Press Cmd+K and type: show premium payments"
+        expect:
+          - {kind: ask, ask: show premium payments, id: PAY-000067, text: "Ask bar answer tile: Payments, premium drafts of $610, PAY-000067 on top"}
+      - phase: agent
+        to: agent
+        say: "Can I get a refund for the second one?"
+        expect:
+          - {kind: plan, id: confirm_charges, via: agent_words, phrase: i can see, text: "Call plan ticks Confirm the charges when the agent says \"I can see\""}
+      - phase: closing
+        to: agent
+        say: "Great. So it will be back in my account in about a week?"
+        if_asked:
+          - "If the agent asks if there is anything else: No, that's it. Thanks."
+        note: Say goodbye and wait for the agent to end the call.
+        agent_note: Press Accept on the hero (Submit refund request) before End, then End. Without the Accept the wrap up says no logged actions and the reason code falls back.
+        expect:
+          - {kind: plan, id: submit_refund, text: "Call plan ticks Submit the refund request on Accept"}
+          - {kind: plan, id: set_expectations, via: agent_words, phrase: business days, text: "Call plan ticks Tell the caller when the refund posts when the agent says \"business days\""}
+          - {kind: wrap_up, reason_code: refund_submitted, refs: [PAY-000067], text: "Wrap up: Refund submitted is suggested; the summary names PAY-000067"}
 
   - key: sarah_miller
     name: Sarah Miller
@@ -82,20 +242,82 @@ personas:
     start_line: My claim has been pending for weeks and this is my third call.
     audience_sees:
       headline: Contact Northgate Cardiology for the missing information.
-      cards: [Tone tip when the caller gets upset, Repeat caller badge, Claims, KB-CL-007 article]
+      cards: [Tone tip when the caller gets upset, Repeat caller badge, Claims, KB-CL-007 source]
     features: [identity_verified, repeat_caller, tone_tip]
     kb_articles: [KB-CL-007]
-    script:
-      - {to: bot, say: "My name is Sarah Miller. My date of birth is June fifteenth, nineteen eighty eight. My member ID is six three nine, two five one."}
-      - {to: bot, say: "Yes, that's right."}
-      - {to: bot, say: "I'm checking on a claim for my cardiac stress test. It's been pending forever."}
-      - {to: bot, say: "Yes, the claim number is three one, eight four five."}
-      - {to: bot, say: "About five weeks ago, at Northgate Cardiology."}
-      - {to: bot, say: "It's still pending. It's been about three weeks."}
-      - {to: bot, say: "Yes, that's right."}
-      - {to: agent, say: "Hi. My stress test claim is still pending."}
-      - {to: agent, say: "This is the third time I've called about this and nobody has fixed it. I'm really fed up.", note: Said with frustration; the tone tip appears.}
-      - {to: agent, say: "Why is it taking so long?", note: The provider follow up hero appears.}
+    talk_track:
+      - phase: intake
+        to: bot
+        step: identity
+        say: "My name is Sarah Miller. My date of birth is June fifteenth, nineteen eighty eight. My member ID is six three nine, two five one."
+        note: Say your name plainly. Do not spell it.
+      - phase: intake
+        to: bot
+        step: confirm
+        say: "Yes, that's right."
+        if_asked:
+          - "If the bot read the ID back wrong: No, my member ID is six three nine, two five one."
+      - phase: intake
+        to: bot
+        step: reason
+        say: "I'm checking on a claim for my cardiac stress test. It's been pending forever."
+      - phase: intake
+        to: bot
+        step: claim_number
+        say: "Yes, the claim number is three one, eight four five."
+      - phase: intake
+        to: bot
+        step: service_date
+        say: "About six weeks ago, at Northgate Cardiology."
+      - phase: intake
+        to: bot
+        step: claim_concern
+        say: "It's still pending. It's been about three weeks."
+      - phase: intake
+        to: bot
+        step: readback
+        say: "Yes, that's right."
+        note: Keep saying hello until you hear the agent.
+        expect:
+          - {kind: queue, text: "The call rings in the portal: Sarah Miller, Verified chip"}
+      - phase: agent
+        to: agent
+        say: "Hi. Why is my stress test claim still pending?"
+        if_asked:
+          - "If the agent asks for the claim number: The claim number is three one, eight four five."
+          - "If the agent asks what you were told before: That the office had to send something."
+        expect:
+          - {kind: identity, text: "Caller panel: Sarah Miller, Evergreen HMO Gold, Verified"}
+          - {kind: repeat_caller, text: "Repeat caller chip (two calls about this claim in the last 30 days)"}
+          - {kind: hero, id: "nbs:provider_info_follow_up:31845", text: "Hero: Contact Northgate Cardiology for the missing information"}
+          - {kind: card, id: "card:claims_table", text: "Claims tile: 31845, Cardiac stress test, pending_info"}
+          - {kind: kb, id: KB-CL-007, via: hero_source, text: "Hero source names KB-CL-007"}
+      - phase: agent
+        to: agent
+        optional: true
+        feature: tone_tip
+        say: "This is the third time I've called about this and nobody has fixed it. I'm really fed up."
+        note: Say it with real frustration. The tone reader goes by your words.
+        expect:
+          - {kind: tone_tip, text: "Tone tip tile: Acknowledge, then act, and the mood chip moves to Frustrated"}
+      - phase: agent
+        to: agent
+        optional: true
+        feature: ask_bar
+        say: "Did you even approve the test before I had it?"
+        agent_note: "Press Cmd+K and type: show prior authorizations"
+        expect:
+          - {kind: ask, ask: show prior authorizations, id: PA-500102, text: "Ask bar answer tile: Prior authorizations, PA-500102 for the stress test, approved"}
+      - phase: closing
+        to: agent
+        say: "Okay. So once they send it, it's about ten business days?"
+        if_asked:
+          - "If the agent offers to call the office: Yes, please."
+        note: Say goodbye and wait for the agent to end the call.
+        agent_note: Press Accept on the hero (Request info from provider) before End, then End. Without the Accept the wrap up says no logged actions and the reason code falls back.
+        expect:
+          - {kind: plan, id: take_next_step, text: "Call plan ticks Take the next step on Accept"}
+          - {kind: wrap_up, reason_code: callback_needed, refs: ["31845"], text: "Wrap up: Callback needed is suggested; the summary names 31845 and the request to Northgate Cardiology"}
 
   - key: linda_nguyen
     name: Linda Nguyen
@@ -113,16 +335,90 @@ personas:
       cards: [Verify caller hero (heard vs on file), Locked records until Mark verified, then denied claim 52976 and the appeal step]
     features: [close_match, kb_article, wrap_up]
     kb_articles: [KB-CL-003, KB-CL-008]
-    script:
-      - {to: bot, say: "My name is Linda Nguyen. My date of birth is April twenty second, nineteen fifty eight. My member ID is seven four one, five two six.", note: Say the last name naturally; the bot often hears it as Yuen or Win.}
-      - {to: bot, say: "No, my name is Linda, L I N D A, Nguyen.", note: Only if the read back gets the name wrong. One fix, then intake moves on.}
-      - {to: bot, say: "My dermatology visit was denied and I want to know how to appeal."}
-      - {to: bot, say: "Yes, the claim number is five two, nine seven six."}
-      - {to: bot, say: "About six weeks ago, at Bayview Dermatology."}
-      - {to: bot, say: "It was denied. They said the doctor was out of network."}
-      - {to: bot, say: "Yes, that's right."}
-      - {to: agent, say: "Hi, I'm calling about my dermatology claim.", note: "Agent checks the name and presses Mark verified: the records unlock."}
-      - {to: agent, say: "They said it was out of network. Can I appeal?", note: The appeal step appears.}
+    talk_track:
+      - phase: intake
+        to: bot
+        step: identity
+        say: "My name is Linda Nguyen. My date of birth is April twenty second, nineteen fifty eight. My member ID is seven four one, five two six."
+        note: Say the last name naturally. The bot often hears it as Yuen or Win. Never spell it to the bot.
+      - phase: intake
+        to: bot
+        step: confirm
+        say: "Yes, that's right."
+        if_asked:
+          - "If the bot reads the name back wrong, say once: No, my name is Linda Nguyen."
+          - "If the bot read the ID back wrong: No, my member ID is seven four one, five two six."
+        note: One fix only, then intake moves on. Do not spell the name.
+      - phase: intake
+        to: bot
+        step: reason
+        say: "My dermatology visit was denied and I want to know how to appeal."
+      - phase: intake
+        to: bot
+        step: claim_number
+        say: "Yes, the claim number is five two, nine seven six."
+      - phase: intake
+        to: bot
+        step: service_date
+        say: "About a month ago, at Bayview Dermatology."
+      - phase: intake
+        to: bot
+        step: claim_concern
+        say: "It was denied. They said the doctor was out of network."
+      - phase: intake
+        to: bot
+        step: readback
+        say: "Yes, that's right."
+        note: Keep saying hello until you hear the agent.
+        expect:
+          - {kind: queue, text: "The call rings: Linda Nguyen with Verified, or Close match when the name was heard differently"}
+      - phase: agent
+        to: agent
+        say: "Hi, I'm calling about my dermatology claim. They said the doctor was out of network. Can I appeal that?"
+        if_asked:
+          - "If the agent asks for the claim number: The claim number is five two, nine seven six."
+        agent_note: If the hero says Verify caller, do the verification beat next.
+        expect:
+          - {kind: hero, id: "nbs:out_of_network_appeal:52976", text: "Hero, when intake verified her: Explain the network denial and offer an appeal for 52976"}
+          - {kind: card, id: "card:denied_claim", text: "Denied claim tile: 52976, Skin biopsy, CO-242"}
+          - {kind: kb, id: KB-CL-003, via: hero_source, text: "Hero source names KB-CL-003 and KB-CL-008"}
+      - phase: agent
+        to: agent
+        optional: true
+        feature: verify
+        say: "Yes, this is Linda Nguyen."
+        if_asked:
+          - "If the agent asks you to spell your last name: N, G, U, Y, E, N."
+          - "If the agent asks your date of birth: April twenty second, nineteen fifty eight."
+        note: Only when the agent asks you to confirm who you are. Spelling to the agent is fine.
+        agent_note: "Only when the hero says Verify caller (close match): ask the caller to spell the last name, then press Mark verified."
+        expect:
+          - {kind: verify, text: "Before: Verify caller hero, Heard \"Linda Yuen\" (or similar), on file Linda Nguyen; member ID and date of birth matched"}
+          - {kind: locked, text: "Before: the next step and claim tiles are locked"}
+          - {kind: identity, text: "After Mark verified: Verified by agent chip; the caller panel switches to the member record (Evergreen Medicare Advantage Plus) and the history loads"}
+          - {kind: card, id: "card:denied_claim", text: "After Mark verified: the denied claim 52976 tile appears"}
+          - {kind: hero, id: "nbs:out_of_network_appeal:52976", text: "After Mark verified: the next hero is Explain the network denial and offer an appeal for 52976"}
+      - phase: agent
+        to: agent
+        optional: true
+        feature: ask_bar
+        say: "My doctor gave me a referral to them. Doesn't that count?"
+        agent_note: "Press Cmd+K and type: show referrals"
+        expect:
+          - {kind: ask, ask: show referrals, id: REF-700003, text: "Ask bar answer tile: Referrals, REF-700003 to Bayview Dermatology, expired"}
+      - phase: agent
+        to: agent
+        say: "How long do I have to appeal, and how long does it take?"
+        expect:
+          - {kind: plan, id: set_expectations, via: agent_words, phrase: within 30 days, text: "Call plan ticks Tell the caller what happens next when the agent says \"within 30 days\""}
+      - phase: closing
+        to: agent
+        say: "Okay, please start the appeal. Thank you."
+        note: Say goodbye and wait for the agent to end the call.
+        agent_note: Press Accept on the hero (Start an appeal) before End, then End. Without the Accept the wrap up says no logged actions and the reason code falls back.
+        expect:
+          - {kind: plan, id: take_next_step, text: "Call plan ticks Take the next step on Accept"}
+          - {kind: wrap_up, reason_code: appeal_started, refs: ["52976"], text: "Wrap up: Appeal or retro review started is suggested; the summary names 52976 and the appeal"}
 
   - key: mark_hill
     name: Mark Hill
@@ -134,20 +430,72 @@ personas:
     in_seed: true
     pack: claims_status
     case: Urgent care claim 46183 in review; two members named Mark Hill
-    start_line: I'm calling to check on a claim for an urgent care visit.
+    start_line: I'm calling about my claim for an urgent care visit.
     audience_sees:
       headline: The right Mark Hill, picked by date of birth.
       cards: [Identity 3 of 3, Claims (46183 in review), Call plan]
     features: [identity_verified, name_collision]
-    script:
-      - {to: bot, say: "My name is Mark Hill. My date of birth is October sixth, nineteen seventy five. My member ID is two eight five, nine one six."}
-      - {to: bot, say: "Yes, that's right."}
-      - {to: bot, say: "I'm calling to check on a claim for an urgent care visit."}
-      - {to: bot, say: "Yes, the claim number is four six, one eight three."}
-      - {to: bot, say: "About two weeks ago, at Cedar Urgent Care."}
-      - {to: bot, say: "It still says in review and I want to know when it will be paid."}
-      - {to: bot, say: "Yes, that's right."}
-      - {to: agent, say: "Hi, what's the status of my urgent care claim?", note: "The other Mark Hill (born 1986) has a different plan: point out that his records never show."}
+    talk_track:
+      - phase: intake
+        to: bot
+        step: identity
+        say: "My name is Mark Hill. My date of birth is October sixth, nineteen seventy five. My member ID is two eight five, nine one six."
+        note: Say your name plainly. Do not spell it.
+      - phase: intake
+        to: bot
+        step: confirm
+        say: "Yes, that's right."
+        if_asked:
+          - "If the bot read the ID back wrong: No, my member ID is two eight five, nine one six."
+      - phase: intake
+        to: bot
+        step: reason
+        say: "I'm calling about my claim for an urgent care visit."
+      - phase: intake
+        to: bot
+        step: claim_number
+        say: "Yes, the claim number is four six, one eight three."
+      - phase: intake
+        to: bot
+        step: service_date
+        say: "About two weeks ago, at Cedar Urgent Care."
+      - phase: intake
+        to: bot
+        step: claim_concern
+        say: "It still says in review and I want to know when it will be paid."
+      - phase: intake
+        to: bot
+        step: readback
+        say: "Yes, that's right."
+        note: Keep saying hello until you hear the agent.
+        expect:
+          - {kind: queue, text: "The call rings: Mark Hill, Verified chip"}
+      - phase: agent
+        to: agent
+        say: "Hi. Where is my claim? It still says in review."
+        if_asked:
+          - "If the agent asks your date of birth: October sixth, nineteen seventy five."
+          - "If the agent asks for the claim number: The claim number is four six, one eight three."
+        agent_note: Point out that the other Mark Hill (born 1986, Summit HDHP) never shows. There is no next best step rule for a claim in review, so no hero; the Ask bar is the sure way to the claim.
+        expect:
+          - {kind: identity, text: "Caller panel: Mark Hill, born 1975, Evergreen HMO Gold, Verified; the other Mark Hill never shows"}
+          - {kind: card, id: "card:claims_table", via: llm, text: "Claims tile with 46183, Urgent care visit, in_review (from the assist model, may take a few seconds)"}
+      - phase: agent
+        to: agent
+        optional: true
+        feature: ask_bar
+        say: "Is anything holding it up?"
+        agent_note: "Press Cmd+K and type: show claims in review"
+        expect:
+          - {kind: ask, ask: show claims in review, id: "46183", text: "Ask bar answer tile: Claims, 46183 at Cedar Urgent Care, in_review"}
+      - phase: closing
+        to: agent
+        say: "Okay, thanks for checking."
+        note: Say goodbye and wait for the agent to end the call.
+        agent_note: No next best step on this call. At wrap up pick Claim status given if it is not suggested.
+        expect:
+          - {kind: plan, id: confirm_claim, via: agent_words, phrase: i can see, text: "Call plan ticks Confirm which claim when the agent says \"I can see\""}
+          - {kind: wrap_up, reason_code: claim_status_given, via: llm, refs: ["46183"], text: "Wrap up: Claim status given, the first code (no accepted action); the summary names 46183 when the agent said it"}
 
   - key: aisha_patel
     name: Aisha Patel
@@ -165,15 +513,82 @@ personas:
       cards: [KB-CL-010 article, Verify caller hero if heard as Ayesha]
     features: [close_match, kb_article]
     kb_articles: [KB-CL-010]
-    script:
-      - {to: bot, say: "My name is Aisha Patel. My date of birth is August ninth, nineteen ninety five. My member ID is one seven four, eight three nine."}
-      - {to: bot, say: "Yes, that's right."}
-      - {to: bot, say: "I got an explanation of benefits in the mail and I don't understand it."}
-      - {to: bot, say: "Yes, the claim number is one nine, three seven four."}
-      - {to: bot, say: "It was a specialist visit last month at Lakeside Family Medicine."}
-      - {to: bot, say: "I don't know if it's a bill or what I owe."}
-      - {to: bot, say: "Yes, that's right."}
-      - {to: agent, say: "Hi. What is an explanation of benefits? Is it a bill?", note: The EOB article card appears.}
+    talk_track:
+      - phase: intake
+        to: bot
+        step: identity
+        say: "My name is Aisha Patel. My date of birth is August ninth, nineteen ninety five. My member ID is one seven four, eight three nine."
+        note: Say the first name naturally (EYE-sha). It is often heard as Ayesha. Never spell it to the bot.
+      - phase: intake
+        to: bot
+        step: confirm
+        say: "Yes, that's right."
+        if_asked:
+          - "If the bot reads the name back wrong, say once: No, my name is Aisha Patel."
+          - "If the bot read the ID back wrong: No, my member ID is one seven four, eight three nine."
+      - phase: intake
+        to: bot
+        step: reason
+        say: "I got an explanation of benefits in the mail and I don't understand it."
+      - phase: intake
+        to: bot
+        step: claim_number
+        say: "Yes, the claim number is one nine, three seven four."
+      - phase: intake
+        to: bot
+        step: service_date
+        say: "It was a specialist visit last month at Lakeside Family Medicine."
+      - phase: intake
+        to: bot
+        step: claim_concern
+        say: "I don't know if it's a bill or what I owe."
+      - phase: intake
+        to: bot
+        step: readback
+        say: "Yes, that's right."
+        note: Keep saying hello until you hear the agent.
+        expect:
+          - {kind: queue, text: "The call rings: Aisha Patel with Verified, or Close match when heard as Ayesha"}
+      - phase: agent
+        to: agent
+        say: "Hi. So what is an explanation of benefits, exactly? Is it a bill?"
+        expect:
+          - {kind: kb, id: KB-CL-010, text: "Article tile: KB-CL-010 Reading an Explanation of Benefits (EOB), \"explanation of benefits\" marked in the transcript"}
+      - phase: agent
+        to: agent
+        optional: true
+        feature: verify
+        say: "Yes, it's Aisha Patel."
+        if_asked:
+          - "If the agent asks you to spell your first name: A, I, S, H, A."
+        note: Only when the agent asks you to confirm who you are. Spelling to the agent is fine.
+        agent_note: "Only when the hero says Verify caller (close match): ask the caller to spell the first name, then press Mark verified."
+        expect:
+          - {kind: verify, text: "Verify caller hero: Heard \"Ayesha Patel\" (or similar), on file Aisha Patel; member ID and date of birth matched"}
+          - {kind: identity, text: "After Mark verified: Verified by agent chip and the member record in the caller panel"}
+      - phase: agent
+        to: agent
+        say: "It says I may owe $50. Why that much?"
+        if_asked:
+          - "If the agent asks what kind of visit: A specialist visit at Lakeside Family Medicine."
+        expect:
+          - {kind: plan, id: answer_from_kb, via: agent_words, phrase: the article, text: "Call plan ticks Answer from the knowledge base when the agent says \"the article\""}
+      - phase: agent
+        to: agent
+        optional: true
+        feature: ask_bar
+        say: "Does that count toward my deductible?"
+        agent_note: "Press Cmd+K and type: deductibles"
+        expect:
+          - {kind: ask, ask: deductibles, id: KB-BL-005, text: "Ask bar answer tile: KB-BL-005 Copays, deductibles, and out of pocket maximum"}
+      - phase: closing
+        to: agent
+        say: "Okay, that makes sense. Thank you."
+        note: Say goodbye and wait for the agent to end the call.
+        agent_note: No next best step on a general question. At wrap up pick Question answered if it is not suggested.
+        expect:
+          - {kind: plan, id: confirm_answered, via: agent_words, phrase: does that help, text: "Call plan ticks Check the question is answered when the agent says \"does that help\""}
+          - {kind: wrap_up, reason_code: question_answered, via: llm, refs: ["19374"], text: "Wrap up: Question answered; the summary may name 19374"}
 
   - key: david_brooks
     name: David Brooks
@@ -190,15 +605,63 @@ personas:
       cards: [KB-BL-005 article, Call plan]
     features: [identity_verified, kb_article, wrap_up]
     kb_articles: [KB-BL-005]
-    script:
-      - {to: bot, say: "My name is David Brooks. My date of birth is September twenty fifth, nineteen seventy one. My member ID is two six three, zero four eight."}
-      - {to: bot, say: "Yes, that's right."}
-      - {to: bot, say: "I have a question about my deductible."}
-      - {to: bot, say: "No, I don't have a claim number. It's a general question."}
-      - {to: bot, say: "It's not about a visit."}
-      - {to: bot, say: "I want to know how much I pay before the plan pays."}
-      - {to: bot, say: "Yes, that's right."}
-      - {to: agent, say: "Hi. How does my deductible work, and what's the out of pocket maximum?", note: The article card appears.}
+    talk_track:
+      - phase: intake
+        to: bot
+        step: identity
+        say: "My name is David Brooks. My date of birth is September twenty fifth, nineteen seventy one. My member ID is two six three, zero four eight."
+        note: Say your name plainly. Do not spell it.
+      - phase: intake
+        to: bot
+        step: confirm
+        say: "Yes, that's right."
+        if_asked:
+          - "If the bot read the ID back wrong: No, my member ID is two six three, zero four eight."
+      - phase: intake
+        to: bot
+        step: reason
+        say: "I have a question about my deductible."
+      - phase: intake
+        to: bot
+        step: claim_number
+        say: "No, I don't have a claim number. It's a general question."
+      - phase: intake
+        to: bot
+        step: service_date
+        say: "It's not about one visit."
+      - phase: intake
+        to: bot
+        step: claim_concern
+        say: "I want to know how much I pay before the plan pays."
+      - phase: intake
+        to: bot
+        step: readback
+        say: "Yes, that's right."
+        note: Keep saying hello until you hear the agent.
+        expect:
+          - {kind: queue, text: "The call rings: David Brooks, Verified chip"}
+      - phase: agent
+        to: agent
+        say: "Hi. How does my deductible work, and what's the out of pocket maximum?"
+        if_asked:
+          - "If the agent asks which plan: The Summit plan with the health savings account."
+          - "If the agent asks about recent care: Just a lab test at Summit Lab Services about six weeks ago."
+        expect:
+          - {kind: identity, text: "Caller panel: David Brooks, Summit HDHP with HSA, Verified"}
+          - {kind: kb, id: KB-BL-005, text: "Article tile: KB-BL-005 Copays, deductibles, and out of pocket maximum"}
+          - {kind: plan, id: answer_from_kb, via: agent_words, phrase: here's how, text: "Call plan ticks Answer from the knowledge base when the agent says \"here's how\""}
+      - phase: agent
+        to: agent
+        say: "So does that lab test count toward it?"
+        expect:
+          - {kind: plan, id: confirm_answered, via: agent_words, phrase: does that help, text: "Call plan ticks Check the question is answered when the agent says \"does that help\""}
+      - phase: closing
+        to: agent
+        say: "Got it. That's all I needed, thanks."
+        note: Say goodbye and wait for the agent to end the call.
+        agent_note: No next best step on a general question. At wrap up pick Question answered if it is not suggested.
+        expect:
+          - {kind: wrap_up, reason_code: question_answered, via: llm, text: "Wrap up: Question answered; no reference numbers"}
 
   - key: ben_cole
     name: Ben Cole
@@ -214,16 +677,66 @@ personas:
       headline: Confirm who you're speaking with.
       cards: [Verify caller hero (date of birth did not match), Locked records, then the prior auth step after Mark verified]
     features: [not_verified]
-    script:
-      - {to: bot, say: "My name is Ben Cole. My date of birth is May seventh, nineteen ninety. My member ID is eight five two, six one seven.", note: "On purpose: the real DOB is May 17."}
-      - {to: bot, say: "Yes, that's right."}
-      - {to: bot, say: "I want to check the status of the prior authorization for my knee surgery."}
-      - {to: bot, say: "I don't have a claim number. It's a prior authorization."}
-      - {to: bot, say: "The surgery is planned for next month at Pine Hill Orthopedics."}
-      - {to: bot, say: "It's still pending and I need to schedule the surgery."}
-      - {to: bot, say: "Yes, that's right."}
-      - {to: agent, say: "Sorry, my birthday is May seventeenth, not the seventh.", note: Agent marks verified; the prior auth step appears.}
-      - {to: agent, say: "Is my surgery authorization approved yet?"}
+    talk_track:
+      - phase: intake
+        to: bot
+        step: identity
+        say: "My name is Ben Cole. My date of birth is May seventh, nineteen ninety. My member ID is eight five two, six one seven."
+        note: "On purpose: the real date of birth is May seventeenth."
+      - phase: intake
+        to: bot
+        step: confirm
+        say: "Yes, that's right."
+      - phase: intake
+        to: bot
+        step: reason
+        say: "I want to check the status of the prior authorization for my knee surgery."
+      - phase: intake
+        to: bot
+        step: claim_number
+        say: "I don't have a claim number. It's a prior authorization."
+      - phase: intake
+        to: bot
+        step: service_date
+        say: "The surgery is planned for next month at Pine Hill Orthopedics."
+      - phase: intake
+        to: bot
+        step: claim_concern
+        say: "It's still pending and I need to schedule the surgery."
+      - phase: intake
+        to: bot
+        step: readback
+        say: "Yes, that's right."
+        note: Keep saying hello until you hear the agent.
+        expect:
+          - {kind: queue, text: "The call rings: Ben Cole with a Not verified chip"}
+      - phase: agent
+        to: agent
+        say: "Hi. Is the prior authorization for my knee surgery approved yet?"
+        agent_note: Decide on the Verify caller hero. Could not verify keeps everything locked; the optional beat shows Mark verified.
+        expect:
+          - {kind: verify, text: "Verify caller hero: date of birth did not match; member ID matched"}
+          - {kind: locked, text: "The prior auth step and the authorization tile show as locked tiles"}
+          - {kind: plan, id: offer_callback, text: "After Could not verify: the hero says Identity not confirmed and the plan adds Offer a callback after identity is confirmed"}
+      - phase: agent
+        to: agent
+        optional: true
+        feature: verify
+        say: "Sorry, my birthday is May seventeenth, not the seventh."
+        note: Only if the agent asks you to confirm your date of birth.
+        agent_note: "Only before deciding: ask for the date of birth, hear May seventeenth, then press Mark verified."
+        expect:
+          - {kind: identity, text: "After Mark verified: Verified by agent chip; records unlock"}
+          - {kind: hero, id: "nbs:prior_auth_pending:PA-500101", text: "Hero: Ask Pine Hill Orthopedics for clinical notes on PA-500101"}
+          - {kind: card, id: "card:prior_authorizations", text: "Prior authorizations tile: PA-500101, knee surgery, pending"}
+      - phase: closing
+        to: agent
+        say: "Okay. Thanks for your help."
+        note: Say goodbye and wait for the agent to end the call.
+        agent_note: If you marked him verified, press Accept on the hero (Request clinical notes) before End, then End. Without the Accept the wrap up says no logged actions and the reason code falls back. If you could not verify, just End.
+        expect:
+          - {kind: plan, id: take_next_step, text: "Verified path: Call plan ticks Take the next step on Accept"}
+          - {kind: wrap_up, reason_code: callback_needed, refs: [PA-500101], text: "Wrap up, verified path: Callback needed is suggested and the summary names PA-500101. Could not verify: the summary says identity was not confirmed and offers a callback"}
 
   - key: tom_reed
     name: Tom Reed
@@ -237,17 +750,54 @@ personas:
     start_line: I'm calling about a claim.
     audience_sees:
       headline: Confirm who you're speaking with (no member found).
-      cards: [Verify caller hero in clay, Locked records that stay locked]
+      cards: [Verify caller hero in clay, No member records at all]
     features: [not_found]
-    script:
-      - {to: bot, say: "My name is Tom Reed. My date of birth is January twentieth, nineteen eighty. My member ID is five nine two, six one four."}
-      - {to: bot, say: "Yes, that's right."}
-      - {to: bot, say: "I'm calling about a claim for a doctor's visit."}
-      - {to: bot, say: "No, I don't have the number."}
-      - {to: bot, say: "Last month, at Lakeside Family Medicine."}
-      - {to: bot, say: "I got a bill I didn't expect."}
-      - {to: bot, say: "Yes, that's right."}
-      - {to: agent, say: "Hi, can you look up my claim?", note: "Agent presses Could not verify: no records ever show."}
+    talk_track:
+      - phase: intake
+        to: bot
+        step: identity
+        say: "My name is Tom Reed. My date of birth is January twentieth, nineteen eighty. My member ID is five nine two, six one four."
+        note: Say your name plainly. Tom Reed is not a member on purpose.
+      - phase: intake
+        to: bot
+        step: confirm
+        say: "Yes, that's right."
+      - phase: intake
+        to: bot
+        step: reason
+        say: "I'm calling about a claim for a doctor's visit."
+      - phase: intake
+        to: bot
+        step: claim_number
+        say: "No, I don't have the number."
+      - phase: intake
+        to: bot
+        step: service_date
+        say: "Last month, at Lakeside Family Medicine."
+      - phase: intake
+        to: bot
+        step: claim_concern
+        say: "I got a bill I didn't expect."
+      - phase: intake
+        to: bot
+        step: readback
+        say: "Yes, that's right."
+        expect:
+          - {kind: queue, text: "The call rings: Tom Reed with a Member not found chip"}
+      - phase: agent
+        to: agent
+        say: "Hi, can you look up my claim?"
+        agent_note: Press Could not verify.
+        expect:
+          - {kind: verify, text: "Verify caller hero: No member matched the details from intake"}
+          - {kind: locked, text: "No member records at all: nothing is looked up for a caller who is not a member"}
+          - {kind: plan, id: offer_callback, text: "After Could not verify: the plan adds Offer a callback after identity is confirmed"}
+      - phase: closing
+        to: agent
+        say: "Okay, I'll find my card and call back."
+        agent_note: End the call.
+        expect:
+          - {kind: wrap_up, reason_code: callback_needed, via: llm, text: "Wrap up: the summary says identity was not confirmed; pick Callback needed"}
 
   - key: emily_stone
     name: Emily Stone
@@ -264,7 +814,20 @@ personas:
       headline: "\"If this is a medical emergency, please hang up now and call 911.\""
       cards: [Emergency flag on the call, Intake ends and the call is handed off]
     features: [emergency]
-    script:
-      - {to: bot, say: "My name is Emily Stone. My date of birth is February fourteenth, nineteen eighty three. My member ID is three zero seven, four nine five."}
-      - {to: bot, say: "Yes, that's right."}
-      - {to: bot, say: "Actually, I'm having chest pain right now and it's hard to breathe.", note: The bot gives the 911 line and flags the call.}
+    talk_track:
+      - phase: intake
+        to: bot
+        step: identity
+        say: "My name is Emily Stone. My date of birth is February fourteenth, nineteen eighty three. My member ID is three zero seven, four nine five."
+      - phase: intake
+        to: bot
+        step: confirm
+        say: "Yes, that's right."
+      - phase: intake
+        to: bot
+        step: reason
+        say: "Actually, I'm having chest pain right now and it's hard to breathe."
+        note: The bot gives the 911 line and flags the call. Hang up after the line.
+        expect:
+          - {kind: emergency, text: "The bot says: If this is a medical emergency, please hang up now and call 911."}
+          - {kind: queue, text: "If you stay on the line the call is handed off with the emergency flag on the call record"}

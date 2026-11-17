@@ -36,7 +36,7 @@ MEMBERS = Connector(
     table="members m JOIN plans p ON p.plan_id = m.plan_id",
     id_field="member_id",
     id_column="m.member_id",
-    id_pattern="EVM100231",
+    id_pattern="418302",
     member_column="m.member_id",
     columns={
         "member_id": "m.member_id",
@@ -86,7 +86,7 @@ CLAIMS = Connector(
     table="claims",
     id_field="claim_id",
     id_column="claim_id",
-    id_pattern="CLM-900001",
+    id_pattern="70412",
     columns={
         "claim_id": "claim_id",
         "service_date": "service_date",
@@ -149,7 +149,7 @@ PAYMENTS = Connector(
     table="payments",
     id_field="payment_id",
     id_column="payment_id",
-    id_pattern="PAY-000064",
+    id_pattern="PAY-000067",
     columns={
         "payment_id": "payment_id",
         "paid_at": "paid_at",

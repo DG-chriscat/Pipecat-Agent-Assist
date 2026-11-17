@@ -19,7 +19,7 @@ describe("record cell formatting (the bot sends raw connector values)", () => {
   it("snake case statuses read as words; ids and codes stay as they are", () => {
     expect(formatCell("status", "pending_info")).toBe("Pending info");
     expect(formatCell("status", "denied")).toBe("Denied");
-    expect(formatCell("claim_id", "CLM-900001")).toBe("CLM-900001");
+    expect(formatCell("claim_id", "70412")).toBe("70412");
     expect(formatCell("denial_code", "CO-197")).toBe("CO-197");
     expect(formatCell("notes", null)).toBe("–");
     expect(formatCell("visits_allowed", 6)).toBe("6");

@@ -8,7 +8,8 @@ identity:
   prompt: >-
     Ask for the caller's full name, date of birth, and member ID. You may ask for
     them together or one at a time. If something is unclear, ask them to repeat it
-    once. The member ID looks like three letters and six digits, for example EVM100231.
+    once. The member ID is 6 digits, usually said in two groups of three, for
+    example 418 302.
 
 reason:
   prompt: >-
@@ -36,7 +37,6 @@ allowed_connectors:
   - kb_articles
 
 keyterms:
-  - EVM
   - explanation of benefits
   - EOB
   - deductible

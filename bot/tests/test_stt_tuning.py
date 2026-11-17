@@ -85,10 +85,10 @@ def test_intake_stt_without_keyterms_sends_none():
     assert isinstance(build_intake_stt("k", "nova-3-general"), DeepgramSTTService)
 
 
-def test_claims_pack_keyterms_include_member_id_prefix_and_plan_names():
+def test_claims_pack_keyterms_include_plan_names_not_id_prefixes():
     terms = load_pack("claims_status").keyterms
-    assert "EVM" in terms
+    assert "EVM" not in terms and "CLM" not in terms
     assert "Evergreen HMO Silver" in terms
     assert "Summit PPO Gold" in terms
     # Fixed list: no member names (callers are not known up front).
-    assert not {"Maria", "Alvarez", "Chen", "Patel"} & set(" ".join(terms).split())
+    assert not {"Maria", "Lopez", "Carter", "Patel"} & set(" ".join(terms).split())

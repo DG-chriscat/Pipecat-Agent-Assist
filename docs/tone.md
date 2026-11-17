@@ -114,6 +114,6 @@ unread lines have both null. No new table; RLS from 0002 already covers
 - `bot/tests/test_calls_db.py`: the reading saved on Postgres.
 - Portal: `state/mood.test.ts`, `CallerPanel.test.tsx`, `InCall.test.tsx`,
   `AssistColumn.test.tsx`.
-- Live: `server/tests/test_tone_live.py` (scripted Maria Alvarez call with a frustrated
+- Live: `server/tests/test_tone_live.py` (scripted Maria Lopez call with a frustrated
   turn; prints every reading, the tip, and bot RSS; `test_tone_baseline_reader_off`
   is the same call with the reader off).

@@ -17,16 +17,16 @@ from agent_assist_bot.packs import PACKS_DIR, Pack, load_packs
 from assist_fakes import Clock, FailingLLM, FakeConnectors, FakeLLM, default_rows
 
 MARIA_INTAKE = {
-    "full_name": "Maria Alvarez",
-    "member_id": "EVM100231",
+    "full_name": "Maria Lopez",
+    "member_id": "418302",
     "reason": "Her MRI claim was denied",
-    "claim_number": "CLM-900001",
+    "claim_number": "70412",
     "claim_concern": "denied, the letter mentioned no prior authorization",
-    "summary": "Maria Alvarez is calling about MRI claim CLM-900001, which was denied.",
+    "summary": "Maria Lopez is calling about MRI claim 70412, which was denied.",
 }
 
 PENDING_CLAIM = {
-    "claim_id": "CLM-900003",
+    "claim_id": "31845",
     "service_date": "2026-10-20",
     "provider": "Northgate Cardiology",
     "service": "Echocardiogram",
@@ -38,7 +38,7 @@ PENDING_CLAIM = {
     "processed_on": None,
 }
 NETWORK_CLAIM = {
-    "claim_id": "CLM-900005",
+    "claim_id": "52976",
     "service_date": "2026-08-02",
     "provider": "Bayview Dermatology",
     "service": "Skin biopsy",
@@ -138,8 +138,8 @@ async def test_trigger_words_make_the_retro_auth_hero_without_the_llm(packs):
     card = hero["card"]
     assert hero["reason"] == "new" and hero["replaces"] is None
     assert card["kind"] == "next_step" and card["rule_id"] == "retro_auth_review"
-    assert card["id"] == "nbs:retro_auth_review:CLM-900001"
-    assert card["body"]["headline"] == "Start a retro authorization review for CLM-900001"
+    assert card["id"] == "nbs:retro_auth_review:70412"
+    assert card["body"]["headline"] == "Start a retro authorization review for 70412"
     assert "MRI, knee, left" in card["body"]["script"]
     assert card["body"]["action"] == {
         "id": "request_retro_auth_review",
@@ -151,7 +151,7 @@ async def test_trigger_words_make_the_retro_auth_hero_without_the_llm(packs):
     assert t["role"] == "caller" and t["phrase"] == "denied"
     assert line["text"][t["start"] : t["end"]].lower() == "denied"
     assert card["source"]["label"] == "Claims system, KB-CL-002 and KB-CL-009"
-    assert card["source"]["records"] == [{"connector": "claims", "id": "CLM-900001"}]
+    assert card["source"]["records"] == [{"connector": "claims", "id": "70412"}]
     assert card["ai_suggested"] is True
 
 
@@ -160,8 +160,8 @@ async def test_hero_comes_with_its_record_card(packs):
     await h.say("caller", "My MRI claim was denied.")
     [rec] = h.added()
     assert rec["kind"] == "record" and rec["template_id"] == "denied_claim"
-    assert [r["claim_id"] for r in rec["body"]["rows"]] == ["CLM-900001"]
-    assert rec["body"]["summary"].startswith("CLM-900001 MRI, knee, left denied CO-197")
+    assert [r["claim_id"] for r in rec["body"]["rows"]] == ["70412"]
+    assert rec["body"]["summary"].startswith("70412 MRI, knee, left denied CO-197")
     assert rec["source"]["label"] == "Claims system"
     assert rec["trigger"]["phrase"] in ("denied", "my claim")
     # Hero is sent before its supporting card.
@@ -203,7 +203,7 @@ async def test_line_without_triggers_makes_no_cards(packs):
 async def james(packs) -> Harness:
     h = Harness(packs)
     await h.engine.start(
-        {"full_name": "James Chen", "reason": "I was charged twice for this month's premium."},
+        {"full_name": "James Carter", "reason": "I was charged twice for this month's premium."},
         default_pack="claims_status",
     )
     assert h.engine.pack.id == "account_payments"
@@ -294,11 +294,11 @@ async def test_lower_rank_never_replaces_the_hero(packs):
 
 async def test_mentioned_record_ranks_first_among_rows(packs):
     rows = default_rows()
-    other = dict(rows["claims"][0], claim_id="CLM-900099", service="CT scan")
+    other = dict(rows["claims"][0], claim_id="70499", service="CT scan")
     rows["claims"] = [other] + rows["claims"]  # newer CO-197 denial listed first
-    h = await maria(packs, rows=rows)  # intake names CLM-900001
+    h = await maria(packs, rows=rows)  # intake names 70412
     await h.say("caller", "It was denied.")
-    assert h.heroes()[-1]["card"]["id"] == "nbs:retro_auth_review:CLM-900001"
+    assert h.heroes()[-1]["card"]["id"] == "nbs:retro_auth_review:70412"
 
 
 # --- feedback: accept, dismiss, pin, rate -------------------------------------------------
@@ -481,7 +481,7 @@ def test_clinical_advice_is_detected(text):
 @pytest.mark.parametrize(
     "text",
     [
-        "Start a retro authorization review for CLM-900001",
+        "Start a retro authorization review for 70412",
         "Ask Pine Hill Orthopedics for clinical notes on PA-500101",
         "Your MRI, knee, left needed a prior authorization.",
         "It should take about 10 business days.",
@@ -522,7 +522,7 @@ async def test_llm_proposal_is_rendered_from_the_record_not_the_llm_text(packs):
             "next_steps": [
                 {
                     "rule_id": "retro_auth_review",
-                    "records": [{"connector": "claims", "id": "CLM-900001"}],
+                    "records": [{"connector": "claims", "id": "70412"}],
                     "headline": "Tell her to take two aspirin",
                 }
             ],
@@ -537,9 +537,9 @@ async def test_llm_proposal_is_rendered_from_the_record_not_the_llm_text(packs):
     await h.engine.llm_pass()
     hero = h.engine.hero
     assert hero.rule_id == "retro_auth_review"
-    assert hero.body["headline"] == "Start a retro authorization review for CLM-900001"
+    assert hero.body["headline"] == "Start a retro authorization review for 70412"
     assert "aspirin" not in str(hero.to_dict())
-    assert ("claims_get", {"claim_id": "CLM-900001"}) in h.connectors.calls
+    assert ("claims_get", {"claim_id": "70412"}) in h.connectors.calls
     assert hero.trigger.phrase == "prior auth"
     article = next(c for c in h.added() if c["kind"] == "article")
     assert article["id"] == "kb:KB-CL-002" and article["body"]["rows"][0]["article_id"] == (
@@ -601,7 +601,7 @@ async def test_llm_request_has_window_intake_pack_and_allowed_tools(packs):
         ("caller", "Hello there, my claim."),
         ("agent", "Hi Maria, how can I help?"),
     ]
-    assert req.intake["claim_number"] == "CLM-900001"
+    assert req.intake["claim_number"] == "70412"
     names = {t["name"] for t in req.tools}
     assert "claims_search" in names and "payments_search" not in names
     assert "Maria" in req.prompt() and "CALLER: Hello there, my claim." in req.prompt()
@@ -622,7 +622,7 @@ async def test_llm_cannot_call_tools_outside_the_pack(packs):
         # record that does not exist
         {"rule_id": "retro_auth_review", "records": [{"connector": "claims", "id": "CLM-1"}]},
         # record exists but the rule's `when` fails (paid claim)
-        {"rule_id": "retro_auth_review", "records": [{"connector": "claims", "id": "CLM-900002"}]},
+        {"rule_id": "retro_auth_review", "records": [{"connector": "claims", "id": "70358"}]},
         # rule not in the active pack
         {
             "rule_id": "duplicate_premium_refund",
@@ -645,7 +645,7 @@ async def test_bad_llm_proposals_are_dropped(packs, proposal):
 async def test_llm_rule_without_its_trigger_heard_is_dropped(packs):
     proposal = {
         "rule_id": "retro_auth_review",
-        "records": [{"connector": "claims", "id": "CLM-900001"}],
+        "records": [{"connector": "claims", "id": "70412"}],
     }
     h = Harness(packs, llm=FakeLLM({"next_steps": [proposal], "cards": []}))
     await h.engine.start(MARIA_INTAKE, default_pack="claims_status")

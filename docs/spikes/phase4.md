@@ -1,5 +1,10 @@
 # Phase 4 exit: each pack's trigger shows its card (P4-6)
 
+> Note (Nov 16, P5-10): demo IDs and names changed after this was written. Member IDs
+> are now 6 digits (Maria Alvarez EVM100231 is now Maria Lopez 418302) and claim
+> numbers 5 digits (CLM-900001 is now 70412); see docs/db.md. The results below are
+> kept as measured, with the old IDs; the P5-10 section at the end measures the new ones.
+
 Date: 2026-11-16. Card t_ac945472. Pipecat 1.15.0, Deepgram nova-3 STT and Aura 2 TTS,
 Anthropic (claude-haiku-5-5), Daily `dg-chriscat`, Supabase Postgres (a throwaway
 schema per call, migrated and seeded, dropped after), headless Chromium 1600x1000.
@@ -163,3 +168,17 @@ In `docs/screenshots/p4-6/`, from run 9, each in light and dark:
 its own task), portal `state/assist.test.ts`, `components/AssistColumn.test.tsx`
 (Cmd+K, Enter, Esc, status line, answer tile, scroll into view), `hooks/useCall.test.ts`
 (`assist_ask` client message).
+
+## P5-10 rerun with the new IDs (Nov 16)
+
+`server/tests/test_phase4_exit_live.py` after the P5-10 rekey (6 digit member IDs,
+5 digit claim numbers, easy names), Settings defaults: **3 passed**.
+
+| Call | Persona | Card | Trigger word end to card | Utterance end to card |
+| --- | --- | --- | --- | --- |
+| claims | Maria Lopez | `nbs:retro_auth_review:70412` | 0.737 s | 0.572 s |
+| payments | James Carter | `nbs:duplicate_premium_refund:PAY-000067` (plus the duplicate charge alert) | 1.594 s | 0.626 s |
+| general | Linda Nguyen | `kb:KB-CL-010` | 1.301 s | 0.580 s |
+
+Ask on the claims call: "Show the last 3 claims" answered in 0.223 s (2 claims: 70412,
+70358); "Any denied claims?" in 0.416 s ($1,850, 70412). All cards within 3 s (DC-6).

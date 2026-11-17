@@ -1,4 +1,4 @@
-"""Live P5-1 (AP-9): a Maria Alvarez call through wrap up with the drafted summary.
+"""Live P5-1 (AP-9): a Maria Lopez call through wrap up with the drafted summary.
 
 Run locally with keys, a Postgres, a built portal (npm run build in portal/), and
 Playwright's Chromium:
@@ -10,9 +10,9 @@ schema is created and dropped). P5_SCREENSHOT_DIR (optional) keeps the 1600x1000
 screenshots of the wrap up view in light and dark.
 
 One call, start to finish (same set up as test_assist_ui_live.py):
-1. A daily-python caller finishes intake as Maria Alvarez; Agent Ana's portal accepts.
+1. A daily-python caller finishes intake as Maria Lopez; Agent Ana's portal accepts.
 2. The agent says a call plan line; the caller says the trigger; the hero shows the
-   retro authorization review and Enter accepts it (simulated action on CLM-900001).
+   retro authorization review and Enter accepts it (simulated action on 70412).
 3. The agent tells the caller what happens next; the agent presses End.
 4. The bot drafts the summary and reason code at call end and posts them. The wrap
    up view fills the summary editor with the draft and preselects the suggested
@@ -46,7 +46,7 @@ from agent_assist_server.app import app
 from agent_assist_server.bot_launcher import BotLauncher
 from agent_assist_server.daily import DailyRestClient
 from agent_assist_server.portal import DEFAULT_DIST
-from harness.intake_script import MARIA_ALVAREZ as SCRIPT
+from harness.intake_script import MARIA_LOPEZ as SCRIPT
 from harness.intake_script import next_line
 from harness.llm import llm_settings_store
 from harness.participant import SAMPLE_RATE, HarnessParticipant
@@ -76,8 +76,8 @@ EDIT = " Caller thanked the agent."
 INTAKE_LINES = dict(
     SCRIPT,
     identity=(
-        "Sure. My name is Maria Alvarez, that's A L V A R E Z. My date of birth is March "
-        "twelfth, nineteen eighty four. And my member ID is E V M, one zero zero, two three one."
+        "Sure. My name is Maria Lopez, that's L O P E Z. My date of birth is March "
+        "twelfth, nineteen eighty four. And my member ID is four one eight, three zero two."
     ),
 )
 
@@ -395,8 +395,8 @@ async def test_maria_call_through_wrap_up_with_the_drafted_summary(schema, shots
     assert draft["pack_id"] == "claims_status"
     assert draft["source"] == "llm", draft
     assert 3 <= sentence_count(summary) <= 5
-    assert "CLM-900001" in summary
+    assert "70412" in summary
     assert not re.search(r"\bCLM-\d{1,5}\b", summary), "partial claim id in the summary"
-    for private in ("EVM100231", "1984-03-12", "March 12"):
+    for private in ("418302", "1984-03-12", "March 12"):
         assert private not in summary
     print(f"SCREENSHOTS {shots}: {taken}")

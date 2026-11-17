@@ -6,6 +6,8 @@ describe("portal pages in the URL (AP-21: /agent/architecture)", () => {
     ["/agent/architecture", "architecture"],
     ["/agent/architecture/", "architecture"],
     ["/agent/settings", "settings"],
+    ["/agent/demos", "demos"],
+    ["/agent/demos/", "demos"],
     ["/agent/", "calls"],
     ["/agent", "calls"],
     ["/", "calls"],
@@ -15,8 +17,9 @@ describe("portal pages in the URL (AP-21: /agent/architecture)", () => {
   });
 
   it("round trips every page", () => {
-    for (const p of ["calls", "settings", "architecture"] as const) expect(pageFromPath(pathForPage(p))).toBe(p);
+    for (const p of ["calls", "settings", "architecture", "demos"] as const) expect(pageFromPath(pathForPage(p))).toBe(p);
     expect(pathForPage("architecture")).toBe("/agent/architecture");
     expect(pathForPage("calls")).toBe("/agent/");
+    expect(pathForPage("demos")).toBe("/agent/demos");
   });
 });

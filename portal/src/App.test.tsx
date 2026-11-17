@@ -351,7 +351,7 @@ describe("App", () => {
       sendSnapshot(sock);
       const rail = screen.getByRole("navigation", { name: /main/i });
       const labels = [...rail.querySelectorAll("button.ri")].map((b) => b.getAttribute("aria-label"));
-      expect(labels).toEqual(["Calls", "Queue", "History", "Architecture", "Settings"]);
+      expect(labels).toEqual(["Calls", "Queue", "History", "Demos", "Architecture", "Settings"]);
       await user.click(screen.getByRole("button", { name: "Architecture" }));
       expect(screen.getByRole("region", { name: "Architecture" })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Architecture" })).toHaveAttribute("aria-current", "page");
@@ -394,6 +394,51 @@ describe("App", () => {
         sock.serverSend({ type: "offer", agent_id: "agent-1", call, expires_at: exp });
       });
       expect(screen.queryByRole("region", { name: "Architecture" })).not.toBeInTheDocument();
+      expect(screen.getByRole("dialog", { name: /incoming call/i })).toBeInTheDocument();
+    });
+  });
+
+  describe("demos page (P5-10)", () => {
+    afterEach(() => window.history.replaceState(null, "", "/"));
+
+    beforeEach(() => {
+      fetchMock.mockImplementation(async (url: string) => {
+        if (url === "/demo/personas")
+          return jsonResponse({ phone_line: { number: "+1 (612) 746-7133", password_hint: "ask Chris" }, features: [], personas: [] });
+        return jsonResponse(ana);
+      });
+    });
+
+    it("sits on the rail above Architecture and sets /agent/demos", async () => {
+      const { user, sock } = await signInAsAna();
+      sendSnapshot(sock);
+      const rail = screen.getByRole("navigation", { name: /main/i });
+      const labels = [...rail.querySelectorAll("button.ri")].map((b) => b.getAttribute("aria-label"));
+      expect(labels).toEqual(["Calls", "Queue", "History", "Demos", "Architecture", "Settings"]);
+      await user.click(screen.getByRole("button", { name: "Demos" }));
+      expect(screen.getByRole("region", { name: "Demos" })).toBeInTheDocument();
+      expect(await screen.findByRole("region", { name: "Phone line" })).toHaveTextContent("ask Chris");
+      expect(screen.getByRole("button", { name: "Demos" })).toHaveAttribute("aria-current", "page");
+      expect(window.location.pathname).toBe("/agent/demos");
+      await user.click(screen.getByRole("button", { name: "Calls" }));
+      expect(screen.getByText("Waiting for the next call")).toBeInTheDocument();
+    });
+
+    it("a ringing call takes the agent back to Calls", async () => {
+      const { user, sock } = await signInAsAna();
+      sendSnapshot(sock, [{ ...ana, state: "available" }]);
+      await user.click(screen.getByRole("button", { name: "Demos" }));
+      const call = { ...queued("s9"), offered_to: "agent-1" };
+      const exp = Date.now() / 1000 + 20;
+      act(() => {
+        sock.serverSend({ type: "call_queued", call, position: 1 });
+        sock.serverSend({
+          type: "agent_updated",
+          agent: { ...ana, state: "ringing", offer_call_id: "s9", offer_expires_at: exp },
+        });
+        sock.serverSend({ type: "offer", agent_id: "agent-1", call, expires_at: exp });
+      });
+      expect(screen.queryByRole("region", { name: "Demos" })).not.toBeInTheDocument();
       expect(screen.getByRole("dialog", { name: /incoming call/i })).toBeInTheDocument();
     });
   });

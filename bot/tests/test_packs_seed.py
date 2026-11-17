@@ -35,9 +35,9 @@ def seed_data():
 
 
 def test_connector_facts_prefixes_fields():
-    row = {"claim_id": "CLM-900001", "denial_code": "CO-197"}
+    row = {"claim_id": "70412", "denial_code": "CO-197"}
     assert connector_facts("claims", row) == {
-        "claims.claim_id": "CLM-900001",
+        "claims.claim_id": "70412",
         "claims.denial_code": "CO-197",
     }
 
@@ -57,14 +57,14 @@ def test_persona_packs_exist(packs, seed_data):
 
 
 def test_james_chen_duplicate_premium_in_seed(packs, seed_data):
-    rows = [dataclasses.asdict(p) for p in seed_data.payments if p.member_id == "EVM100232"]
+    rows = [dataclasses.asdict(p) for p in seed_data.payments if p.member_id == "527194"]
     alert = packs["account_payments"].card_template("duplicate_charge")
     dups = alert.detect.find(rows)
     assert len(dups) == 1
     dup = dups[0]
     assert dup["kind"] == "premium" and dup["paid_at"].date() == AS_OF.replace(day=1)
     # No other member has a duplicate premium draft.
-    others = [dataclasses.asdict(p) for p in seed_data.payments if p.member_id != "EVM100232"]
+    others = [dataclasses.asdict(p) for p in seed_data.payments if p.member_id != "527194"]
     by_member: dict[str, list] = {}
     for r in others:
         by_member.setdefault(r["member_id"], []).append(r)
@@ -121,19 +121,19 @@ def _session(reader, member_id):
 
 @needs_db
 @pytest.mark.asyncio(loop_scope="module")
-async def test_maria_alvarez_hits_retro_auth_review(packs, reader):
+async def test_maria_lopez_hits_retro_auth_review(packs, reader):
     pack = packs["claims_status"]
     line = "They said my MRI was denied because there was no prior authorization."
     assert select_pack(line, packs) is pack
-    s = _session(reader, "EVM100231")
+    s = _session(reader, "418302")
     denied = await s.call("claims_search", dict(pack.card_template("denied_claim").search))
-    assert [c["claim_id"] for c in denied["items"]] == ["CLM-900001"]
-    claim = (await s.call("claims_get", {"claim_id": "CLM-900001"}))["item"]
+    assert [c["claim_id"] for c in denied["items"]] == ["70412"]
+    claim = (await s.call("claims_get", {"claim_id": "70412"}))["item"]
     facts = connector_facts("claims", claim)
     fired = [r for r in pack.rules_triggered(line) if r.applies(facts)]
     assert [r.id for r in fired] == ["retro_auth_review"]
     card = fired[0].render(facts)
-    assert card.headline == "Start a retro authorization review for CLM-900001"
+    assert card.headline == "Start a retro authorization review for 70412"
     assert "Riverside Imaging Center" in card.script
     assert "{" not in card.why + card.script
 
@@ -145,7 +145,7 @@ async def test_james_chen_hits_duplicate_alert_and_refund(packs, reader):
     line = "I was charged twice for my premium this month"
     assert select_pack(line, packs) is pack
     alert = pack.card_template("duplicate_charge")
-    s = _session(reader, "EVM100232")
+    s = _session(reader, "527194")
     rows = (await s.call("payments_search", dict(alert.search)))["items"]
     dups = alert.detect.find(rows)
     assert len(dups) == 1
@@ -162,11 +162,11 @@ async def test_james_chen_hits_duplicate_alert_and_refund(packs, reader):
 async def test_aisha_and_linda_and_daniel_hit_their_rules(packs, reader):
     pack = packs["claims_status"]
     cases = [
-        ("EVM100233", "claims_get", {"claim_id": "CLM-900003"}, "claims",
+        ("639251", "claims_get", {"claim_id": "31845"}, "claims",
          "my claim is still pending", "provider_info_follow_up"),
-        ("EVM100234", "claims_get", {"claim_id": "CLM-900005"}, "claims",
+        ("741526", "claims_get", {"claim_id": "52976"}, "claims",
          "it was denied as out of network", "out_of_network_appeal"),
-        ("EVM100235", "prior_authorizations_get", {"auth_id": "PA-500101"},
+        ("852617", "prior_authorizations_get", {"auth_id": "PA-500101"},
          "prior_authorizations", "is my prior authorization approved yet",
          "prior_auth_pending"),
     ]  # fmt: skip
@@ -182,9 +182,7 @@ async def test_aisha_and_linda_and_daniel_hit_their_rules(packs, reader):
 async def test_linda_eob_question_finds_kb_article(packs, reader):
     pack = packs["general_question"]
     t = pack.card_template("kb_article")
-    out = await _session(reader, "EVM100234").call(
-        "kb_articles_search", {"query": "what is an EOB"}
-    )
+    out = await _session(reader, "741526").call("kb_articles_search", {"query": "what is an EOB"})
     top = out["items"][0]
     assert top["article_id"] == "KB-CL-010"
     assert set(t.fields) <= set(top)

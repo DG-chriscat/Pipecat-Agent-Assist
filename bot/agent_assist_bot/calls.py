@@ -114,9 +114,72 @@ def _name_close(member: Member, full_name: str) -> bool:
     return False
 
 
+MEMBER_ID_DIGITS = 6
+_UNIT_WORDS = {
+    w: i for i, w in enumerate("zero one two three four five six seven eight nine".split())
+} | {"oh": 0, "o": 0}
+_TEEN_WORDS = {
+    w: 10 + i
+    for i, w in enumerate(
+        "ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen".split()
+    )
+}
+_TENS_WORDS = {
+    w: 10 * (i + 2)
+    for i, w in enumerate("twenty thirty forty fifty sixty seventy eighty ninety".split())
+}
+_REPEAT_WORDS = {"double": 2, "triple": 3}
+
+
+def spoken_digits(raw: str) -> str:
+    """The digits in `raw`, written or spoken, in order; every other word is dropped.
+
+    "four one eight, three oh two" -> "418302"; "four eighteen" -> "418";
+    "forty one eight" -> "418"; "double four" -> "44"; "418-302" -> "418302".
+    """
+    out: list[str] = []
+    tens: int | None = None  # "forty" waiting for a unit ("forty one" -> 41)
+    repeat = 1
+    for tok in re.findall(r"[a-z]+|\d+|[,.;]", (raw or "").lower()):
+        if tens is not None and tok in _UNIT_WORDS and tok not in ("oh", "o", "zero"):
+            out.append(str(tens + _UNIT_WORDS[tok]))
+            tens = None
+            continue
+        if tens is not None:
+            out.append(str(tens))
+            tens = None
+        if tok in ",.;":
+            repeat = 1
+            continue  # a pause between groups: "seventy, four" is 70 then 4
+        if tok.isdigit():
+            out.append(tok * repeat)
+        elif tok in _UNIT_WORDS:
+            out.append(str(_UNIT_WORDS[tok]) * repeat)
+        elif tok in _TEEN_WORDS:
+            out.append(str(_TEEN_WORDS[tok]))
+        elif tok in _TENS_WORDS:
+            tens = _TENS_WORDS[tok]
+        repeat = _REPEAT_WORDS.get(tok, 1)
+    if tens is not None:
+        out.append(str(tens))
+    return "".join(out)
+
+
 def normalize_member_id(raw: str) -> str:
-    """Upper case, drop spaces, dashes, and dots ("evm 100-231" -> "EVM100231")."""
-    return re.sub(r"[^A-Za-z0-9]", "", raw or "").upper()
+    """Member IDs are 6 digits (P5-10): keep the digits, written or spoken.
+
+    "418 302", "418-302", and "four one eight, three zero two" -> "418302".
+    Letters are dropped, so the format is checked with is_valid_member_id.
+    """
+    return spoken_digits(raw)
+
+
+def is_valid_member_id(raw: str) -> bool:
+    """True when `raw` holds exactly one 6 digit member ID (after normalizing)."""
+    text = raw or ""
+    if re.search(r"[a-z]\d|\d[a-z]", text.lower().replace(" ", "")):
+        return False  # letters mixed into the ID (the old 418302 format)
+    return len(normalize_member_id(text)) == MEMBER_ID_DIGITS
 
 
 def _name_tokens(raw: str) -> list[str]:

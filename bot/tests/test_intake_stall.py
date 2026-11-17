@@ -19,7 +19,7 @@ from loguru import logger
 from pipecat.flows import NO_RESPONSE
 from pipecat.frames.frames import LLMSetToolChoiceFrame, TTSSpeakFrame
 
-JAMES = Member("EVM100232", "James", "Chen", dt.date(1979, 7, 4))
+JAMES = Member("527194", "James", "Carter", dt.date(1979, 7, 4))
 FAST = 0.05  # check_after_turn_secs in tests
 
 
@@ -109,15 +109,15 @@ async def settle():
 
 
 async def at_identity_confirm(session, fm):
-    """The Nov 16 call's read back (James Chen), waiting for the caller's yes."""
+    """The Nov 16 call's read back (James Carter), waiting for the caller's yes."""
     await fm.set_node_from_config(session.identity_node())
     _, confirm = await call(
         session.identity_node(),
         "save_identity",
         fm,
-        full_name="James Chen",
+        full_name="James Carter",
         date_of_birth="1979-07-04",
-        member_id="EVM100232",
+        member_id="527194",
     )
     await fm.set_node_from_config(confirm)
     return confirm
@@ -166,7 +166,7 @@ def test_affirmative_replies(text):
     [
         "",
         "No.",
-        "No, my name is James Chen.",
+        "No, my name is James Carter.",
         "Yes, but my member ID is E V M one zero zero two three two.",
         "Not quite.",
         "um",
@@ -268,7 +268,7 @@ async def test_second_empty_say_in_the_readback_speaks_a_fixed_summary(session, 
     _, nxt = await call(node, "say_to_caller", fm)
     assert nxt is NO_RESPONSE
     [spoken] = [f.text for f in fm.worker.frames[before:] if isinstance(f, TTSSpeakFrame)]
-    assert "James Chen" in spoken and "charged twice" in spoken
+    assert "James Carter" in spoken and "charged twice" in spoken
     assert spoken.endswith("Is that right?")
     assert "EVM" not in spoken and "1979" not in spoken
 
@@ -298,9 +298,9 @@ async def test_not_verified_note_does_not_promise_a_person(store, hook, fm):
         s.identity_node(),
         "save_identity",
         fm,
-        full_name="James Chen",
+        full_name="James Carter",
         date_of_birth="1980-01-01",
-        member_id="EVM100232",
+        member_id="527194",
     )
     result, _ = await call(s.identity_confirm_node(), "verify_identity", fm)
     assert result["identity"] == "not_verified"
@@ -318,7 +318,7 @@ async def test_identity_confirm_yes_without_a_function_call_verifies(session, fm
     await settle()
     rec = store.calls[session.call_id]
     assert rec.identity_result == "verified"
-    assert rec.member_id == "EVM100232"
+    assert rec.member_id == "527194"
     assert fm.nodes[-1] == "reason"
     assert session.node == "reason"
 
@@ -335,7 +335,7 @@ async def test_readback_yes_without_a_function_call_confirms_and_queues(
     h = hook.handoffs[0]
     assert h.outcome == "completed"
     assert FLAG_INTAKE_STALLED not in h.flags
-    assert "James Chen" in h.summary
+    assert "James Carter" in h.summary
     assert fm.nodes[-1] == "handoff"
 
 
@@ -361,7 +361,7 @@ async def test_say_to_caller_is_not_progress(session, fm, store):
 
 async def test_no_fallback_for_a_correction(session, fm, store):
     await at_identity_confirm(session, fm)
-    await session.on_caller_turn("No, my last name is Chen.")
+    await session.on_caller_turn("No, my last name is Carter.")
     await settle()
     assert store.calls[session.call_id].identity_result is None
     assert fm.nodes[-1] == "identity_confirm"
@@ -400,8 +400,8 @@ async def test_three_turns_without_a_function_call_hand_off_as_stalled(session, 
     assert len(hook.handoffs) == 1
     h = hook.handoffs[0]
     assert FLAG_INTAKE_STALLED in h.flags
-    assert h.identity_result == "verified" and h.member_id == "EVM100232"
-    assert "James Chen" in h.summary
+    assert h.identity_result == "verified" and h.member_id == "527194"
+    assert "James Carter" in h.summary
     rec = store.calls[session.call_id]
     assert rec.status == "ready_for_queue" and FLAG_INTAKE_STALLED in rec.flags
     assert fm.nodes[-1] == "handoff"
@@ -482,7 +482,7 @@ async def test_close_cancels_the_timer(store, hook, fm):
 
 async def test_flow_lines_for_node_changes_and_function_calls(session, fm, logs):
     confirm = await at_identity_confirm(session, fm)
-    await call(confirm, "correct_identity", fm, full_name="James Chen")
+    await call(confirm, "correct_identity", fm, full_name="James Carter")
     flow = [line for line in logs if line.startswith("[flow]")]
     assert "[flow] node -> identity (tool_choice=auto)" in flow
     assert "[flow] node -> identity_confirm (tool_choice=required)" in flow

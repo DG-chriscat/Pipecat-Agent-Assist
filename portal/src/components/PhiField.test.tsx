@@ -17,9 +17,9 @@ describe("PhiField (AP-17)", () => {
   });
 
   it("is masked by default", () => {
-    render(<PhiField field="member_id" label="Member ID" value="EVM100231" masked="••••31" onReveal={vi.fn()} />);
-    expect(screen.getByTestId("phi-member_id")).toHaveTextContent("••••31");
-    expect(screen.queryByText("EVM100231")).not.toBeInTheDocument();
+    render(<PhiField field="member_id" label="Member ID" value="418302" masked="••••02" onReveal={vi.fn()} />);
+    expect(screen.getByTestId("phi-member_id")).toHaveTextContent("••••02");
+    expect(screen.queryByText("418302")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Reveal member ID" })).toBeInTheDocument();
   });
 
@@ -45,16 +45,16 @@ describe("PhiField (AP-17)", () => {
 
   it("Hide re-masks at once; a second reveal logs again and restarts the 30 s", () => {
     const onReveal = vi.fn();
-    render(<PhiField field="member_id" label="Member ID" value="EVM100231" masked="••••31" onReveal={onReveal} />);
+    render(<PhiField field="member_id" label="Member ID" value="418302" masked="••••02" onReveal={onReveal} />);
     fireEvent.click(screen.getByRole("button", { name: /reveal/i }));
     act(() => vi.advanceTimersByTime(20_000));
     fireEvent.click(screen.getByRole("button", { name: /hide/i }));
-    expect(screen.getByTestId("phi-member_id")).toHaveTextContent("••••31");
+    expect(screen.getByTestId("phi-member_id")).toHaveTextContent("••••02");
     fireEvent.click(screen.getByRole("button", { name: /reveal/i }));
     expect(onReveal).toHaveBeenCalledTimes(2);
     act(() => vi.advanceTimersByTime(20_000));
-    expect(screen.getByTestId("phi-member_id")).toHaveTextContent("EVM100231");
+    expect(screen.getByTestId("phi-member_id")).toHaveTextContent("418302");
     act(() => vi.advanceTimersByTime(10_000));
-    expect(screen.getByTestId("phi-member_id")).toHaveTextContent("••••31");
+    expect(screen.getByTestId("phi-member_id")).toHaveTextContent("••••02");
   });
 });

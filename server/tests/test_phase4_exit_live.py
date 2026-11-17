@@ -12,9 +12,9 @@ schema per call is created and dropped). P4_SCREENSHOT_DIR (optional) keeps the
 
 Three scripted calls, one per pack, each through the real server, bot, and portal:
 
-- claims: Maria Alvarez, claims_status. Caller: "So why did my MRI claim get denied?"
-  Expected: hero `nbs:retro_auth_review:CLM-900001`.
-- payments: James Chen, account_payments. Caller: "...I was charged twice for my
+- claims: Maria Lopez, claims_status. Caller: "So why did my MRI claim get denied?"
+  Expected: hero `nbs:retro_auth_review:70412`.
+- payments: James Carter, account_payments. Caller: "...I was charged twice for my
   premium." Expected: hero `nbs:duplicate_premium_refund:<second draft>`.
 - general: Linda Nguyen with a KB question, general_question. Caller: "So what is an
   explanation of benefits, exactly?" Expected: article tile `kb:KB-CL-010`.
@@ -75,8 +75,8 @@ ASK_TEXT = "Show the last 3 claims"
 # Ask bar questions on the claims call, and the claim ids each answer must show. The
 # second makes the shelf overflow, so the answer must be scrolled into view.
 ASKS = [
-    (ASK_TEXT, ["CLM-900001", "CLM-900002"]),
-    ("Any denied claims?", ["CLM-900001"]),
+    (ASK_TEXT, ["70412", "70358"]),
+    ("Any denied claims?", ["70412"]),
 ]
 
 # Watches the assist column and stamps when a card matching a selector first shows.
@@ -131,25 +131,25 @@ class Scenario:
     card_prefix: str
 
 
-MARIA = persona("maria_alvarez")
-JAMES = persona("james_chen")
+MARIA = persona("maria_lopez")
+JAMES = persona("james_carter")
 LINDA = persona("linda_nguyen")
 
 SCENARIOS = [
     Scenario(
         key="claims",
         who=MARIA,
-        lines=dict(MARIA.lines, identity=_spelled_identity(MARIA, "A L V A R E Z")),
+        lines=dict(MARIA.lines, identity=_spelled_identity(MARIA, "L O P E Z")),
         pack="claims_status",
         trigger="So why did my MRI claim get denied?",
         trigger_word="denied",
         selector="[data-testid='hero'][data-card-id^='nbs:retro_auth_review:']",
-        card_prefix="nbs:retro_auth_review:CLM-900001",
+        card_prefix="nbs:retro_auth_review:70412",
     ),
     Scenario(
         key="payments",
         who=JAMES,
-        lines=dict(JAMES.lines, identity=_spelled_identity(JAMES, "C H E N")),
+        lines=dict(JAMES.lines, identity=_spelled_identity(JAMES, "C A R T E R")),
         pack="account_payments",
         trigger="I looked at my bank account and I was charged twice for my premium.",
         trigger_word="twice",

@@ -135,7 +135,7 @@ class Card:
 
     def wire_id(self, locked: bool = False) -> str:
         """The id the portal sees. A locked tile's id hides the record ids in it
-        (`nbs:<rule>:CLM-...` -> `locked:<hash>`); Ask answers keep their id."""
+        (`nbs:<rule>:70412` -> `locked:<hash>`); Ask answers keep their id."""
         if not locked or self.id.startswith("ask:"):
             return self.id
         return "locked:" + hashlib.sha256(self.id.encode()).hexdigest()[:12]

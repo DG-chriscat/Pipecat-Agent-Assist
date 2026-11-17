@@ -251,7 +251,7 @@ async def test_write_through_saves_the_identity_decision(schema):
         "sess-10",
         "https://x.daily.co/caller-10",
         {"full_name": "Linda Yuen"},
-        IntakeInfo(identity_result="close_match", member_id="EVM100234"),
+        IntakeInfo(identity_result="close_match", member_id="741526"),
     )
     await svc.accept(agent.agent_id, "sess-10")
     svc.set_identity_decision(agent.agent_id, "sess-10", "verified")

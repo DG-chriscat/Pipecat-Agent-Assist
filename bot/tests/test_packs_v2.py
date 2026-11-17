@@ -95,10 +95,10 @@ def test_claims_status_has_retro_auth_rule_for_maria(packs):
     rule = pack.rule("retro_auth_review")
     assert rule.action.id == "request_retro_auth_review"
     assert rule.when == {"claims.denial_code": "CO-197"}
-    # Maria Alvarez seed facts (docs/db.md): CLM-900001, MRI, CO-197.
+    # Maria Lopez seed facts (docs/db.md): 70412, MRI, CO-197.
     facts = {
-        "intake.full_name": "Maria Alvarez",
-        "claims.claim_id": "CLM-900001",
+        "intake.full_name": "Maria Lopez",
+        "claims.claim_id": "70412",
         "claims.service": "MRI, knee, left",
         "claims.provider": "Riverside Imaging Center",
         "claims.denial_code": "CO-197",
@@ -106,7 +106,7 @@ def test_claims_status_has_retro_auth_rule_for_maria(packs):
     }
     assert rule.applies(facts)
     card = rule.render(facts)
-    assert "CLM-900001" in card.why and "CO-197" in card.why
+    assert "70412" in card.why and "CO-197" in card.why
     assert "Riverside Imaging Center" in card.script
     assert card.action_id == "request_retro_auth_review"
     assert card.source
@@ -115,7 +115,7 @@ def test_claims_status_has_retro_auth_rule_for_maria(packs):
 
 def test_rule_does_not_apply_without_required_facts_or_condition(packs):
     rule = packs["claims_status"].rule("retro_auth_review")
-    assert not rule.applies({"claims.claim_id": "CLM-900001"})
+    assert not rule.applies({"claims.claim_id": "70412"})
     facts = {f: "x" for f in rule.required_facts}
     facts["claims.denial_code"] = "CO-242"
     assert not rule.applies(facts)
@@ -162,7 +162,7 @@ def test_call_plan_ticks_from_phrase_and_action(packs):
     plan = packs["claims_status"].call_plan
     assert [s.id for s in plan][0] == "confirm_claim"
     ticks = packs["claims_status"].plan_ticks(
-        transcript="Agent: I can see claim CLM-900001 was denied.",
+        transcript="Agent: I can see claim 70412 was denied.",
         accepted_actions=["request_retro_auth_review"],
     )
     assert "confirm_claim" in ticks and "take_next_step" in ticks
@@ -391,10 +391,11 @@ def test_select_pack_without_fallback_returns_none(tmp_path):
 
 def test_keyterms_are_fixed_strings(packs):
     terms = packs["claims_status"].keyterms
-    assert "CO-197" in terms and "EVM" in terms
+    assert "CO-197" in terms and "Summit PPO Gold" in terms
     assert "prior authorization" in [t.lower() for t in terms]
-    # Not per member: no member IDs or names in the keyterms.
-    assert not any(t.startswith("EVM1") for t in terms)
+    # P5-10: IDs are digits only, so no EVM / CLM prefixes; never member IDs or names.
+    assert not {"EVM", "CLM"} & set(terms)
+    assert not any(any(c.isdigit() for c in t) and "-" not in t for t in terms)
     assert "Maria" not in terms
 
 

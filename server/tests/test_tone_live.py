@@ -10,7 +10,7 @@ schema is created and dropped). P4_SCREENSHOT_DIR (optional) keeps the 1600x1000
 screenshots. The Pipecat Tone model must be downloadable (or already cached):
 `python -m agent_assist_bot.tone_prefetch`.
 
-Scripted call, Maria Alvarez (same intake as test_assist_ui_live.py), the agent is the
+Scripted call, Maria Lopez (same intake as test_assist_ui_live.py), the agent is the
 real portal in headless Chromium:
 1. Intake; every caller line is read by the intake reader and saved with its tone.
 2. Agent Ana accepts; the portal gets the mood trend (intake readings) at once.
@@ -50,7 +50,7 @@ from agent_assist_server.app import app
 from agent_assist_server.bot_launcher import BotLauncher
 from agent_assist_server.daily import DailyRestClient
 from agent_assist_server.portal import DEFAULT_DIST
-from harness.intake_script import MARIA_ALVAREZ as SCRIPT
+from harness.intake_script import MARIA_LOPEZ as SCRIPT
 from harness.intake_script import next_line
 from harness.participant import SAMPLE_RATE, HarnessParticipant
 from harness.procstats import ProcSampler
@@ -78,8 +78,8 @@ CALLER_TRIGGER = "So why did my MRI claim get denied?"
 INTAKE_LINES = dict(
     SCRIPT,
     identity=(
-        "Sure. My name is Maria Alvarez, that's A L V A R E Z. My date of birth is March "
-        "twelfth, nineteen eighty four. And my member ID is E V M, one zero zero, two three one."
+        "Sure. My name is Maria Lopez, that's L O P E Z. My date of birth is March "
+        "twelfth, nineteen eighty four. And my member ID is four one eight, three zero two."
     ),
 )
 

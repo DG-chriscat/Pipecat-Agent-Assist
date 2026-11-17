@@ -148,7 +148,7 @@ INTAKE_HANDOFF = {
     "outcome": "emergency",
     "summary": {"reason": "claim denied", "summary": "Caller described chest pain."},
     "identity_result": "not_verified",
-    "member_id": "EVM100231",
+    "member_id": "418302",
     "flags": ["identity_not_verified", "emergency"],
 }
 
@@ -160,7 +160,7 @@ def test_enqueue_accepts_intake_handoff_and_flags_reach_the_call(client):
     call = client.get("/queue").json()["queue"][0]
     assert call["outcome"] == "emergency"
     assert call["identity_result"] == "not_verified"
-    assert call["member_id"] == "EVM100231"
+    assert call["member_id"] == "418302"
     assert call["flags"] == ["identity_not_verified", "emergency"]
     assert call["summary"] == INTAKE_HANDOFF["summary"]
 

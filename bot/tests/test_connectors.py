@@ -11,7 +11,7 @@ import pytest
 from agent_assist_bot.connectors import CONNECTORS, ConnectorSession
 from loguru import logger
 
-MARIA = "EVM100231"
+MARIA = "418302"
 
 
 class FakeReader:

@@ -25,7 +25,7 @@ FLUX = {
     "readback_speed": 0.9,
 }
 
-IDENTITY_LINE = READBACK_LINE.format(name="Maria Alvarez", member_id=speak_member_id("EVM100231"))
+IDENTITY_LINE = READBACK_LINE.format(name="Maria Lopez", member_id=speak_member_id("418302"))
 
 
 # ---- settings ---------------------------------------------------------------------------
@@ -118,13 +118,16 @@ def test_pacer_only_when_slow_read_backs_are_on_and_slower():
     "text",
     [
         IDENTITY_LINE,
-        "Your member ID is EVM100231.",
+        "Your member ID is 418302.",
+        "Your member ID is 418 302.",
         "So that's Maria, date of birth March 12, 1984. Is that right?",
         "You were born 03/12/1984, right?",
         "Born on the 12th of March, 1984?",
-        "That's claim CLM-900001 for $1,240.",
-        "Got it, claim number C L M, nine zero zero, zero zero one.",
-        "Member ID E V M 1 0 0 2 3 1.",
+        "That's claim 70412 for $1,240.",
+        "That's claim number 70 412.",
+        "Got it, claim number seven oh, four one two.",
+        "Member ID four one eight, three zero two.",
+        "Member ID 4 1 8 3 0 2.",
     ],
 )
 def test_lines_with_a_member_id_dob_or_claim_number_are_read_backs(text):
@@ -143,6 +146,8 @@ def test_lines_with_a_member_id_dob_or_claim_number_are_read_backs(text):
         "Thanks, Maria. What's your date of birth and member ID?",
         "Do you have the claim number? It's on your explanation of benefits.",
         "When were you born?",
+        "That comes to $1,240 for 2 visits.",
+        "A decision takes up to 30 days, and you have 180 days to appeal.",
     ],
 )
 def test_other_lines_are_not(text):
@@ -177,7 +182,7 @@ async def test_identity_read_back_is_marked():
     s = intake.IntakeSession(
         pack=load_pack("claims_status"), store=MemoryCallStore(), session_id="s"
     )
-    s.intake.update(full_name="Maria Alvarez", member_id="EVM100231")
+    s.intake.update(full_name="Maria Lopez", member_id="418302")
     action = next(a for a in s.identity_confirm_node()["pre_actions"] if a["type"] == "tts_say")
     await intake.uninterruptible_tts_say(action, FM)
     speak = FM.worker.frames[0]
@@ -311,7 +316,7 @@ async def test_streamed_llm_read_back_slows_once_the_id_shows_and_restores_after
             LLMFullResponseStartFrame(),
             LLMTextFrame("Thanks. "),
             LLMTextFrame("Your claim number "),
-            LLMTextFrame("is CLM-900001."),
+            LLMTextFrame("is 70412."),
             LLMFullResponseEndFrame(),
             TTSSpeakFrame("Anything else?"),
         ]
@@ -319,7 +324,7 @@ async def test_streamed_llm_read_back_slows_once_the_id_shows_and_restores_after
     trace = _trace(tts)
     slow, restore = trace.index("speed 0.9"), trace.index("speed 1.1")
     said_slow = " ".join(t for t in trace[slow:restore] if t.startswith("say"))
-    assert "CLM-900001" in said_slow
+    assert "70412" in said_slow
     assert trace[restore + 1 :] == ["say Anything else?"]
     assert tts.connects == 1
 

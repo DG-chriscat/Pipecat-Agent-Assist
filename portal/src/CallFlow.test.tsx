@@ -25,13 +25,13 @@ const call: Call = {
   room_url: "https://x.daily.co/r1",
   room_name: "r1",
   summary: {
-    full_name: "Maria Alvarez",
+    full_name: "Maria Lopez",
     reason: "MRI claim from Oct 28 was denied",
     summary: "Denied MRI claim, wants to know why",
   },
   outcome: "completed",
   identity_result: "verified",
-  member_id: "EVM100231",
+  member_id: "418302",
   flags: [],
   status: "queued",
   queued_at: NOW - 100,
@@ -52,7 +52,7 @@ const acceptResult: AcceptResult = {
   summary: call.summary,
   outcome: "completed",
   identity_result: "verified",
-  member_id: "EVM100231",
+  member_id: "418302",
   flags: [],
 };
 
@@ -135,7 +135,7 @@ describe("incoming call and in-call shell (AP-3, AP-4, QH-6, QH-7)", () => {
   it("rings with the offer card and counts down from 20", async () => {
     const sock = await signedInAvailable();
     const card = ring(sock);
-    expect(card).toHaveTextContent("Maria Alvarez");
+    expect(card).toHaveTextContent("Maria Lopez");
     expect(card).toHaveTextContent("Verified");
     expect(card).toHaveTextContent("MRI claim from Oct 28 was denied");
     expect(card).toHaveTextContent("1 min 40 s");
@@ -180,10 +180,10 @@ describe("incoming call and in-call shell (AP-3, AP-4, QH-6, QH-7)", () => {
     await act(async () => release(json(acceptResult)));
     // QH-7: the summary is on screen before the audio connects.
     const caller = screen.getByRole("complementary", { name: /caller/i });
-    expect(caller).toHaveTextContent("Maria Alvarez");
+    expect(caller).toHaveTextContent("Maria Lopez");
     // AP-17: masked until Reveal.
-    expect(caller).toHaveTextContent("••••31");
-    expect(caller).not.toHaveTextContent("EVM100231");
+    expect(caller).toHaveTextContent("••••02");
+    expect(caller).not.toHaveTextContent("418302");
     expect(caller).toHaveTextContent("MRI claim from Oct 28 was denied");
     expect(screen.getByRole("group", { name: /call/i })).toHaveTextContent(/connecting/i);
     expect(screen.queryByRole("dialog", { name: /incoming call/i })).not.toBeInTheDocument();
@@ -340,7 +340,7 @@ describe("incoming call and in-call shell (AP-3, AP-4, QH-6, QH-7)", () => {
     send({ type: "transcript", role: "agent", text: "Let me check", is_final: false, ts: 3, line_id: "agent-1" });
     send({ type: "card", text: "not a transcript" });
     const rows = within(col).getAllByRole("listitem");
-    expect(rows.map((r) => r.textContent)).toEqual(["MAI already called.", "YouLet me check"]);
+    expect(rows.map((r) => r.textContent)).toEqual(["MLI already called.", "YouLet me check"]);
     expect(within(col).getByText("I already called.")).not.toHaveClass("typing");
   });
 
@@ -375,7 +375,7 @@ describe("incoming call and in-call shell (AP-3, AP-4, QH-6, QH-7)", () => {
     session_id: "s1",
     status: "ended",
     ended_by: "agent",
-    caller_name: "Maria Alvarez",
+    caller_name: "Maria Lopez",
     reason: "MRI claim from Oct 28 was denied",
     identity_result: "verified",
     duration_secs: 95,
@@ -413,7 +413,7 @@ describe("incoming call and in-call shell (AP-3, AP-4, QH-6, QH-7)", () => {
     const view = await screen.findByRole("region", { name: /wrap up/i });
     expect(screen.queryByRole("group", { name: /^call$/i })).not.toBeInTheDocument();
     await waitFor(() => expect(view).toHaveTextContent(/you ended the call/i));
-    expect(view).toHaveTextContent("Maria Alvarez");
+    expect(view).toHaveTextContent("Maria Lopez");
     expect(screen.getByRole("group", { name: /call/i })).toHaveTextContent(/wrap up/i);
   });
 
@@ -464,7 +464,7 @@ describe("incoming call and in-call shell (AP-3, AP-4, QH-6, QH-7)", () => {
   });
 
   it("P5-1: the view polls until the bot's draft lands, then saves the edited summary with the suggested code", async () => {
-    const DRAFT = "Maria Alvarez called about CLM-900001. The agent explained it. A retro review was requested.";
+    const DRAFT = "Maria Lopez called about 70412. The agent explained it. A retro review was requested.";
     let reads = 0;
     let saved: unknown = null;
     route = (url, init) => {
@@ -610,7 +610,7 @@ describe("incoming call and in-call shell (AP-3, AP-4, QH-6, QH-7)", () => {
     fireEvent.click(screen.getByRole("button", { name: /accept/i }));
     const panel = await screen.findByRole("complementary", { name: /caller/i });
     // Accept summary first: name and reason are there, history is loading.
-    expect(panel).toHaveTextContent("Maria Alvarez");
+    expect(panel).toHaveTextContent("Maria Lopez");
     expect(panel).toHaveTextContent(/loading history/i);
     await act(async () =>
       releaseCaller(
@@ -623,10 +623,10 @@ describe("incoming call and in-call shell (AP-3, AP-4, QH-6, QH-7)", () => {
           intake: call.summary,
           wait_secs: 102,
           member: {
-            member_id: "EVM100231",
-            name: "Maria Alvarez",
+            member_id: "418302",
+            name: "Maria Lopez",
             first_name: "Maria",
-            last_name: "Alvarez",
+            last_name: "Lopez",
             dob: "1984-03-12",
             plan_id: "PLN-HMO-SILVER",
             plan_name: "Evergreen HMO Silver",
@@ -637,7 +637,7 @@ describe("incoming call and in-call shell (AP-3, AP-4, QH-6, QH-7)", () => {
           recent_events: [
             {
               kind: "claim",
-              ref: "CLM-900001",
+              ref: "70412",
               occurred_on: "2026-10-30",
               status: "denied",
               summary: "MRI, knee, left claim denied, CO-197",
@@ -647,7 +647,7 @@ describe("incoming call and in-call shell (AP-3, AP-4, QH-6, QH-7)", () => {
       ),
     );
     // P5-3: plan on its own line, the masked ID with Reveal under it.
-    expect(within(panel).getByTestId("caller-id")).toHaveTextContent(/^Evergreen HMO Silver••••31Reveal$/);
+    expect(within(panel).getByTestId("caller-id")).toHaveTextContent(/^Evergreen HMO Silver••••02Reveal$/);
     expect(panel).toHaveTextContent("••/••/1984");
     expect(panel).not.toHaveTextContent("Mar 12, 1984");
     expect(within(panel).getByText("Repeat caller")).toBeInTheDocument();
@@ -702,7 +702,7 @@ describe("incoming call and in-call shell (AP-3, AP-4, QH-6, QH-7)", () => {
     fireEvent.click(screen.getByRole("button", { name: /accept/i }));
     const panel = await screen.findByRole("complementary", { name: /caller/i });
     await waitFor(() => expect(panel).toHaveTextContent(/history is unavailable/i));
-    expect(panel).toHaveTextContent("Maria Alvarez");
+    expect(panel).toHaveTextContent("Maria Lopez");
     expect(panel).toHaveTextContent("MRI claim from Oct 28 was denied");
   });
 

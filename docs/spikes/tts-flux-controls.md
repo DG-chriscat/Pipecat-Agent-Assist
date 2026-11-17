@@ -1,5 +1,10 @@
 # Spike: Flux voice controls on the read back lines (P5-8, PRD AP-22)
 
+> Note (Nov 16, P5-10): demo IDs and names changed after this was written. Member IDs
+> are now 6 digits (Maria Alvarez EVM100231 is now Maria Lopez 418302) and claim
+> numbers 5 digits (CLM-900001 is now 70412); see docs/db.md. The results below are
+> kept as measured, with the old IDs.
+
 Date: 2026-11-16. Card t_1bd22bfd. Pipecat 1.15.0, `flux-alexis-en` on the Deepgram
 `/v2/speak` websocket, Deepgram nova-3 prerecorded STT (smart_format on).
 

@@ -7,7 +7,7 @@ const info: WrapUpInfo = {
   session_id: "s1",
   status: "ended",
   ended_by: "caller",
-  caller_name: "Maria Alvarez",
+  caller_name: "Maria Lopez",
   reason: "MRI claim from Oct 28 was denied",
   identity_result: "verified",
   duration_secs: 252,
@@ -25,8 +25,8 @@ const info: WrapUpInfo = {
 };
 
 const DRAFT =
-  "Maria Alvarez called about her denied MRI claim CLM-900001. The agent explained the CO-197 denial. " +
-  "The agent requested a retro authorization review for CLM-900001.";
+  "Maria Lopez called about her denied MRI claim 70412. The agent explained the CO-197 denial. " +
+  "The agent requested a retro authorization review for 70412.";
 const drafted: WrapUpInfo = { ...info, summary_draft: DRAFT, suggested_reason_code: "appeal_started" };
 
 type Props = Parameters<typeof WrapUp>[0];
@@ -56,7 +56,7 @@ describe("WrapUp (P3-5)", () => {
   it("shows who ended the call, the caller, and the call length", () => {
     setup();
     const view = screen.getByRole("region", { name: /wrap up/i });
-    expect(view).toHaveTextContent("Maria Alvarez");
+    expect(view).toHaveTextContent("Maria Lopez");
     expect(view).toHaveTextContent(/the caller hung up/i);
     expect(view).toHaveTextContent("04:12");
     expect(view).toHaveTextContent("MRI claim from Oct 28 was denied");

@@ -1,5 +1,10 @@
 # Flux STT for intake, Nova-3 for assist (card t_0cbf3922, P5-7, PRD IN-14)
 
+> Note (Nov 16, P5-10): demo IDs and names changed after this was written. Member IDs
+> are now 6 digits (Maria Alvarez EVM100231 is now Maria Lopez 418302) and claim
+> numbers 5 digits (CLM-900001 is now 70412); see docs/db.md. The results below are
+> kept as measured, with the old IDs.
+
 Result in one line: both sides are selectable in Settings. Flux intake answers sooner
 (0.27 s median, 0.71 s p90) but missed Linda Nguyen's last name on 5 of 5 runs
 (identity 8 of 10 vs 10 of 10 on Nova-3), so **Nova-3 stays the default on both

@@ -109,8 +109,60 @@ follows the system setting and has a theme button (saved in local storage).
   code, amount, Ask record, date, spoken claim number, a spelled name, a missing Accept
   note, a ref, a provider) each fail the suite.
 - `server/tests/test_talk_track_live.py` (live): Maria's talk track end to end, every
-  expect checkpoint asserted with timings. Results in the P5-11 PR.
+  expect checkpoint asserted with timings (below).
 - `docs/kb-review.md`: the knowledge article review (Part B, recommend only).
+
+### Live run: Maria Lopez, Nov 17 (local, main after #59 plus this branch)
+
+The harness caller said all 12 beats, the optional tone tip and Ask bar beats included.
+Agent Ana (headless portal, test agent) accepted with Enter, said two short lines of
+her own, typed `show paid claims` in the Ask bar, pressed Accept on the hero in the
+closing beat, then End and Save. Seconds are from the end of the beat's caller line to
+the item on the agent's screen (the incoming call: from Available; wrap up: from End).
+
+| Beat | Expect | Seen after |
+| --- | --- | --- |
+| 7 read back | incoming call: Maria Lopez, Verified | 0.34 s |
+| 8 "So why did my MRI claim get denied?" | caller panel identity | 0.01 s |
+| 8 | Repeat caller chip | 0.02 s |
+| 8 | hero `nbs:retro_auth_review:70412` | 0.83 s |
+| 8 | tile `card:denied_claim` | 0.95 s |
+| 8 | hero source names KB-CL-002 | 0.98 s |
+| 9 (optional) frustrated | tone tip tile | 0.00 s (the first half of the line already tipped) |
+| 10 (optional) Ask bar | `show paid claims` answers with 70358 | 0.36 s |
+| 11 "So what do I do now?" | plan: Explain the status (agent's words) | 5.41 s (includes Ana's 4 s line) |
+| 12 closing, Accept | plan: Take the next step | 1.09 s |
+| 12 End | wrap up: Appeal or retro review started suggested, summary names 70412 | 3.99 s |
+
+12 of 12 checkpoints; saved reason `appeal_started`. Intake 108.7 s, identity
+verified, Enter to the caller's audio 1.64 s. The drafted summary named the retro
+authorization review for 70412. Screenshots from the run:
+[talk-track-hero-light.png](screenshots/talk-tracks/talk-track-hero-light.png) (beat
+8) and [talk-track-wrapup-light.png](screenshots/talk-tracks/talk-track-wrapup-light.png).
+
+Earlier attempts the same hour (host shared with another worker's live suite, load up
+to 28 on 2 cores): run 1 lost the caller's media in the read back (Daily ICE
+reconnect, Deepgram 1011), run 4 lost the Daily SFU transport mid intake. Run 2 missed
+the hero: both listen STT sockets hit Deepgram 1011 right at accept and reconnected 4 s
+later, so the trigger line was never transcribed; the harness caller now keeps saying
+hello until a caller line is on the agent's screen, as a real caller would (9.1 s in
+the passing run). Run 3 missed only the KB check (the source label uses non breaking
+hyphens; the check reads the plain title). The listen STT 1011 at accept (idle
+Deepgram sockets during the hold) is a product finding: a real agent would lose the
+caller's first line too. Follow up below.
+
+### Follow ups (not fixed here)
+
+1. **Listen STT sockets drop at accept.** In 2 of 5 runs both listen Deepgram sockets
+   (caller and agent) closed with 1011 ("did not receive audio data or a text message
+   within the timeout window") the moment the agent accepted, after about two minutes
+   idle during intake, and took 4 s to reconnect. The caller's first line to the agent
+   (the trigger) was lost in run 2. Opening the listen sockets on accept, or checking
+   the keepalive while the audio route is closed, would fix it.
+2. **Knowledge articles**: the rewrites and new articles in
+   [kb-review.md](kb-review.md), after Chris approves.
+3. Live runs for the other nine talk tracks reuse `test_talk_track_live.py` once the
+   persona key is a parameter; only Maria's was required here.
 
 ## Source of truth
 

@@ -1097,6 +1097,12 @@ class AssistEngine:
     def _added(self, card: Card) -> dict[str, Any]:
         return card_added_message(card, **self._stamp(), locked=self._is_locked(card))
 
+    def _member_matched(self) -> bool:
+        """Intake matched a member by member ID and date of birth both, so Mark
+        verified may open that member's records. Never by the name alone."""
+        checks = set((self.gate or {}).get("checks") or [])
+        return self.gate is None or {"member_id", "dob"} <= checks
+
     async def _send_identity(self) -> None:
         gate = self.gate or {}
         d = self.decision or {}
@@ -1108,6 +1114,7 @@ class AssistEngine:
                 checks=list(gate.get("checks", ["full_name", "dob", "member_id"])),
                 by=d.get("by"),
                 at=d.get("at"),
+                records=not self.locked,
             )
         )
 
@@ -1179,14 +1186,18 @@ class AssistEngine:
         self.closed.add(verify.id)
         self.hero = None
         self.identity_state = decision
-        if not verified:
-            # Records stay locked for the call; the plan gets a callback step.
-            if CALLBACK_STEP not in self._extra_steps:
+        if not verified or not self._member_matched():
+            # Could not verify: records stay locked for the call; the plan gets a
+            # callback step. Verified with no member matched by member ID and DOB
+            # (not found, or only the ID or only the name matched): the decision is
+            # logged, but there is no member whose records could open.
+            if not verified and CALLBACK_STEP not in self._extra_steps:
                 self._extra_steps.append(dict(CALLBACK_STEP))
             await self._send_identity()
-            await self._send_plan()
+            if not verified:
+                await self._send_plan()
             await self._emit(
-                hero_message(None, **self._stamp(), reason="not_verified", replaces=verify.id)
+                hero_message(None, **self._stamp(), reason=decision, replaces=verify.id)
             )
             return
         # Unlock: every locked tile goes out again with its records.

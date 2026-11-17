@@ -630,4 +630,16 @@ describe("AssistColumn locked tiles (IN-13)", () => {
     expect(within(region).queryByText("Verify the caller to see records")).not.toBeInTheDocument();
     expect(within(region).getByTestId("tile-card:denied_claim")).toHaveTextContent("70412");
   });
+
+  it("marked verified with no member matched by ID and DOB: says there is no record, tiles stay locked", () => {
+    vi.useFakeTimers();
+    let s = state(identityMsg("pending", { result: "not_found", checks: [] }), verifyMsg({}, "not_found"));
+    s = localAssist(s, { type: "verify", cardId: "verify:identity", verified: true }, 20);
+    s = applyAssist(s, parseAssistMessage(identityMsg("verified", { result: "not_found", checks: [], by: "Ana", at: 1, records: false }))!, 20);
+    const { region, hero } = setup(s);
+    expect(hero()).toHaveAttribute("data-state", "verified");
+    expect(within(hero()).getByText(/No member record matched the member ID and date of birth/)).toBeInTheDocument();
+    expect(within(hero()).queryByText(/Records are unlocked/)).not.toBeInTheDocument();
+    expect(within(region).getByText("No member record matched this caller.")).toBeInTheDocument();
+  });
 });

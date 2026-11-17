@@ -665,11 +665,37 @@ describe("incoming call and in-call shell (AP-3, AP-4, QH-6, QH-7)", () => {
 
   it("IN-13: Mark verified tells the bot, stores the decision on the server, and reloads the caller panel", async () => {
     let callerReads = 0;
+    let releaseSecond: () => void = () => {};
+    const secondRead = new Promise<void>((r) => (releaseSecond = r));
+    const linda = {
+      member_id: "741526",
+      name: "Linda Nguyen",
+      first_name: "Linda",
+      last_name: "Nguyen",
+      dob: "1958-04-22",
+      plan_id: "PLN-MA-PLUS",
+      plan_name: "Evergreen Medicare Advantage Plus",
+      plan_type: "MA",
+    };
     route = (url) => {
-      if (url === "/agents/agent-1/accept") return json({ ...acceptResult, identity_result: "close_match" });
+      if (url === "/agents/agent-1/accept") return json({ ...acceptResult, identity_result: "not_verified" });
       if (url === "/calls/s1/caller?agent_id=agent-1") {
         callerReads += 1;
-        return json({ session_id: "s1", identity_result: "close_match", not_verified: callerReads === 1, outcome: "completed", flags: [], intake: call.summary, wait_secs: 10, member: null, calls_30d: null, repeat_caller: false, recent_events: [] });
+        const base = { session_id: "s1", identity_result: "not_verified", outcome: "completed", flags: [], intake: call.summary, wait_secs: 10 };
+        if (callerReads === 1) {
+          return json({ ...base, not_verified: true, identity_decision: null, member: null, calls_30d: null, repeat_caller: null, recent_events: [] });
+        }
+        return secondRead.then(() =>
+          json({
+            ...base,
+            not_verified: false,
+            identity_decision: { decision: "verified", agent_id: "agent-1", agent_name: "Ana", at: NOW },
+            member: linda,
+            calls_30d: 2,
+            repeat_caller: true,
+            recent_events: [{ kind: "claim", ref: "52976", occurred_on: "2026-11-05", status: "denied", summary: "Skin biopsy claim denied, CO-242" }],
+          }),
+        );
       }
       if (url === "/calls/s1/identity-decision") return json({ decision: "verified", agent_id: "agent-1", agent_name: "Ana", at: NOW });
       return undefined;
@@ -682,13 +708,28 @@ describe("incoming call and in-call shell (AP-3, AP-4, QH-6, QH-7)", () => {
     const media = FakeMedia.last();
     await act(async () => media.finishJoin());
     await waitFor(() => expect(callerReads).toBe(1));
+    act(() => media.events.onServerMessage(msg("identity", { state: "pending", result: "not_verified", checks: ["dob", "member_id"], by: null, at: null, records: false })));
     act(() => media.events.onServerMessage(msg("hero", { card: verifyCard(), reason: "new", replaces: null })));
+    const panel = screen.getByRole("complementary", { name: /caller/i });
+    expect(panel).toHaveTextContent("Identity is not verified");
     fireEvent.click(screen.getByRole("button", { name: /mark verified/i }));
     expect(media.sent.at(-1)).toEqual(["assist_feedback", { v: 1, card_id: "verify:identity", action: "mark_verified" }]);
-    await waitFor(() => expect(callerReads).toBe(2));
+    // The bot unlocks; the member record is still on its way from the server.
+    act(() => media.events.onServerMessage(msg("identity", { state: "verified", result: "not_verified", checks: ["dob", "member_id"], by: "Ana", at: NOW, records: true })));
+    expect(within(panel).getByTestId("identity-badge")).toHaveTextContent("Verified by agent");
+    expect(panel).not.toHaveTextContent("Not verified");
+    expect(panel.querySelector(".caller-warn")).toBeNull();
+    await waitFor(() => expect(fetchMock.mock.calls.some(([u]) => u === "/calls/s1/identity-decision")).toBe(true));
     const post = fetchMock.mock.calls.find(([u]) => u === "/calls/s1/identity-decision")!;
     expect(post[1].method).toBe("POST");
     expect(JSON.parse(post[1].body)).toEqual({ agent_id: "agent-1", decision: "verified" });
+    await act(async () => releaseSecond());
+    expect(await within(panel).findByRole("heading", { name: "Linda Nguyen" })).toBeInTheDocument();
+    expect(callerReads).toBe(2);
+    expect(within(panel).getByTestId("caller-id")).toHaveTextContent("Evergreen Medicare Advantage Plus");
+    expect(within(panel).getByTestId("history")).toHaveTextContent("Skin biopsy claim denied, CO-242");
+    expect(within(panel).getByText("Repeat caller")).toBeInTheDocument();
+    expect(within(panel).getByRole("button", { name: "Reveal member ID" })).toBeEnabled();
   });
 
   it("a caller history error keeps the accept summary on screen", async () => {

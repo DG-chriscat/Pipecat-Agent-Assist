@@ -363,5 +363,81 @@ describe("CallerPanel human verification (IN-13)", () => {
     const badge = within(panel).getByTestId("identity-badge");
     expect(badge).toHaveTextContent("Not verified by agent");
     expect(badge).toHaveClass("chip-bad");
+    expect(panel).toHaveTextContent("Identity is not verified");
+    expect(panel).toHaveTextContent("History shows once identity is verified.");
+  });
+
+  /** The P5-4 Linda run: STT heard "Linda Ewan", intake said not_verified (ID and DOB matched). */
+  const ewan = {
+    ...linda,
+    caller: { ...linda.caller, name: "Linda Ewan", verified: "not_verified" as const, identity: "not_verified" as const },
+    intake: { ...linda.intake, full_name: "Linda Ewan" },
+    details: { ...linda.details, identity_result: "not_verified" as const },
+  };
+  const markedVerified = { state: "verified" as const, result: "not_verified", checks: ["dob", "member_id"], by: "Ana", at: 1, records: true };
+
+  it("Mark verified, member record still loading: no Not verified text, no warning", () => {
+    // The decision is in; GET /caller with the member is on its way.
+    const { panel } = setup({ ...ewan, identityGate: markedVerified });
+    expect(within(panel).getByTestId("identity-badge")).toHaveTextContent("Verified by agent");
+    expect(panel).not.toHaveTextContent("Not verified");
+    expect(panel.querySelector(".caller-warn")).toBeNull();
+    expect(within(panel).getByTestId("history")).toHaveTextContent("Loading the member record.");
+    expect(within(panel).getByTestId("history")).not.toHaveTextContent("once identity is verified");
+  });
+
+  it("Mark verified on not_verified (Linda heard as Ewan): the member record, plan, and history", () => {
+    const { panel } = setup({
+      ...ewan,
+      identityGate: markedVerified,
+      details: {
+        ...mariaDetails,
+        identity_result: "not_verified" as const,
+        identity_decision: { decision: "verified" as const, agent_id: "a1", agent_name: "Ana", at: 1 },
+        member: {
+          ...mariaDetails.member!,
+          name: "Linda Nguyen",
+          first_name: "Linda",
+          last_name: "Nguyen",
+          member_id: "741526",
+          dob: "1958-04-22",
+          plan_name: "Evergreen Medicare Advantage Plus",
+        },
+        recent_events: [{ kind: "claim", ref: "52976", occurred_on: "2026-11-05", status: "denied", summary: "Skin biopsy claim denied, CO-242" }],
+      },
+    });
+    expect(within(panel).getByRole("heading", { name: "Linda Nguyen" })).toBeInTheDocument();
+    expect(within(panel).getByTestId("caller-id")).toHaveTextContent(/^Evergreen Medicare Advantage Plus••••26Reveal$/);
+    expect(within(panel).getByRole("button", { name: "Reveal member ID" })).toBeEnabled();
+    expect(panel).not.toHaveTextContent("Not verified");
+    expect(panel.querySelector(".caller-warn")).toBeNull();
+    expect(row(panel, "Born")).toHaveTextContent("••/••/1958");
+    expect(within(panel).getByTestId("history")).toHaveTextContent("Skin biopsy claim denied, CO-242");
+    expect(within(panel).getByText("Repeat caller")).toBeInTheDocument();
+  });
+
+  it("verified at intake, member gone from the DB: not stuck loading, no agent wording", () => {
+    const { panel } = setup({
+      details: { ...mariaDetails, not_verified: true, member: null, calls_30d: null, repeat_caller: null, recent_events: [] },
+      detailsState: "ready",
+      identityGate: { state: "verified", result: "verified", checks: ["full_name", "dob", "member_id"], by: null, at: null, records: true },
+    });
+    expect(within(panel).getByTestId("history")).not.toHaveTextContent("Loading");
+    expect(panel).not.toHaveTextContent("No member record matched");
+  });
+
+  it("Mark verified with no member matched by ID and DOB: says so, shows no record", () => {
+    const { panel } = setup({
+      ...ewan,
+      identityGate: { ...markedVerified, result: "not_found", checks: [], records: false },
+      details: { ...ewan.details, identity_result: "not_found" as const, identity_decision: { decision: "verified" as const, agent_id: "a1", agent_name: "Ana", at: 1 } },
+    });
+    expect(within(panel).getByTestId("identity-badge")).toHaveTextContent("Verified by agent");
+    expect(within(panel).getByRole("heading", { name: "Linda Ewan" })).toBeInTheDocument();
+    expect(panel).not.toHaveTextContent("Not verified");
+    expect(panel.querySelector(".caller-warn")).toHaveTextContent(
+      "No member record matched the member ID and date of birth, so none is shown.",
+    );
+    expect(within(panel).getByTestId("history")).toHaveTextContent("No member record for this caller.");
   });
 });

@@ -36,10 +36,15 @@ class Out:
 async def make(identity="verified", *, agent_joined=True, llm=None, member_id="418302"):
     store = MemoryCallStore()
     call_id = await store.create_call("s1")
+    # What intake's match_identity gives: close_match always has member ID and DOB.
+    checks = {
+        "verified": ("full_name", "dob", "member_id"),
+        "close_match": ("dob", "member_id"),
+    }.get(identity, ())
     intake = SimpleNamespace(
         pack=load_pack("claims_status"),
         intake=dict(INTAKE),
-        identity=IdentityCheck(identity, member_id),
+        identity=IdentityCheck(identity, member_id, checks),
         call_id=call_id,
     )
     roles = CallRoles()

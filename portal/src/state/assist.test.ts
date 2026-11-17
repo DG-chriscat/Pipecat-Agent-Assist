@@ -18,6 +18,7 @@ import {
   localAssist,
   parseAssistMessage,
   planView,
+  recordsLocked,
   type AssistState,
 } from "./assist";
 
@@ -259,8 +260,18 @@ describe("assistHighlights", () => {
 describe("identity gate (IN-13)", () => {
   it("parses the identity event and keeps it in state", () => {
     const s = apply(emptyAssist(), identityMsg("pending"));
-    expect(s.identity).toEqual({ state: "pending", result: "close_match", checks: ["dob", "member_id"], by: null, at: null });
+    expect(s.identity).toEqual({ state: "pending", result: "close_match", checks: ["dob", "member_id"], by: null, at: null, records: false });
     expect(parseAssistMessage(msg("identity", { state: "maybe" }))).toBeNull();
+  });
+
+  it("records: verified opens records unless the bot says no member matched", () => {
+    // Older bots send no records field: verified means open.
+    expect(recordsLocked(apply(emptyAssist(), identityMsg("verified", { by: "Ana", at: 1 })))).toBe(false);
+    expect(recordsLocked(apply(emptyAssist(), identityMsg("verified", { records: true })))).toBe(false);
+    // Marked verified, but no member matched by member ID and DOB (not found): stays locked.
+    expect(recordsLocked(apply(emptyAssist(), identityMsg("verified", { result: "not_found", checks: [], records: false })))).toBe(true);
+    expect(recordsLocked(apply(emptyAssist(), identityMsg("not_verified", { by: "Ana" })))).toBe(true);
+    expect(recordsLocked(apply(emptyAssist(), identityMsg("pending")))).toBe(true);
   });
 
   it("starts verified when the bot never sends one (older bots)", () => {

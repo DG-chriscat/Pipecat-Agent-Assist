@@ -30,6 +30,12 @@ export interface IdentityGate {
   /** The agent who decided, and when (epoch s); null until then. */
   by: string | null;
   at: number | null;
+  /**
+   * Member records are open: verified at intake, or marked verified by the agent for a
+   * member intake matched by member ID and date of birth. A verified decision with no
+   * such member opens nothing (records false). Optional: older messages lack it.
+   */
+  records?: boolean;
 }
 
 /** One line of the verify hero: what matched and what did not (IN-13). */
@@ -348,6 +354,7 @@ export function parseAssistMessage(data: unknown): AssistMessage | null {
         checks: Array.isArray(data.checks) ? data.checks.filter(isStr) : [],
         by: isStr(data.by) ? data.by : null,
         at: isNum(data.at) ? data.at : null,
+        records: typeof data.records === "boolean" ? data.records : data.state === "verified",
       };
     }
     case "ask_result": {
@@ -430,9 +437,14 @@ export function emptyAssist(): AssistState {
   };
 }
 
-/** True while records are locked: the caller is not verified yet, or could not be (IN-13). */
+/** True while records are locked: not verified yet, could not be, or no member matched (IN-13). */
 export function recordsLocked(s: AssistState): boolean {
-  return !!s.identity && s.identity.state !== "verified";
+  return !!s.identity && !recordsOpen(s.identity);
+}
+
+/** The gate opens member records (records defaults to the verified state). */
+export function recordsOpen(g: IdentityGate): boolean {
+  return g.records ?? g.state === "verified";
 }
 
 function effectiveSteps(steps: PlanStep[], manual: Record<string, boolean>): PlanStep[] {
@@ -486,7 +498,7 @@ export function applyAssist(s: AssistState, m: AssistMessage, atSecs: number): A
       next.mood = { label: m.label, tone: m.tone, step: m.step, readings: m.readings };
       return next;
     case "identity":
-      next.identity = { state: m.state, result: m.result, checks: m.checks, by: m.by, at: m.at };
+      next.identity = { state: m.state, result: m.result, checks: m.checks, by: m.by, at: m.at, records: m.records };
       return next;
     case "ask_result":
       if (!s.asks.some((a) => a.askId === m.ask_id)) return next;

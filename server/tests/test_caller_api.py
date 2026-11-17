@@ -172,7 +172,8 @@ async def test_agent_verified_close_match_shows_the_member(app):
     history = FakeHistory(MARIA_HISTORY)
     client = make_client(app, history)
     info = IntakeInfo(outcome="completed", identity_result="close_match", member_id="418302")
-    agent_id = await put_call_with_agent(app, MARIA_INTAKE, info)
+    intake = {**MARIA_INTAKE, "identity_checks": ["dob", "member_id"]}
+    agent_id = await put_call_with_agent(app, intake, info)
     body = client.get("/calls/s1/caller", params={"agent_id": agent_id}).json()
     assert body["not_verified"] is True and history.lookups == []
     assert body["identity_decision"] is None
@@ -190,6 +191,84 @@ async def test_could_not_verify_keeps_the_member_hidden(app):
     info = IntakeInfo(outcome="completed", identity_result="close_match", member_id="418302")
     agent_id = await put_call_with_agent(app, MARIA_INTAKE, info)
     queue_api.get_queue(app).set_identity_decision(agent_id, "s1", "not_verified")
+    body = client.get("/calls/s1/caller", params={"agent_id": agent_id}).json()
+    assert body["not_verified"] is True and body["member"] is None
+    assert history.lookups == []
+
+
+LINDA_INTAKE = {
+    "full_name": "Linda Ewan",  # how STT heard "Linda Nguyen"
+    "dob": "1958-04-22",
+    "member_id": "741526",
+    "reason": "Dermatology visit denied, wants to know how to appeal",
+    "claim_number": "52976",
+}
+LINDA_HISTORY = MemberHistory(
+    member={
+        "member_id": "741526",
+        "first_name": "Linda",
+        "last_name": "Nguyen",
+        "name": "Linda Nguyen",
+        "dob": "1958-04-22",
+        "plan_id": "PLN-MA-PLUS",
+        "plan_name": "Evergreen Medicare Advantage Plus",
+        "plan_type": "MA",
+    },
+    calls_30d=1,
+    recent_events=[
+        {
+            "kind": "claim",
+            "ref": "52976",
+            "occurred_on": "2026-11-05",
+            "status": "denied",
+            "summary": "Skin biopsy claim denied, CO-242",
+        }
+    ],
+)
+NOT_VERIFIED = IntakeInfo(outcome="completed", identity_result="not_verified", member_id="741526")
+
+
+async def test_mark_verified_on_not_verified_with_id_and_dob_shows_the_member(app):
+    # The P5-4 Linda run: name heard wrong, member ID and DOB both matched.
+    history = FakeHistory(LINDA_HISTORY)
+    client = make_client(app, history)
+    intake = {**LINDA_INTAKE, "identity_checks": ["dob", "member_id"]}
+    agent_id = await put_call_with_agent(app, intake, NOT_VERIFIED)
+    queue_api.get_queue(app).set_identity_decision(agent_id, "s1", "verified")
+    body = client.get("/calls/s1/caller", params={"agent_id": agent_id}).json()
+    assert body["not_verified"] is False
+    assert body["member"]["name"] == "Linda Nguyen"
+    assert body["recent_events"][0]["ref"] == "52976"
+    assert history.lookups == ["741526"]
+
+
+@pytest.mark.parametrize(
+    "checks",
+    [
+        ["member_id"],  # DOB wrong (Ben): only the ID matched
+        ["full_name", "dob"],  # ID unknown, matched by name and DOB only
+        [],
+    ],
+)
+async def test_mark_verified_without_id_and_dob_match_shows_no_member(app, checks):
+    # Never resolve a member unless the member ID and DOB both matched it.
+    history = FakeHistory(LINDA_HISTORY)
+    client = make_client(app, history)
+    intake = {**LINDA_INTAKE, "identity_checks": checks}
+    agent_id = await put_call_with_agent(app, intake, NOT_VERIFIED)
+    queue_api.get_queue(app).set_identity_decision(agent_id, "s1", "verified")
+    body = client.get("/calls/s1/caller", params={"agent_id": agent_id}).json()
+    assert body["not_verified"] is True and body["member"] is None
+    assert body["identity_decision"]["decision"] == "verified"
+    assert history.lookups == []
+
+
+async def test_mark_verified_on_not_found_shows_no_member(app):
+    history = FakeHistory(LINDA_HISTORY)
+    client = make_client(app, history)
+    info = IntakeInfo(outcome="completed", identity_result="not_found", member_id=None)
+    agent_id = await put_call_with_agent(app, {**LINDA_INTAKE, "identity_checks": []}, info)
+    queue_api.get_queue(app).set_identity_decision(agent_id, "s1", "verified")
     body = client.get("/calls/s1/caller", params={"agent_id": agent_id}).json()
     assert body["not_verified"] is True and body["member"] is None
     assert history.lookups == []

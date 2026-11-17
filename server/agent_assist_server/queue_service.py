@@ -170,6 +170,23 @@ class Call:
             return True
         return bool(self.identity_decision and self.identity_decision["decision"] == "verified")
 
+    @property
+    def record_member_id(self) -> str | None:
+        """The member whose records may show, or None (IN-13).
+
+        Verified at intake: the matched member. Verified by the agent: only the member
+        intake matched by member ID and date of birth both (close_match, or
+        not_verified on the name alone); never a member matched by name, or by the
+        ID alone. not_found has no member at all."""
+        if not self.records_unlocked or not self.member_id:
+            return None
+        if self.identity_result == "verified":
+            return self.member_id
+        checks = self.summary.get("identity_checks")
+        if isinstance(checks, list) and {"member_id", "dob"} <= set(checks):
+            return self.member_id
+        return None
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "session_id": self.session_id,

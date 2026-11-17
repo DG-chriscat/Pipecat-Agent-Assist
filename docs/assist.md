@@ -121,7 +121,7 @@ The portal ignores messages with `v` other than 1.
 | `card_removed` | `card_id`, `reason`: `dismissed`, `accepted`, `promoted` (moved to hero), `replaced` (an older tone tip). |
 | `mood` | P4-5. The caller's mood trend: `label` ("Worried, easing"), `tone` (`ok`, `warn`, `bad`), `step` (0 to 4), `readings`: every tone reading of the call, `[{line_id, ts, emotion, confidence, sarcasm, step, mood, score}]` (`score` = step / 4). Sent on start and resync when there are intake readings, and after each caller line with a reading. |
 | `ask_result` | P4-6. How an Ask bar question ended: `ask_id`, `status` (`answered`, `no_answer`, `error`), `card_id` (the answer card, or null), `message` (why there is no answer, or null). Sent after the answer's `card_added`. |
-| `identity` | IN-13. The identity gate: `state` (`pending`: records locked until the agent decides; `verified`: by intake, `by` null, or by the agent; `not_verified`: the agent could not verify), `result` (the intake identity result), `checks` (which of `full_name`, `dob`, `member_id` matched), `by` (agent name), `at` (epoch s). Sent on start, on resync, and on the decision. |
+| `identity` | IN-13. The identity gate: `state` (`pending`: records locked until the agent decides; `verified`: by intake, `by` null, or by the agent; `not_verified`: the agent could not verify), `result` (the intake identity result), `checks` (which of `full_name`, `dob`, `member_id` matched), `by` (agent name), `at` (epoch s), `records` (true when member records are open: verified at intake, or marked verified for a member matched by member ID and DOB; false otherwise). Sent on start, on resync, and on the decision. |
 
 Card:
 
@@ -234,9 +234,15 @@ the gate comes from `AssistSession.on_accept`.
 - `assist_feedback` with `card_id` `verify:identity` and `action` `mark_verified` or
   `could_not_verify` decides, once per call (other actions on the verify card are
   ignored; it cannot be dismissed).
-  - **Mark verified**: `identity` `verified` (with `by`, `at`); each locked tile is
-    removed (`card_removed` reason `unlocked`, by its locked id) and added again with
-    its records; the best next step becomes the hero (reason `verified`).
+  - **Mark verified**: `identity` `verified` (with `by`, `at`). When intake matched a
+    member by member ID and date of birth (`checks` has both: `close_match`, or
+    `not_verified` on the name alone), `records` is true: each locked tile is removed
+    (`card_removed` reason `unlocked`, by its locked id) and added again with its
+    records, and the best next step becomes the hero (reason `verified`); later cards
+    and Ask answers come unlocked. With no such member (`not_found`, `incomplete`, or
+    only the ID or only the name and DOB matched), `records` stays false: tiles stay
+    locked and the hero clears (reason `verified`). The name alone never opens a
+    member's records.
   - **Could not verify**: `identity` `not_verified`; records stay locked for the call;
     the plan gets the step `offer_callback` "Offer a callback after identity is
     confirmed"; the hero clears (reason `not_verified`).

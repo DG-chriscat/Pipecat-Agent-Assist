@@ -292,6 +292,8 @@ function Hero({ assist, onAction }: { assist: AssistState; onAction: (a: LocalAc
   let content: ReactNode;
   if (ack && (ack.outcome === "verified" || ack.outcome === "not_verified")) {
     const verified = ack.outcome === "verified";
+    // Marked verified, but intake matched no member by member ID and DOB: nothing opens.
+    const noMember = verified && assist.identity?.state === "verified" && recordsLocked(assist);
     content = (
       <div className="hero-ack">
         {verified ? (
@@ -307,9 +309,11 @@ function Hero({ assist, onAction }: { assist: AssistState; onAction: (a: LocalAc
           <div className="label">{verified ? "Verified by you" : "Could not verify"}</div>
           <h2 className="hero-headline">{verified ? "Caller verified" : "Identity not confirmed"}</h2>
           <p className="hero-why">
-            {verified
-              ? "Records are unlocked. Logged on this call."
-              : "Records stay hidden for this call. Offer a callback once identity is confirmed."}
+            {noMember
+              ? "No member record matched the member ID and date of birth, so no records open. Logged on this call."
+              : verified
+                ? "Records are unlocked. Logged on this call."
+                : "Records stay hidden for this call. Offer a callback once identity is confirmed."}
           </p>
         </div>
       </div>
@@ -705,6 +709,7 @@ function Shelf({ assist, onAction }: { assist: AssistState; onAction: (a: LocalA
       <CardTile key={c.id} card={c} pinned={assist.pinned.includes(c.id)} rating={assist.ratings[c.id]} onAction={onAction} />
     );
   const locked = recordsLocked(assist);
+  const noMember = locked && assist.identity?.state === "verified";
   // Fixed slots (Studio: record, call plan, tone tip): the first non tone card takes the
   // record slot, the plan keeps the second, the tone tip the third, more cards follow to
   // the right. Nothing shifts.
@@ -719,7 +724,13 @@ function Shelf({ assist, onAction }: { assist: AssistState; onAction: (a: LocalA
           tex={locked ? tileStone : tileAluminum}
           icon={locked ? <Lock strokeWidth={1.7} /> : <FileText strokeWidth={1.7} />}
           title="Records"
-          empty={locked ? "Verify the caller to see records." : "Claims and payments appear when they come up."}
+          empty={
+            noMember
+              ? "No member record matched this caller."
+              : locked
+                ? "Verify the caller to see records."
+                : "Claims and payments appear when they come up."
+          }
         />
       )}
       {plan ? (

@@ -22,8 +22,11 @@ defaults (P5-7 STT, P5-8 voice, P5-9 LLMs):
 3. The caller says the trigger. Trigger word end (Deepgram word timings on the played
    PCM) to the expected card on screen (MutationObserver) is the card time.
 4. Verify hero runs (IN-13): Linda heard as "Yuen" gets Mark verified and her records
-   unlock; Daniel (wrong DOB) gets Could not verify and records stay hidden.
+   unlock; Ben Cole (wrong DOB) gets Could not verify and records stay hidden. A
+   close match on any other member is checked and marked verified before the trigger.
 5. End, the drafted summary lands in wrap up, Save and go available, "Call saved".
+
+Personas and IDs are the P5-10 demo data (docs/demos.md, the portal's Demos page).
 
 Full loop = all five steps. Run 1 first changes the greeting in Settings and checks
 the bot says the new one (the demo script does the same).
@@ -72,7 +75,6 @@ _wu = _load("test_wrap_up_live")
 keys_present, schema = _p4.keys_present, _p4.schema
 free_port, log, intake_row, queued_call = _p4.free_port, _p4.log, _p4.intake_row, _p4.queued_call
 set_theme, trigger_audio, WATCH = _p4.set_theme, _p4.trigger_audio, _p4.WATCH
-spelled = _p4._spelled_identity
 PAGE_SCRIPT, CHROMIUM_ARGS, VIEWPORT = _wu.PAGE_SCRIPT, _wu.CHROMIUM_ARGS, _wu.VIEWPORT
 
 pytestmark = pytest.mark.live
@@ -88,13 +90,19 @@ DEMO_GREETING = (
 GREETING_MARK = "demo line"  # not in the default greeting
 LOCKED = ".shelf [data-locked='true']"
 
-MARIA = persona("maria_alvarez")
-JAMES = persona("james_chen")
-AISHA = persona("aisha_patel")
+MARIA = persona("maria_lopez")
+JAMES = persona("james_carter")
+SARAH = persona("sarah_miller")
 LINDA = persona("linda_nguyen")
-DANIEL = persona("daniel_okafor")
+BEN = persona("ben_cole")
+AISHA = persona("aisha_patel")
 
-# Linda as STT often hears her in the identity spike: "Yuen" (close match, IN-6).
+# A real member with the right details: verified, or close_match when STT bends the
+# name (IN-6). Either way intake found the right record.
+MEMBER_OK = ("verified", "close_match")
+
+# Linda as STT often hears her (identity spike): "Yuen". Said on purpose so the
+# verify hero (IN-13) shows every time, as in the demo script.
 LINDA_YUEN = Persona(
     "linda_yuen",
     "Linda Yuen",
@@ -102,25 +110,10 @@ LINDA_YUEN = Persona(
     LINDA.member_id,
     dict(
         LINDA.lines,
-        identity=(
-            "Sure. My name is Linda Yuen. My date of birth is January thirtieth, nineteen "
-            "fifty eight. And my member ID is E V M, one zero zero, two three four."
-        ),
+        identity=LINDA.lines["identity"].replace("Linda Nguyen", "Linda Yuen"),
         fix_name="No, my name is Linda Yuen.",
-        fix_both=(
-            "No. My name is Linda Yuen, and my member ID is E V M, one zero zero, two three four."
-        ),
+        fix_both=LINDA.lines["fix_both"].replace("L I N D A, Nguyen", "Yuen"),
     ),
-)
-LINDA_GENERAL = dict(
-    LINDA.lines,
-    identity=spelled(LINDA, "N G U Y E N"),
-    reason=(
-        "I got a paper in the mail from you, and I have a general question about what it means."
-    ),
-    claim_number="No, I don't have a number. It's just a question.",
-    service_date="I'm not sure. It came in the mail last week.",
-    claim_concern="Nothing is wrong, I just want to understand the paper.",
 )
 
 
@@ -134,7 +127,7 @@ class Run:
     trigger: str
     trigger_word: str
     selector: str  # the card that must show for the trigger
-    identity_expected: tuple[str, ...] = ("verified",)
+    identity_expected: tuple[str, ...] = MEMBER_OK
     verify: str | None = None  # "verified" | "not_verified": the agent's decision
     unlock_text: str | None = None  # on the shelf after Mark verified
     settings: dict = field(default_factory=dict)
@@ -144,58 +137,70 @@ def _hero(prefix: str) -> str:
     return f"[data-testid='hero'][data-card-id^='{prefix}']"
 
 
-RUNS = [
-    Run(
-        1,
+def _maria(n: int, **kw) -> Run:
+    return Run(
+        n,
         MARIA,
         MARIA,
-        dict(MARIA.lines, identity=spelled(MARIA, "A L V A R E Z")),
+        MARIA.lines,
         "claims_status",
         "So why did my MRI claim get denied?",
         "denied",
-        _hero("nbs:retro_auth_review:CLM-900001"),
-        settings={"greeting_text": DEMO_GREETING},
-    ),
-    Run(
-        2,
+        _hero("nbs:retro_auth_review:70412"),
+        **kw,
+    )
+
+
+def _james(n: int) -> Run:
+    return Run(
+        n,
         JAMES,
         JAMES,
-        dict(JAMES.lines, identity=spelled(JAMES, "C H E N")),
+        JAMES.lines,
         "account_payments",
         "I looked at my bank account and I was charged twice for my premium.",
         "twice",
         _hero("nbs:duplicate_premium_refund:"),
-    ),
-    Run(
-        3,
+    )
+
+
+def _aisha(n: int) -> Run:
+    return Run(
+        n,
         AISHA,
         AISHA,
-        dict(AISHA.lines, identity=spelled(AISHA, "P A T E L")),
-        "claims_status",
-        "Why is my heart test claim still pending?",
-        "pending",
-        _hero("nbs:provider_info_follow_up:CLM-900003"),
-    ),
+        AISHA.lines,
+        "general_question",
+        "So what is an explanation of benefits, exactly? Is it a bill?",
+        "benefits",
+        "[data-testid='tile-kb:KB-CL-010']",
+    )
+
+
+RUNS = [
+    _maria(1, settings={"greeting_text": DEMO_GREETING}),
+    _james(2),
+    _aisha(3),
     Run(
         4,
         LINDA_YUEN,
         LINDA,
         LINDA_YUEN.lines,
         "claims_status",
-        "So why was my dermatology claim denied?",
-        "denied",
+        "They said the doctor was out of network. Can I appeal that?",
+        "network",
         LOCKED,
         identity_expected=("close_match", "not_verified"),
         verify="verified",
-        unlock_text="CLM-900005",
+        unlock_text="52976",
     ),
     Run(
         5,
-        DANIEL,
-        DANIEL,
-        dict(DANIEL.lines, identity=spelled(DANIEL, "O K A F O R")),
+        BEN,
+        BEN,
+        BEN.lines,
         "claims_status",
-        "Has the prior authorization for my knee surgery been approved yet?",
+        "Is the prior authorization for my knee surgery approved yet?",
         "authorization",
         LOCKED,
         identity_expected=("not_verified",),
@@ -203,54 +208,28 @@ RUNS = [
     ),
     Run(
         6,
-        LINDA,
-        LINDA,
-        LINDA_GENERAL,
-        "general_question",
-        "So what is an explanation of benefits, exactly?",
-        "benefits",
-        "[data-testid='tile-kb:KB-CL-010']",
+        SARAH,
+        SARAH,
+        SARAH.lines,
+        "claims_status",
+        "Why is my stress test claim still pending?",
+        "pending",
+        _hero("nbs:provider_info_follow_up:31845"),
     ),
+    # Linda again, saying her name plainly (the Demos page script).
     Run(
         7,
-        MARIA,
-        MARIA,
-        dict(MARIA.lines, identity=spelled(MARIA, "A L V A R E Z")),
-        "claims_status",
-        "So why did my MRI claim get denied?",
-        "denied",
-        _hero("nbs:retro_auth_review:CLM-900001"),
-    ),
-    Run(
-        8,
-        JAMES,
-        JAMES,
-        dict(JAMES.lines, identity=spelled(JAMES, "C H E N")),
-        "account_payments",
-        "I looked at my bank account and I was charged twice for my premium.",
-        "twice",
-        _hero("nbs:duplicate_premium_refund:"),
-    ),
-    Run(
-        9,
-        AISHA,
-        AISHA,
-        dict(AISHA.lines, identity=spelled(AISHA, "P A T E L")),
-        "claims_status",
-        "Why is my heart test claim still pending?",
-        "pending",
-        _hero("nbs:provider_info_follow_up:CLM-900003"),
-    ),
-    Run(
-        10,
         LINDA,
         LINDA,
-        LINDA_GENERAL,
-        "general_question",
-        "So what is an explanation of benefits, exactly?",
-        "benefits",
-        "[data-testid='tile-kb:KB-CL-010']",
+        LINDA.lines,
+        "claims_status",
+        "They said the doctor was out of network. Can I appeal that?",
+        "network",
+        _hero("nbs:out_of_network_appeal:52976"),
     ),
+    _maria(8),
+    _james(9),
+    _aisha(10),
 ]
 
 
@@ -405,7 +384,15 @@ async def test_demo_run(run: Run, schema, tmp_path, monkeypatch):
                 )
                 await page.wait_for_timeout(1000)  # key listener attaches just after paint
                 caller_id = caller._client.participants()["local"]["id"]
-                talking = asyncio.create_task(caller.play(pickup_pcm))
+                heard = asyncio.Event()
+
+                async def keep_talking() -> None:
+                    # A real caller keeps saying hello until someone answers: the
+                    # pickup line can end before the agent's audio is connected.
+                    while not heard.is_set():
+                        await caller.play(pickup_pcm)
+
+                talking = asyncio.create_task(keep_talking())
                 await asyncio.sleep(0.3)
                 await page.evaluate("document.activeElement && document.activeElement.blur()")
                 accept_at = time.time()
@@ -419,8 +406,7 @@ async def test_demo_run(run: Run, schema, tmp_path, monkeypatch):
                     )
                     if heard_at is None:
                         await asyncio.sleep(0.05)
-                assert heard_at is not None, "the portal never played the caller's audio"
-                r["accept_to_caller_audio_secs"] = round(heard_at - accept_at, 3)
+                heard.set()
                 marks = await page.evaluate(
                     "() => { const o = performance.timeOrigin; return performance"
                     ".getEntriesByType('mark').filter((m) => m.name.startsWith('vitals:'))"
@@ -429,11 +415,20 @@ async def test_demo_run(run: Run, schema, tmp_path, monkeypatch):
                 r["accept_timeline"] = {
                     n: round(t - accept_at, 2) for n, t in marks if t >= accept_at - 1
                 }
+                assert heard_at is not None, "the portal never played the caller's audio"
+                r["accept_to_caller_audio_secs"] = round(heard_at - accept_at, 3)
                 log(t0, f"caller heard {r['accept_to_caller_audio_secs']:.2f}s after Enter")
                 await asyncio.wait_for(talking, 30)
                 hero = page.get_by_test_id("hero")
                 if run.verify:
                     await expect(hero).to_have_attribute("data-state", "verify", timeout=10_000)
+                elif r["identity_result"] != "verified":
+                    # Close match on a real member: the agent checks the name and marks
+                    # verified before the caller asks (IN-13), so the records open.
+                    await expect(hero).to_have_attribute("data-state", "verify", timeout=10_000)
+                    await hero.get_by_role("button", name="Mark verified").click()
+                    await expect(page.locator(LOCKED)).to_have_count(0, timeout=5_000)
+                    r["agent_decision"] = "verified before the trigger (close match)"
                 await caller.wait_for_participant(AGENT_NAME, timeout=15)
                 await wait_bot_turn(rec, accept_at, start_timeout=10)
 

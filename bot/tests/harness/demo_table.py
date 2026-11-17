@@ -1,6 +1,6 @@
 """Print the docs/demo.md results table from DEMO_RESULTS JSON lines.
 
-    uv run python bot/tests/harness/demo_table.py /tmp/demo.jsonl
+uv run python bot/tests/harness/demo_table.py /tmp/demo.jsonl
 """
 
 from __future__ import annotations

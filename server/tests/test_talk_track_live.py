@@ -131,7 +131,12 @@ def check_for(item: dict) -> str | None:
     if kind == "card":
         return f"!!document.querySelector('[data-testid=\"tile-{iid}\"]')"
     if kind == "kb":
-        return _text_in("[data-testid='hero-source']", iid)
+        # The hero source label shows non breaking hyphens (U+2011); its title is plain.
+        return (
+            "(() => [...document.querySelectorAll('[data-testid=\"hero-source\"]')].some((el) => "
+            "((el.title || '') + ' ' + (el.textContent || '')).replace(/\\u2011/g, '-')"
+            f".includes({json.dumps(iid)})))()"
+        )
     if kind == "tone_tip":
         return "!!document.querySelector('[data-testid^=\"tile-tone:\"]')"
     if kind == "ask":

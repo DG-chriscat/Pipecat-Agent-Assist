@@ -325,3 +325,36 @@ A separate observation for the follow up card: articles on the claims and paymen
 packs reach the agent only as ids in the hero source. Showing the cited article as a
 supporting tile (or making the source a link that opens it) would make every rewrite
 above visible without the Ask bar.
+
+## Applied (Nov 17)
+
+Chris approved the rewrites of existing articles only. Applied in
+`server/agent_assist_server/db/seed.py` (`_kb_articles`), same ids, still 15 articles.
+Every rewritten article leads with the answer in one sentence of 160 characters or
+less (the whole tile), then short labelled parts.
+
+| Rec | Article | Applied |
+| --- | --- | --- |
+| 1 | KB-CL-002 | First sentence is the answer. What to do now (the agent opens the retro review and asks the provider for clinical notes, within 60 days of the denial date), What to tell the caller (nothing to file, up to 30 days after the notes arrive, result by letter, reprocessed automatically if approved), If the review is denied (180 days from the original denial, KB-CL-008), Do not promise. Tags `CO-197`, `prior authorization`, `retro authorization`. Agrees with the `retro_auth_review` hero script. |
+| 3 | KB-CL-003, KB-CL-008 | Commercial keeps 180 days and up to 30 days. A separate Medicare Advantage part: 65 days from the denial notice, standard decision up to 30 days (pre service) or 60 days (payment), and a Compliance note that MA members get the plan's Medicare appeal wording. Tags are phrases (`CO-242`, `out of network`, `file an appeal`, `appeal deadline`, `Medicare Advantage appeal`). The seed has no "mock policy" marker on any article, so none was added; all seed data is mock. |
+| 7 | KB-CL-010 | Keeps "An EOB is not a bill." Walks through billed, allowed, plan paid, member may owe; wait for the provider's bill and compare; KB-BL-005 for "why do I owe this". Tags `EOB`, `explanation of benefits`, `is it a bill`. |
+| 7, 9 | KB-CL-007 | Tags `pending info`, `itemized bill from provider`, `still pending`, `called before`, `third call`. Adds the repeat caller part (check for an approved authorization and say so, set a callback date, own the follow up after the second contact) and Do not promise a date the provider will send the bill. |
+| 8 | KB-BL-005 | First sentence kept (100 percent written as 100% so it fits the tile). Adds the HDHP with HSA part (no copays before the deductible, preventive care covered first, out of pocket maximum caps everything), What to tell the caller, Do not promise. Article text only. |
+| 10 | KB-BL-001 | Adds the usual cause (payment method change mid cycle), how to stop it next month (KB-BL-002), and the bank fee policy (not reimbursed, do not promise). Tags are phrases (`duplicate premium`, `charged twice`, `premium refund`, `drafted twice`). |
+
+Skipped, and why:
+
+- Recs 2, 4, 5, 6 and the emergency article in 10: new articles. Chris asked for
+  rewrites of existing articles only.
+- Rec 3 pack follow up: the `out_of_network_appeal` hero still says 180 days and up to
+  30 days to every member. Taking the window from the plan type is a pack change for a
+  later card. Until then the KB-CL-003 and KB-CL-008 text is right and the hero script
+  for Linda is not.
+- Rec 8 pack follow up: the `general_question` pack still reads only `kb_articles`, so
+  David's own deductible and out of pocket numbers are not on screen.
+- Rec 6 and 10 engine changes (verify hero source, emergency alert card): not wanted on
+  this card.
+- Matcher noise: `kb_hits` matches single title and tag words, so "Is it a bill?" still
+  shows KB-CL-007 (the word "bill" in `itemized bill from provider`) and "out of pocket
+  maximum" still shows KB-CL-003 second (the word "out" in `out of network`). Phrase
+  tags alone do not stop this; it needs a matcher change (engine, later card).

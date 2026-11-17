@@ -1063,18 +1063,40 @@ def _kb_articles(as_of: dt.date) -> list[KbArticle]:
             "KB-CL-002",
             "Denial code CO-197: authorization absent",
             "claims",
-            ["denial", "CO-197", "prior auth"],
-            "The service needed prior authorization and none was on file. Options: ask the "
-            "provider to request a retro authorization review within 60 days of the denial, "
-            "or file an appeal.",
+            ["CO-197", "prior authorization", "retro authorization"],
+            "The service needed a prior authorization and none was on file; a retro "
+            "authorization review can fix it without an appeal.\n\n"
+            "What to do now: open the retro authorization review on the call and ask the "
+            "provider's office to send the clinical notes. The review must be opened within 60 "
+            "days of the denial date on the claim. If 60 days have passed, offer an appeal "
+            "instead (KB-CL-008).\n\n"
+            "What to tell the caller: we open the review today and ask the provider for the "
+            "notes; the caller does not need to file anything. The review takes up to 30 days "
+            "after the notes arrive and the result comes by letter. If it is approved, the claim "
+            "is reprocessed automatically and no appeal is needed.\n\n"
+            "If the review is denied: the caller can still appeal within 180 days of the "
+            "original denial date (KB-CL-008).\n\n"
+            "Do not promise: approval, a payment amount, or that the provider's office already "
+            "handled the authorization.",
         ),
         (
             "KB-CL-003",
             "Denial code CO-242: out of network provider",
             "claims",
-            ["denial", "CO-242", "network"],
-            "The provider is not in the member's network. HMO and EPO plans do not cover out of "
-            "network care except emergencies. Explain network rules and the appeal process.",
+            ["CO-242", "out of network", "Medicare Advantage network"],
+            "The provider is not in the member's network, so the plan does not cover the care "
+            "except emergencies; the member can appeal.\n\n"
+            "Commercial plans (HMO and EPO): out of network care is not covered except "
+            "emergencies. Explain the network rules and offer an appeal: 180 days from the "
+            "denial, standard decision up to 30 days (KB-CL-008).\n\n"
+            "Medicare Advantage plans: check whether a referral or plan approval was needed and "
+            "on file. The member can appeal within 65 days from the denial notice; a standard "
+            "decision takes up to 60 days for a payment appeal (KB-CL-008).\n\n"
+            "What to tell the caller: why the claim was denied, and that you can start the "
+            "appeal today.\n\n"
+            "Do not promise: an outcome, or a decision date outside the stated window.\n\n"
+            "Compliance note: Medicare Advantage members get the plan's Medicare appeal "
+            "wording, never the commercial numbers.",
         ),
         (
             "KB-CL-004",
@@ -1104,17 +1126,44 @@ def _kb_articles(as_of: dt.date) -> list[KbArticle]:
             "KB-CL-007",
             "Claims pending provider information",
             "claims",
-            ["pending info", "itemized bill"],
-            "A pending info claim waits on the provider. Offer to contact the provider office and "
-            "note the request on the call. Typical turnaround after receipt is 10 business days.",
+            [
+                "pending info",
+                "itemized bill from provider",
+                "still pending",
+                "called before",
+                "third call",
+            ],
+            "A pending info claim waits on the provider, not the member; contact the provider "
+            "office, and the claim moves about 10 business days after they send it.\n\n"
+            "What to do now: offer to contact the provider office for the missing information "
+            "(for example the itemized bill) and note the request on the call.\n\n"
+            "Repeat caller: check the member's authorizations; if the service has an approved "
+            "authorization, say so, so the caller knows it is not an authorization problem. Set "
+            "a callback date and tell the caller. After the second contact, own the follow up: "
+            "note that the plan chases the provider and the caller does not need to call "
+            "again.\n\n"
+            "What to tell the caller: the claim is waiting on paperwork from the provider, not "
+            "on them.\n\n"
+            "Do not promise: a date the provider will send the bill; that is outside the plan's "
+            "control.",
         ),
         (
             "KB-CL-008",
             "How to file an appeal",
             "claims",
-            ["appeal", "denial"],
-            "Members have 180 days from the denial to appeal. Appeals can be filed online, "
-            "by mail, or by phone. Standard decisions take up to 30 days.",
+            ["file an appeal", "appeal deadline", "Medicare Advantage appeal"],
+            "Commercial members have 180 days from the denial to appeal; Medicare Advantage "
+            "members have 65 days from the denial notice, with different decision times.\n\n"
+            "Commercial plans: appeal within 180 days of the denial, online, by mail, or by "
+            "phone. Standard decisions take up to 30 days.\n\n"
+            "Medicare Advantage plans: appeal within 65 days from the date on the denial "
+            "notice. A standard decision takes up to 30 days for a service not yet received "
+            "(pre service) or up to 60 days for a payment appeal.\n\n"
+            "What to tell the caller: the window for their plan type, how to file, and that the "
+            "decision comes by letter.\n\n"
+            "Do not promise: an outcome, or a decision date outside the stated window.\n\n"
+            "Compliance note: Medicare Advantage members get the plan's Medicare appeal "
+            "wording, not the commercial numbers.",
         ),
         (
             "KB-CL-009",
@@ -1128,17 +1177,33 @@ def _kb_articles(as_of: dt.date) -> list[KbArticle]:
             "KB-CL-010",
             "Reading an Explanation of Benefits (EOB)",
             "claims",
-            ["EOB"],
-            "An EOB is not a bill. It shows billed amount, allowed amount, what the plan paid, and "
-            "what the member may owe. Compare it with the provider's bill.",
+            ["EOB", "explanation of benefits", "is it a bill"],
+            "An EOB is not a bill. It shows what the provider billed, what the plan allowed, what "
+            "the plan paid, and what the member may owe.\n\n"
+            "Walk through it: Billed is the provider's full charge. Allowed is the plan's rate "
+            "for the service; for in network care the member does not owe the difference. Plan "
+            "paid is the plan's share. Member may owe is what is left: a copay, deductible, or "
+            "coinsurance.\n\n"
+            "What to tell the caller: wait for the provider's bill, compare it with the EOB, "
+            "and pay the provider no more than the EOB says they may owe.\n\n"
+            "Why do I owe this: the member share comes from the plan's copays and deductible "
+            "(KB-BL-005).",
         ),
         (
             "KB-BL-001",
             "Duplicate premium charge",
             "billing",
-            ["premium", "duplicate", "refund"],
-            "If autopay drafted the premium twice in one month, confirm both payments, then "
-            "submit a refund request for the second draft. Refunds post in 5 to 7 business days.",
+            ["duplicate premium", "charged twice", "premium refund", "drafted twice"],
+            "If autopay drafted the premium twice in one month, confirm both payments and refund "
+            "the second draft; refunds post in 5 to 7 business days.\n\n"
+            "Usual cause: a payment method change in the middle of a billing cycle, so the old "
+            "and the new account were both drafted.\n\n"
+            "Stop it next month: confirm only one autopay method is active; changes after the "
+            "25th apply to the following month's draft (KB-BL-002).\n\n"
+            "What to tell the caller: the second draft is refunded to the account it came from "
+            "in 5 to 7 business days.\n\n"
+            "Bank fees: the plan does not reimburse bank overdraft or returned item fees. Do not "
+            "promise a fee refund.",
         ),
         (
             "KB-BL-002",
@@ -1168,9 +1233,24 @@ def _kb_articles(as_of: dt.date) -> list[KbArticle]:
             "KB-BL-005",
             "Copays, deductibles, and out of pocket maximum",
             "billing",
-            ["copay", "deductible", "out of pocket"],
+            [
+                "copay",
+                "deductible",
+                "out of pocket maximum",
+                "high deductible plan",
+                "HDHP",
+                "HSA",
+            ],
             "Copays are fixed amounts per visit. The deductible is what the member pays before "
-            "the plan shares costs. After the out of pocket maximum the plan pays 100 percent.",
+            "the plan shares costs. After the out of pocket maximum the plan pays 100%.\n\n"
+            "High deductible plan with HSA (HDHP): there are no copays before the deductible is "
+            "met; the member pays the plan's allowed amount for most care until then. Preventive "
+            "care is covered first, before the deductible. The out of pocket maximum caps "
+            "everything the member pays in the plan year.\n\n"
+            "What to tell the caller: which of the three applied to the claim, how much of the "
+            "deductible is met so far (from the member's plan and claims), and that the EOB "
+            "shows the member share for each claim (KB-CL-010).\n\n"
+            "Do not promise: what a future service will cost; it depends on the allowed amount.",
         ),
     ]
     return [KbArticle(a, t, c, tags, body, u) for a, t, c, tags, body in rows]

@@ -168,7 +168,11 @@ Code: `server/agent_assist_server/caller_api.py`. `GET /calls/{session_id}/calle
   `plan_name`, `plan_type`), `calls_30d` (interactions in the last 30 days),
   `repeat_caller` (2 or more), `recent_events` (last 3 across interactions, claims, and
   referrals, newest first: `kind` call/claim/referral, `ref`, `occurred_on`, `status`,
-  `summary`). `not_verified` is false.
+  `summary`). `not_verified` is false. After Mark verified the member is the one intake
+  matched by member ID **and** date of birth (`intake.identity_checks` has both:
+  `close_match`, or `not_verified` on the name alone, as when STT hears "Linda Ewan"
+  for Linda Nguyen). A member matched by name, or by the ID alone (wrong DOB), or
+  `not_found`, is never shown, even after Mark verified (`Call.record_member_id`).
 - Identity n of 3 (AP-18): the bot's handoff puts `identity_checks` (which of
   `full_name`, `dob`, `member_id` matched the member) in the summary, so it reaches the
   portal in `intake.identity_checks`. Missing when identity was never checked.

@@ -207,6 +207,68 @@ async def test_decision_counts_once(packs):
     assert len(h.events) == n and h.engine.locked is False
 
 
+# The P5-4 Linda run: STT heard "Linda Ewan", member ID and DOB matched, the name did
+# not even come close, so intake said not_verified (not close_match).
+LINDA_EWAN_GATE = {
+    "result": "not_verified",
+    "checks": ["dob", "member_id"],
+    "heard_name": "Linda Ewan",
+    "on_file_name": "Linda Nguyen",
+}
+
+
+async def test_mark_verified_on_not_verified_with_id_and_dob_unlocks_and_reranks(packs):
+    h = await gated(packs, gate=LINDA_EWAN_GATE)
+    await h.say("caller", "The letter said it was denied, no prior authorization.")
+    n = len(h.sent)
+    await h.engine.on_feedback(Feedback(card_id=VERIFY_CARD_ID, action="mark_verified"))
+    after = h.sent[n:]
+    assert h.engine.locked is False
+    resent = [m["card"] for m in after if m["event"] == "card_added"]
+    assert resent and all(c["locked"] is False for c in resent)
+    hero = [m for m in after if m["event"] == "hero"][-1]
+    assert hero["card"]["id"] == "nbs:retro_auth_review:70412"
+    assert [m for m in after if m["event"] == "identity"][-1]["state"] == "verified"
+
+
+async def test_ask_answer_unlocks_after_mark_verified(packs):
+    h = await gated(packs, gate=LINDA_EWAN_GATE)
+    await h.engine.on_ask(Ask("a1", "Show the last 3 claims"))
+    await h.engine.on_feedback(Feedback(card_id=VERIFY_CARD_ID, action="mark_verified"))
+    [card] = [c for c in h.added() if c["id"] == "ask:a1" and c["locked"] is False]
+    assert "70412" in str(card["body"])
+
+
+@pytest.mark.parametrize(
+    "gate",
+    [
+        # Ben with the wrong DOB: only the member ID matched.
+        {"result": "not_verified", "checks": ["member_id"]},
+        # Member ID unknown; a member matched by name and DOB only.
+        {"result": "not_verified", "checks": ["full_name", "dob"]},
+        {"result": "not_found", "checks": []},
+        {"result": "incomplete", "checks": ["member_id"]},
+    ],
+)
+async def test_mark_verified_without_an_id_and_dob_match_keeps_records_locked(packs, gate):
+    # No member is resolved unless the member ID and DOB both matched it; the name
+    # alone (or the ID alone) never unlocks a member's records.
+    h = await gated(packs, gate=gate | {"heard_name": "x y", "on_file_name": None})
+    await h.say("caller", "The letter said it was denied, no prior authorization.")
+    n = len(h.sent)
+    await h.engine.on_feedback(Feedback(card_id=VERIFY_CARD_ID, action="mark_verified"))
+    after = h.sent[n:]
+    assert h.engine.locked is True
+    assert all(m["card"]["locked"] for m in after if m["event"] == "card_added")
+    assert "70412" not in str(after)
+    hero = [m for m in after if m["event"] == "hero"][-1]
+    assert hero["card"] is None and hero["reason"] == "verified"
+    identity = [m for m in after if m["event"] == "identity"][-1]
+    assert identity["state"] == "verified" and identity["by"] == "Ana"
+    await h.say("caller", "Another one was out of network.")
+    assert all(c["locked"] is True for c in h.added())
+
+
 async def test_verify_actions_only_apply_to_the_verify_card(packs):
     h = await gated(packs)
     await h.say("caller", "It was denied.")

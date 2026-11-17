@@ -47,6 +47,33 @@ describe("InCall shell (AP-4)", () => {
     expect(screen.getByTestId("identity-badge")).toHaveTextContent("Verified by agent");
     expect(screen.getByRole("button", { name: "Reveal member ID" })).toBeEnabled();
   });
+  it("after Mark verified the member record's name replaces the heard name everywhere (IN-13)", () => {
+    const caller = { name: "Linda Ewan", verified: "not_verified" as const, identity: "not_verified" as const, reason: "x", summary: "" };
+    const done = applyAssist(emptyAssist(), parseAssistMessage(identityMsg("verified", { result: "not_verified", by: "Ana", at: 1 }))!, 0);
+    setup({
+      caller,
+      memberId: "741526",
+      assist: done,
+      detailsState: "ready",
+      details: {
+        session_id: "s1",
+        identity_result: "not_verified",
+        identity_decision: { decision: "verified", agent_id: "a1", agent_name: "Ana", at: 1 },
+        not_verified: false,
+        outcome: "completed",
+        flags: [],
+        intake: {},
+        wait_secs: 7,
+        member: { member_id: "741526", name: "Linda Nguyen", first_name: "Linda", last_name: "Nguyen", dob: "1958-04-22", plan_id: "P", plan_name: "Evergreen Medicare Advantage Plus", plan_type: "MA" },
+        calls_30d: 0,
+        repeat_caller: false,
+        recent_events: [],
+      },
+    });
+    const island = screen.getByRole("group", { name: /call/i });
+    expect(within(island).getByText("Linda Nguyen")).toBeInTheDocument();
+    expect(screen.queryByText("Linda Ewan")).not.toBeInTheDocument();
+  });
   it("shows the call island: caller, verified chip, waveform, mood placeholder, timer", () => {
     setup();
     const island = screen.getByRole("group", { name: /call/i });

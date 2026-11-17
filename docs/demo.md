@@ -149,8 +149,14 @@ name naturally ("Linda Nguyen"). If the bot reads it back wrong, answer once: "N
 name is Linda Nguyen." (not spelled). Intake moves on after one fix.
 - Audience sees: the Verify caller hero ("Heard Linda Yuen, on file Linda Nguyen",
   member ID and DOB matched) and locked record tiles.
-- Agent asks the caller to spell the last name, then presses Mark verified: the records
-  unlock (claim 52976).
+- Agent asks the caller to spell the last name, then presses Mark verified: the caller
+  panel switches to the member record (Linda Nguyen, Evergreen Medicare Advantage Plus,
+  masked ID with Reveal, DOB), "Verified by agent" with no "Not verified" text, caller
+  history loads ("Skin biopsy claim denied, CO-242"), the record tiles open (claim
+  52976 with its denial), and the hero becomes "Explain the network denial and offer
+  an appeal for 52976" if the caller already said why they called. Works when intake
+  ended close_match ("Yuen") or not_verified ("Ewan", "Yuan"): member ID and DOB
+  matched either way ([screenshots/linda-unlock/](screenshots/linda-unlock/)).
 - To the agent: "They said the doctor was out of network. Can I appeal that?"
   Audience sees: "Explain the network denial and offer an appeal for 52976".
 - End and Save.
@@ -171,7 +177,9 @@ same. If audio fails entirely, walk through the screenshots in
 
 - [maria-hero-light.png](screenshots/p5-4/maria-hero-light.png): run 1, hero 0.74 s after "denied".
 - [linda-verify-light.png](screenshots/p5-4/linda-verify-light.png): run 4, Verify caller hero, records locked.
-- [linda-unlocked-light.png](screenshots/p5-4/linda-unlocked-light.png): run 4 after Mark verified.
+- [linda-unlocked-light.png](screenshots/p5-4/linda-unlocked-light.png): run 4 after Mark verified
+  (shows the bug fixed in t_3fb64b24: panel still on the heard name and not verified; see
+  [screenshots/linda-unlock/](screenshots/linda-unlock/) for the fixed screen).
 - [james-refund-light.png](screenshots/p5-4/james-refund-light.png): run 2, refund hero and duplicate charge alert.
 
 No UI changed in this card; these are evidence from the runs, not new screens.

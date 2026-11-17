@@ -126,7 +126,11 @@ function Controls({ phase, muted, held, onMute, onHold, onEnd }: InCallProps) {
 
 /** In-call frame (DESIGN.md "Layout"): rail, header with call island and controls, three columns. */
 export function InCall(props: InCallProps) {
-  const firstName = props.caller.name.split(/\s+/)[0] || "the caller";
+  // Once the member record shows (verified, by intake or by the agent), its name wins
+  // over the name STT heard at intake (IN-13).
+  const member = props.details && !props.details.not_verified ? props.details.member : null;
+  const caller = member ? { ...props.caller, name: member.name } : props.caller;
+  const firstName = caller.name.split(/\s+/)[0] || "the caller";
   const assist = props.assist ?? EMPTY;
   const onAssist = props.onAssist ?? noop;
   const highlights = useMemo(
@@ -136,7 +140,7 @@ export function InCall(props: InCallProps) {
   return (
     <Shell
       agent={props.shell}
-      island={<CallIsland {...props} />}
+      island={<CallIsland {...props} caller={caller} />}
       right={<Controls {...props} />}
       orb="hero"
       className="in-call"
@@ -162,7 +166,7 @@ export function InCall(props: InCallProps) {
         <TranscriptColumn
           lines={props.transcript}
           highlights={highlights}
-          callerName={props.caller.name}
+          callerName={caller.name}
           connecting={props.phase === "connecting"}
         />
       </main>

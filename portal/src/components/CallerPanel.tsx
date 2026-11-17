@@ -1,6 +1,7 @@
 import { ShieldCheck } from "lucide-react";
 import type { CallerDetails, CallerEvent } from "../api/types";
 import type { IdentityGate, MoodState } from "../state/assist";
+import { recordsOpen } from "../state/assist";
 import { eventTone, formatIsoDate } from "../state/caller";
 import { MOOD_TOOLTIP, moodChip, WORRIED } from "../state/mood";
 import { initials } from "../state/names";
@@ -38,11 +39,24 @@ function shortClock(secs: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
-function History({ state, notVerified, events }: { state: DetailsState; notVerified: boolean; events: CallerEvent[] }) {
+function History({
+  state,
+  notVerified,
+  noMember,
+  events,
+}: {
+  /** "member": the agent just marked verified and the member record is on its way. */
+  state: DetailsState | "member";
+  notVerified: boolean;
+  noMember: boolean;
+  events: CallerEvent[];
+}) {
   let note: string | null = null;
   if (state === "loading") note = "Loading history.";
+  else if (state === "member") note = "Loading the member record.";
   else if (state === "error") note = "Caller history is unavailable right now.";
   else if (notVerified) note = "History shows once identity is verified.";
+  else if (noMember) note = "No member record for this caller.";
   else if (events.length === 0) note = "No past calls, claims, or referrals.";
   return (
     <div data-testid="history">
@@ -119,25 +133,36 @@ export function CallerPanel({
   identityGate = null,
 }: CallerPanelProps) {
   const member = details && !details.not_verified ? details.member : null;
-  const notVerified = details ? details.not_verified : caller.verified !== "verified";
+  const decision =
+    identityGate ??
+    (details?.identity_decision
+      ? { state: details.identity_decision.decision, by: details.identity_decision.agent_name }
+      : null);
+  // IN-13: the agent marked the caller verified (the gate is verified, intake was not).
+  // The member record (matched by member ID and DOB) comes from GET /caller after the
+  // decision; until then it is loading. With no such member (records false) there is
+  // none to show.
+  const agentVerified =
+    identityGate?.state === "verified"
+      ? identityGate.result !== "verified"
+      : details?.identity_decision?.decision === "verified";
+  const recordsExpected = agentVerified && (identityGate ? recordsOpen(identityGate) : true);
+  const memberLoading = !member && recordsExpected && !details?.identity_decision;
+  const noMember = !member && agentVerified && !memberLoading;
+  const notVerified = !agentVerified && (details ? details.not_verified : caller.verified !== "verified");
   const name = member?.name ?? caller.name;
   const id = member?.member_id ?? memberId;
   const claim = text(intake.claim_number);
   const dob = member?.dob ?? text(intake.dob);
   const wait = details ? details.wait_secs : waitSecs;
   const showCalls = !!member && details!.calls_30d !== null;
-  const decision =
-    identityGate ??
-    (details?.identity_decision
-      ? { state: details.identity_decision.decision, by: details.identity_decision.agent_name }
-      : null);
   const identity = agentIdentityBadge(
     identityBadge(details ? details.identity_result : caller.identity, intake.identity_checks),
     decision,
   );
   const confirmed = identity.state === "confirmed";
   // IN-13: PHI Reveal is off until the caller is verified (at intake or by the agent).
-  const revealOff = !!decision && decision.state !== "verified";
+  const revealOff = !!decision && (decision.state !== "verified" || noMember);
   const events = member ? details!.recent_events : [];
   const lastCall = events.find((e) => e.kind === "call");
   const words = text(intake.reason) || caller.reason;
@@ -204,6 +229,11 @@ export function CallerPanel({
           Identity is not verified. Details are what the caller said; no member record is shown.
         </p>
       )}
+      {noMember && (
+        <p className="caller-warn" role="note">
+          No member record matched the member ID and date of birth, so none is shown.
+        </p>
+      )}
 
       <div data-testid="why">
         <div className="label section-label">In their words</div>
@@ -218,7 +248,7 @@ export function CallerPanel({
       <dl className="rows">
         {dob && (
           <div className="rw">
-            <dt>{member || !notVerified ? "Born" : "Born, said"}</dt>
+            <dt>{member || (!notVerified && !noMember) ? "Born" : "Born, said"}</dt>
             <dd>
               <PhiField
                 field="dob"
@@ -257,7 +287,12 @@ export function CallerPanel({
         )}
       </dl>
 
-      <History state={detailsState} notVerified={notVerified} events={events} />
+      <History
+        state={memberLoading ? "member" : detailsState}
+        notVerified={notVerified}
+        noMember={noMember}
+        events={events}
+      />
       <Mood mood={mood} />
     </aside>
   );

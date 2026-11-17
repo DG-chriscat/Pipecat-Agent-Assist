@@ -215,14 +215,30 @@ def identity_message(
     checks: list[str],
     by: str | None = None,
     at: float | None = None,
+    records: bool | None = None,
 ) -> dict[str, Any]:
     """The identity gate (IN-13). `pending`: records are locked until the agent decides
     on the verify hero; `verified`: by intake (`by` None) or by the agent;
-    `not_verified`: the agent could not verify, records stay locked."""
+    `not_verified`: the agent could not verify, records stay locked.
+
+    `records`: whether member records are open. True when verified at intake, or
+    when the agent marked verified a caller intake matched by member ID and date of
+    birth; False otherwise (a verified decision with no matched member opens
+    nothing)."""
     if state not in IDENTITY_STATES:
         raise ValueError(f"unknown identity state {state!r}")
+    if records is None:
+        records = state == "verified"
     return assist_message(
-        "identity", seq=seq, ts=ts, state=state, result=result, checks=checks, by=by, at=at
+        "identity",
+        seq=seq,
+        ts=ts,
+        state=state,
+        result=result,
+        checks=checks,
+        by=by,
+        at=at,
+        records=records,
     )
 
 

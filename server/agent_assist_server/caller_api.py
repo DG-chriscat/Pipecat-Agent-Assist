@@ -192,13 +192,14 @@ async def caller_panel(
         "recent_events": [],
     }
     # Records show once identity is verified: by intake, or by the agent's human
-    # verification step (IN-13) for the member matched by member ID.
-    if not call.records_unlocked or not call.member_id:
+    # verification step (IN-13) for the member matched by member ID and DOB.
+    member_id = call.record_member_id
+    if member_id is None:
         return body
 
     try:
         history = await asyncio.wait_for(
-            get_history(request.app).lookup(call.member_id), LOOKUP_TIMEOUT_SECS
+            get_history(request.app).lookup(member_id), LOOKUP_TIMEOUT_SECS
         )
     except Exception as e:
         # Never echo the error: it can carry the database URL.

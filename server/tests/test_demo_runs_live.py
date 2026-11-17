@@ -130,6 +130,7 @@ class Run:
     identity_expected: tuple[str, ...] = MEMBER_OK
     verify: str | None = None  # "verified" | "not_verified": the agent's decision
     unlock_text: str | None = None  # on the shelf after Mark verified
+    unlock_hero: str | None = None  # the hero card after Mark verified
     settings: dict = field(default_factory=dict)
 
 
@@ -193,6 +194,7 @@ RUNS = [
         identity_expected=("close_match", "not_verified"),
         verify="verified",
         unlock_text="52976",
+        unlock_hero="nbs:out_of_network_appeal:52976",
     ),
     Run(
         5,
@@ -231,6 +233,49 @@ RUNS = [
     _james(9),
     _aisha(10),
 ]
+
+
+async def expect_unlocked(page, run: Run) -> None:
+    """After Mark verified (IN-13): the panel is the member record, history loads, the
+    record tiles open, and the claim's next best step becomes the hero."""
+    from playwright.async_api import expect
+
+    panel = page.get_by_role("complementary", name="Caller")
+    await expect(page.locator(LOCKED)).to_have_count(0, timeout=5_000)
+    await expect(page.locator(".shelf")).to_contain_text(run.unlock_text or "", timeout=5_000)
+    await expect(panel.get_by_role("heading", name=run.real.full_name)).to_be_visible(
+        timeout=10_000
+    )
+    await expect(panel.get_by_test_id("identity-badge")).to_have_text("Verified by agent")
+    island = page.get_by_role("group", name="Call")
+    await expect(island.locator(".island-name")).to_have_text(run.real.full_name)
+    await expect(panel).not_to_contain_text("Not verified")
+    await expect(panel.locator(".caller-warn")).to_have_count(0)
+    await expect(panel.get_by_test_id("history")).not_to_contain_text(
+        "History shows once identity is verified"
+    )
+    await expect(panel.get_by_test_id("history").locator(".tl-item").first).to_be_visible()
+    await expect(panel.get_by_role("button", name="Reveal member ID")).to_be_enabled()
+    if run.unlock_hero:
+        await expect(page.get_by_test_id("hero")).to_have_attribute(
+            "data-card-id", run.unlock_hero, timeout=10_000
+        )
+    # Tiles rise in (DESIGN.md Motion); let them finish before a screenshot.
+    await page.wait_for_timeout(500)
+
+
+async def unlocked_state(page) -> dict:
+    panel = page.get_by_role("complementary", name="Caller")
+    return {
+        "panel_name": " ".join((await panel.locator(".caller-name").inner_text()).split()),
+        "plan": await panel.locator(".caller-plan").inner_text(),
+        "history": await panel.get_by_test_id("history").locator(".tl-item").all_inner_texts(),
+        "repeat_caller": await panel.get_by_text("Repeat caller").count() > 0,
+        "shelf": await page.locator(".shelf > [data-testid^='tile-']").evaluate_all(
+            "(els) => els.map((e) => e.dataset.testid)"
+        ),
+        "hero": await page.get_by_test_id("hero").get_attribute("data-card-id"),
+    }
 
 
 def _selected() -> list[Run]:
@@ -342,6 +387,14 @@ async def test_demo_run(run: Run, schema, tmp_path, monkeypatch):
             await ctx.add_init_script(PAGE_SCRIPT)
             page = await ctx.new_page()
             page.on("console", lambda m: m.type == "error" and print(f"  [portal] {m.text}"))
+            api_log: list[tuple[float, int, str]] = []
+            page.on(
+                "response",
+                lambda resp: (
+                    ("/caller" in resp.url or "/identity-decision" in resp.url)
+                    and api_log.append((time.time(), resp.status, resp.url.split("?")[0][-40:]))
+                ),
+            )
             await page.goto(f"{base}/agent/")
             await page.get_by_label("Your name").fill(AGENT_NAME)
             await page.get_by_role("button", name="Sign in").click()
@@ -428,6 +481,10 @@ async def test_demo_run(run: Run, schema, tmp_path, monkeypatch):
                     await expect(hero).to_have_attribute("data-state", "verify", timeout=10_000)
                     await hero.get_by_role("button", name="Mark verified").click()
                     await expect(page.locator(LOCKED)).to_have_count(0, timeout=5_000)
+                    panel = page.get_by_role("complementary", name="Caller")
+                    name = panel.get_by_role("heading", name=run.real.full_name)
+                    await expect(name).to_be_visible(timeout=10_000)
+                    await expect(panel).not_to_contain_text("Not verified")
                     r["agent_decision"] = "verified before the trigger (close match)"
                 await caller.wait_for_participant(AGENT_NAME, timeout=15)
                 await wait_bot_turn(rec, accept_at, start_timeout=10)
@@ -451,16 +508,40 @@ async def test_demo_run(run: Run, schema, tmp_path, monkeypatch):
 
                 # ---- the agent's identity decision (IN-13) ----------------------------
                 if run.verify == "verified":
+                    clicked = time.time()
                     await hero.get_by_role("button", name="Mark verified").click()
-                    await expect(page.locator(LOCKED)).to_have_count(0, timeout=5_000)
-                    await expect(page.locator(".shelf")).to_contain_text(
-                        run.unlock_text or "", timeout=5_000
-                    )
+                    await expect_unlocked(page, run)
+                    r["unlock_secs"] = round(time.time() - clicked, 2)
+                    r["unlock_api"] = [
+                        (round(t - clicked, 2), s, u) for t, s, u in api_log if t >= clicked
+                    ]
                     r["agent_decision"] = "verified (records unlocked)"
-                    await page.screenshot(path=str(shots / f"demo-run{run.n}-unlocked-light.png"))
+                    r["unlocked"] = await unlocked_state(page)
+                    log(t0, f"unlocked: {r['unlocked']}")
+                    await page.screenshot(
+                        path=str(shots / f"demo-run{run.n}-unlocked-light.png"),
+                        animations="disabled",
+                    )
+                    await set_theme(page, "dark")
+                    await page.screenshot(
+                        path=str(shots / f"demo-run{run.n}-unlocked-dark.png"),
+                        animations="disabled",
+                    )
+                    await set_theme(page, "light")
                 elif run.verify == "not_verified":
                     await hero.get_by_role("button", name="Could not verify").click()
                     await expect(page.locator(LOCKED).first).to_be_visible()
+                    panel = page.get_by_role("complementary", name="Caller")
+                    await expect(panel.get_by_test_id("identity-badge")).to_have_text(
+                        "Not verified by agent"
+                    )
+                    await expect(panel.locator(".caller-warn")).to_contain_text(
+                        "Identity is not verified"
+                    )
+                    await expect(panel.get_by_test_id("history")).to_contain_text(
+                        "History shows once identity is verified"
+                    )
+                    await expect(page.locator(".shelf")).not_to_contain_text("CO-")
                     r["agent_decision"] = "could not verify (records stay locked)"
                 log(t0, f"agent decision: {r.get('agent_decision', '-')}")
 
@@ -484,11 +565,14 @@ async def test_demo_run(run: Run, schema, tmp_path, monkeypatch):
                 await browser.close()
             await asyncio.wait_for(proc.wait(), 30)
             cur = await store._execute(
-                "SELECT wrap_up_reason, identity_decision FROM calls WHERE session_id = %s",
+                "SELECT wrap_up_reason, identity_decision, member_id FROM calls "
+                "WHERE session_id = %s",
                 (session_id,),
             )
             row = await cur.fetchone()
             r["wrap_up_reason"] = row[0] if row else None
+            r["identity_decision"] = (row[1] or {}).get("decision") if row else None
+            r["calls_member_id"] = row[2] if row else None
             r["full_loop"] = True
     except BaseException as e:  # record the miss, then fail the run
         r["error"] = f"{type(e).__name__}: {str(e).splitlines()[0][:200] if str(e) else ''}"
@@ -515,5 +599,13 @@ async def test_demo_run(run: Run, schema, tmp_path, monkeypatch):
                 f.write(json.dumps(r) + "\n")
 
     assert r["identity_result"] in run.identity_expected, r
+    if run.verify:
+        assert r["identity_decision"] == run.verify, r
+    if run.verify == "verified":
+        # Mark verified resolved the member intake matched by member ID and DOB.
+        assert r["calls_member_id"] == run.real.member_id, r
+        assert r["unlocked"]["panel_name"] == run.real.full_name, r
+        assert r["unlocked"]["history"], r
+        assert r["unlocked"]["hero"] == run.unlock_hero, r
     if run.settings.get("greeting_text"):
         assert GREETING_MARK in r["greeting_heard"].lower(), r["greeting_heard"]

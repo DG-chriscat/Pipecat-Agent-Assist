@@ -9,6 +9,7 @@ import {
   type DemosResponse,
 } from "../api/demosClient";
 import { Shell, type ShellAgent } from "./Shell";
+import { TalkTrack } from "./TalkTrack";
 
 interface Props {
   shell: ShellAgent;
@@ -39,10 +40,12 @@ const FEATURE_TONE: Record<string, string> = {
 function DemoCard({
   p,
   labels,
+  kinds,
   copy,
 }: {
   p: DemoPersona;
   labels: Record<string, string>;
+  kinds: Record<string, string>;
   copy: (text: string) => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
@@ -63,7 +66,7 @@ function DemoCard({
     }
   }
 
-  const scriptId = `demo-script-${p.key}`;
+  const trackId = `demo-track-${p.key}`;
   return (
     <article className={`panel demo-card${p.hero ? " is-hero" : ""}`} data-testid={`demo-card-${p.key}`}>
       <header className="demo-card-head">
@@ -139,11 +142,11 @@ function DemoCard({
           type="button"
           className="btn btn-quiet"
           aria-expanded={open}
-          aria-controls={scriptId}
+          aria-controls={trackId}
           onClick={() => setOpen((o) => !o)}
         >
           {open ? <ChevronUp strokeWidth={1.7} aria-hidden="true" /> : <ChevronDown strokeWidth={1.7} aria-hidden="true" />}
-          {open ? "Hide script" : "Show script"}
+          {open ? "Hide talk track" : "Caller talk track"}
         </button>
         {copied && (
           <span className="demo-copied label" role="status">
@@ -152,17 +155,7 @@ function DemoCard({
         )}
       </div>
 
-      {open && (
-        <ol className="demo-script" id={scriptId} aria-label="Script">
-          {p.script.map((s, i) => (
-            <li key={i} className={`demo-step is-${s.to}`}>
-              <span className="label demo-step-to">{s.to === "bot" ? "To the bot" : "To the agent"}</span>
-              <span className="demo-step-say">{s.say}</span>
-              {s.note && <span className="demo-step-note">{s.note}</span>}
-            </li>
-          ))}
-        </ol>
-      )}
+      {open && <TalkTrack p={p} kinds={kinds} id={trackId} />}
     </article>
   );
 }
@@ -191,6 +184,7 @@ export function Demos({ shell, api = defaultApi, copy = clipboardCopy }: Props) 
   }, [api]);
 
   const labels = useMemo(() => Object.fromEntries((data?.features ?? []).map((f) => [f.id, f.label])), [data]);
+  const kinds = useMemo(() => Object.fromEntries((data?.expect_kinds ?? []).map((f) => [f.id, f.label])), [data]);
   const packs = useMemo(() => [...new Set((data?.personas ?? []).map((p) => p.pack))], [data]);
   const shown = (data?.personas ?? []).filter(
     (p) => (!feature || p.features.includes(feature)) && (pack === ALL || p.pack === pack),
@@ -263,7 +257,7 @@ export function Demos({ shell, api = defaultApi, copy = clipboardCopy }: Props) 
             ) : (
               <div className="demos-grid">
                 {shown.map((p) => (
-                  <DemoCard key={p.key} p={p} labels={labels} copy={copy} />
+                  <DemoCard key={p.key} p={p} labels={labels} kinds={kinds} copy={copy} />
                 ))}
               </div>
             )}

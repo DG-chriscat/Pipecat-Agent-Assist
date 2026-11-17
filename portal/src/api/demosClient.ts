@@ -7,6 +7,36 @@ export interface ScriptStep {
   note?: string;
 }
 
+/** What should show on the agent's screen after a beat (P5-11). */
+export interface ExpectItem {
+  kind: string;
+  text: string;
+  /** The card, rule, plan step, or article it points at. */
+  id?: string;
+  /** The Ask bar question to type. */
+  ask?: string;
+  reason_code?: string;
+  refs?: string[];
+}
+
+/** One beat of the caller talk track (P5-11, docs/demos.md). */
+export interface TalkBeat {
+  phase: "intake" | "agent" | "closing";
+  to: "bot" | "agent";
+  /** Intake only: which bot question it answers. */
+  step?: string;
+  say: string;
+  if_asked: string[];
+  /** For the caller (also on the caller page). */
+  note?: string;
+  /** For the tester: what the agent should do. Never on the caller page. */
+  agent_note?: string;
+  optional: boolean;
+  /** Optional feature beats: tone_tip, ask_bar, verify. */
+  feature?: string;
+  expect: ExpectItem[];
+}
+
 export interface DemoPersona {
   key: string;
   name: string;
@@ -28,12 +58,15 @@ export interface DemoPersona {
   features: string[];
   kb_articles: string[];
   script: ScriptStep[];
+  talk_track: TalkBeat[];
   warning?: string;
 }
 
 export interface DemosResponse {
   phone_line: { number: string; password_hint: string };
   features: { id: string; label: string }[];
+  /** Labels for expect item kinds (hero, card, plan, ...). */
+  expect_kinds?: { id: string; label: string }[];
   personas: DemoPersona[];
 }
 

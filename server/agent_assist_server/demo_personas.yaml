@@ -129,7 +129,7 @@ personas:
         if_asked:
           - "If the agent offers the retro review: Yes, please do that."
         expect:
-          - {kind: plan, id: explain_status, via: agent_words, phrase: denied because, text: "Call plan ticks Explain the status when the agent says \"denied because\""}
+          - {kind: plan, id: explain_status, via: agent_words, phrase: the reason, text: "Call plan ticks Explain the status when the agent explains it (\"the reason\", \"denied because\", \"no authorization\")"}
       - phase: closing
         to: agent
         say: "Okay, thank you. So I'll get a letter once the review is done?"

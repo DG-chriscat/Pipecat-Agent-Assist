@@ -15,6 +15,49 @@ const shell: ShellAgent = {
   onPage: () => {},
 };
 
+const TRACK: DemoPersona["talk_track"] = [
+  {
+    phase: "intake",
+    to: "bot",
+    step: "identity",
+    say: "My name is Maria Lopez.",
+    if_asked: ["If the bot asks again: My member ID is four one eight, three zero two."],
+    note: "Say your name plainly.",
+    optional: false,
+    expect: [],
+  },
+  {
+    phase: "agent",
+    to: "agent",
+    say: "Hi, my MRI claim was denied.",
+    if_asked: ["If the agent asks when the MRI was: about a month ago at Riverside Imaging Center."],
+    agent_note: "Wait for the hero.",
+    optional: false,
+    expect: [
+      { kind: "hero", id: "nbs:retro_auth_review:70412", text: "Hero: Start a retro authorization review for 70412" },
+      { kind: "card", id: "card:denied_claim", text: "Denied claim tile: 70412" },
+    ],
+  },
+  {
+    phase: "agent",
+    to: "agent",
+    say: "This is my third call. I'm really frustrated.",
+    if_asked: [],
+    optional: true,
+    feature: "tone_tip",
+    expect: [{ kind: "tone_tip", text: "Tone tip tile: Acknowledge, then act" }],
+  },
+  {
+    phase: "closing",
+    to: "agent",
+    say: "Okay, thank you.",
+    if_asked: [],
+    agent_note: "Press Accept on the hero before End, then End.",
+    optional: false,
+    expect: [{ kind: "wrap_up", reason_code: "appeal_started", refs: ["70412"], text: "Wrap up names 70412" }],
+  },
+];
+
 const persona = (over: Partial<DemoPersona>): DemoPersona => ({
   key: "maria_lopez",
   name: "Maria Lopez",
@@ -36,11 +79,18 @@ const persona = (over: Partial<DemoPersona>): DemoPersona => ({
     { to: "bot", say: "My name is Maria Lopez." },
     { to: "agent", say: "Hi, my MRI claim was denied.", note: "The hero appears." },
   ],
+  talk_track: TRACK,
   ...over,
 });
 
 const DATA: DemosResponse = {
   phone_line: { number: "+1 (612) 746-7133", password_hint: "ask Chris" },
+  expect_kinds: [
+    { id: "hero", label: "Next best step" },
+    { id: "card", label: "Card" },
+    { id: "tone_tip", label: "Tone tip" },
+    { id: "wrap_up", label: "Wrap up" },
+  ],
   features: [
     { id: "identity_verified", label: "Identity verified" },
     { id: "close_match", label: "Close match verification" },
@@ -188,19 +238,67 @@ describe("Demos page (P5-10)", () => {
       expect(link).toHaveAttribute("rel", "noopener noreferrer");
     });
 
-    it("Show script expands the lines: intake answers, then lines for the agent", async () => {
+    it("Caller talk track expands the beats in call order, grouped by phase", async () => {
       const { user } = setup();
       const c = await screen.findByTestId("demo-card-maria_lopez");
-      expect(within(c).queryByRole("list", { name: "Script" })).not.toBeInTheDocument();
-      const btn = within(c).getByRole("button", { name: "Show script" });
+      expect(within(c).queryByRole("region", { name: "Caller talk track" })).not.toBeInTheDocument();
+      const btn = within(c).getByRole("button", { name: "Caller talk track" });
       expect(btn).toHaveAttribute("aria-expanded", "false");
       await user.click(btn);
-      expect(within(c).getByRole("button", { name: "Hide script" })).toHaveAttribute("aria-expanded", "true");
-      const steps = within(within(c).getByRole("list", { name: "Script" })).getAllByRole("listitem");
-      expect(steps.map((s) => s.textContent)).toEqual([
-        "To the botMy name is Maria Lopez.",
-        "To the agentHi, my MRI claim was denied.The hero appears.",
-      ]);
+      expect(within(c).getByRole("button", { name: "Hide talk track" })).toHaveAttribute("aria-expanded", "true");
+      const track = within(c).getByRole("region", { name: "Caller talk track" });
+      const phases = within(track).getAllByRole("heading", { level: 3 }).map((h) => h.textContent);
+      expect(phases).toEqual(["Intake, to the bot", "With the agent", "Closing"]);
+      const beats = within(track).getAllByTestId("talk-beat");
+      expect(beats).toHaveLength(4);
+      expect(beats[0]).toHaveTextContent("My name is Maria Lopez.");
+      expect(beats[0]).toHaveTextContent("Say your name plainly.");
+      expect(within(beats[1]).getByText(/about a month ago at Riverside Imaging Center/)).toBeInTheDocument();
+      expect(within(beats[1]).getByText("Wait for the hero.")).toBeInTheDocument();
+    });
+
+    it("notes the two tester rules from the P5-4 runs", async () => {
+      const { user } = setup();
+      const c = await screen.findByTestId("demo-card-maria_lopez");
+      await user.click(within(c).getByRole("button", { name: "Caller talk track" }));
+      const rules = within(c).getByRole("note", { name: "Before you start" });
+      expect(rules).toHaveTextContent("Say names plainly. Never spell them to the bot.");
+      expect(rules).toHaveTextContent("Press Accept on the hero before End");
+    });
+
+    it("marks optional feature beats", async () => {
+      const { user } = setup();
+      const c = await screen.findByTestId("demo-card-maria_lopez");
+      await user.click(within(c).getByRole("button", { name: "Caller talk track" }));
+      const beat = within(c).getAllByTestId("talk-beat")[2];
+      expect(beat).toHaveClass("is-optional");
+      expect(within(beat).getByText("Optional: Sound frustrated")).toBeInTheDocument();
+    });
+
+    it("lists expected screen moments as a checklist the tester can tick", async () => {
+      const { user } = setup();
+      const c = await screen.findByTestId("demo-card-maria_lopez");
+      await user.click(within(c).getByRole("button", { name: "Caller talk track" }));
+      const track = within(c).getByRole("region", { name: "Caller talk track" });
+      const boxes = within(track).getAllByRole("checkbox");
+      expect(boxes).toHaveLength(4);
+      expect(within(track).getByTestId("talk-progress")).toHaveTextContent("0 of 4 seen");
+      const hero = within(track).getByRole("checkbox", { name: /Next best step.*Start a retro authorization review for 70412/ });
+      await user.click(hero);
+      expect(hero).toBeChecked();
+      expect(within(track).getByTestId("talk-progress")).toHaveTextContent("1 of 4 seen");
+      await user.click(within(track).getByRole("button", { name: "Reset ticks" }));
+      expect(hero).not.toBeChecked();
+      expect(within(track).getByTestId("talk-progress")).toHaveTextContent("0 of 4 seen");
+    });
+
+    it("shows the wrap up reason code and reference numbers", async () => {
+      const { user } = setup();
+      const c = await screen.findByTestId("demo-card-maria_lopez");
+      await user.click(within(c).getByRole("button", { name: "Caller talk track" }));
+      const wrap = within(c).getByRole("checkbox", { name: /Wrap up/ }).closest("li")!;
+      expect(wrap).toHaveTextContent("appeal_started");
+      expect(wrap).toHaveTextContent("70412");
     });
   });
 

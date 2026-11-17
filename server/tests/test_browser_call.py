@@ -139,12 +139,28 @@ def test_caller_page_served():
 
 
 def test_caller_page_shows_the_persona_script_when_asked():
-    # P5-10: /caller?persona=<key> (opened from the Demos page) loads the persona from
-    # GET /demo/personas and shows the lines to read; without it the page is unchanged.
+    # P5-10: /caller?persona=<key> (opened from the Demos page) loads the persona and
+    # shows the lines to read; without it the page is unchanged.
     html = TestClient(app).get("/caller?persona=maria_lopez").text
     assert 'id="persona"' in html
-    assert "/demo/personas" in html
     assert 'get("persona")' in html
+
+
+def test_caller_page_shows_the_talk_track_caller_side_only():
+    # P5-11: the page reads the caller only view of the talk track, never the agent's.
+    html = TestClient(app).get("/caller?persona=maria_lopez").text
+    assert "/demo/personas/" in html and "/caller" in html
+    assert 'id="persona-track"' in html
+    for agent_side in ("expect", "agent_note", '/demo/personas")'):
+        assert agent_side not in html, agent_side
+
+
+def test_caller_page_has_studio_light_and_dark():
+    html = TestClient(app).get("/caller").text
+    assert "prefers-color-scheme: dark" in html
+    assert '[data-theme="dark"]' in html and '[data-theme="light"]' in html
+    assert "Work Sans" in html and "Azeret Mono" in html
+    assert 'id="theme"' in html
 
 
 def test_browser_room_body():

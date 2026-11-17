@@ -8,8 +8,8 @@ cards are the real GET /demo/personas data:
         python portal/scripts/shoot_demos.py docs/screenshots/demos
 
 Writes OUT/demos-{light,dark}.png (the page, full height) and
-OUT/demos-script-{light,dark}.png (Maria Lopez's card with Show script open, 1600x1600);
-the full pages are 1600 wide. No network beyond localhost.
+OUT/demos-script-{light,dark}.png (Maria Lopez's card with the Caller talk track open,
+1600x1600); the full pages are 1600 wide. No network beyond localhost.
 """
 
 from __future__ import annotations
@@ -87,11 +87,11 @@ async def main(out: Path) -> None:
                 print(path)
 
             await full("demos-light")
-            await maria.get_by_role("button", name="Show script").click()
+            await maria.get_by_role("button", name="Caller talk track").click()
             await card("demos-script-light")
             await theme(page, "Dark")
             await card("demos-script-dark")
-            await maria.get_by_role("button", name="Hide script").click()
+            await maria.get_by_role("button", name="Hide talk track").click()
             await full("demos-dark")
             await browser.close()
     finally:

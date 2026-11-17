@@ -117,26 +117,28 @@ export function TalkTrack({ p, kinds, id }: { p: DemoPersona; kinds: Record<stri
                       {n}
                     </span>
                     <div className="talk-body">
-                      {b.optional && (
-                        <span className="chip chip-ai talk-optional">Optional: {OPTIONAL_LABEL[b.feature ?? ""] ?? "extra"}</span>
-                      )}
-                      <p className="talk-say">“{b.say}”</p>
-                      {b.note && <p className="talk-note">{b.note}</p>}
-                      {b.if_asked.length > 0 && (
-                        <div className="talk-if">
-                          <div className="label">If asked</div>
-                          <ul>
-                            {b.if_asked.map((x, k) => (
-                              <li key={k}>{x}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                      {b.agent_note && (
-                        <p className="talk-agent-note">
-                          <span className="label">Agent</span> {b.agent_note}
-                        </p>
-                      )}
+                      <div className="talk-caller">
+                        {b.optional && (
+                          <span className="chip chip-ai talk-optional">Optional: {OPTIONAL_LABEL[b.feature ?? ""] ?? "extra"}</span>
+                        )}
+                        <p className="talk-say">“{b.say}”</p>
+                        {b.note && <p className="talk-note">{b.note}</p>}
+                        {b.if_asked.length > 0 && (
+                          <div className="talk-if">
+                            <div className="label">If asked</div>
+                            <ul>
+                              {b.if_asked.map((x, k) => (
+                                <li key={k}>{x}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        {b.agent_note && (
+                          <p className="talk-agent-note">
+                            <span className="label">Agent</span> {b.agent_note}
+                          </p>
+                        )}
+                      </div>
                       {b.expect.length > 0 && (
                         <div className="talk-expects">
                           <div className="label">On the agent's screen</div>

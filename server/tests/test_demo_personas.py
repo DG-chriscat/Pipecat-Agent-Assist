@@ -121,9 +121,42 @@ def test_endpoint_returns_personas_and_the_phone_line():
     assert {k["id"] for k in body["expect_kinds"]} == set(demo_personas.EXPECT_KINDS)
 
 
+def test_caller_view_has_no_agent_content():
+    # P5-11: GET /demo/personas/<key>/caller is what the caller page shows: the beats
+    # with what to say and the backup lines, never the agent screen or the agent notes.
+    client = TestClient(create_app(env={}))
+    body = client.get("/demo/personas/maria_lopez/caller").json()
+    full = demo_personas.load()[0]
+    assert body["name"] == "Maria Lopez" and body["member_id_groups"] == "418 302"
+    assert body["dob_said"] == full["dob_said"]
+    assert [b["say"] for b in body["talk_track"]] == [b["say"] for b in full["talk_track"]]
+    allowed = {"phase", "to", "say", "if_asked", "note", "optional", "feature", "step"}
+    for b in body["talk_track"]:
+        assert set(b) <= allowed, set(b) - allowed
+    text = str(body)
+    for agent_side in ("expect", "agent_note", "Hero", "nbs:", "reason_code", "audience_sees"):
+        assert agent_side not in text, agent_side
+    assert set(body) == {
+        "key",
+        "name",
+        "dob_said",
+        "member_id_groups",
+        "case",
+        "warning",
+        "talk_track",
+    }
+
+
+def test_caller_view_unknown_persona_is_404():
+    client = TestClient(create_app(env={}))
+    assert client.get("/demo/personas/nobody/caller").status_code == 404
+
+
 def test_endpoint_needs_the_login():
     app = create_app(env={auth.PASSWORD_ENV: PASSWORD, auth.SECRET_ENV: SECRET})
     c = TestClient(app, base_url="http://localhost")
     assert c.get("/demo/personas").status_code == 401
+    assert c.get("/demo/personas/maria_lopez/caller").status_code == 401
     c.post("/login", data={"password": PASSWORD}, follow_redirects=False)
     assert c.get("/demo/personas").status_code == 200
+    assert c.get("/demo/personas/maria_lopez/caller").status_code == 200

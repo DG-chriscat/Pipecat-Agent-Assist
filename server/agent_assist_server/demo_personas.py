@@ -4,6 +4,8 @@
                            features: [{id, label}],
                            expect_kinds: [{id, label}],
                            personas: [persona]}
+    GET /demo/personas/{key}/caller -> the caller page's view (P5-11): who you are and
+                           the beats, caller side only (no expect, no agent notes)
 
 Behind the shared login like every route. The personas live in demo_personas.yaml
 next to this file; server/tests/test_demo_personas.py checks them against the seed.
@@ -27,7 +29,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from agent_assist_server.db import seed
 
@@ -189,3 +191,29 @@ def get_personas() -> dict[str, Any]:
         "expect_kinds": [{"id": k, "label": v} for k, v in EXPECT_KINDS.items()],
         "personas": load(),
     }
+
+
+# What the caller page may show of a beat (P5-11): the caller's side only.
+CALLER_BEAT_KEYS = ("phase", "to", "step", "say", "if_asked", "note", "optional", "feature")
+
+
+def caller_view(p: dict[str, Any]) -> dict[str, Any]:
+    """The persona as the caller page shows it: who you are and what to say. No
+    agent screen (expect), no agent notes, no audience notes."""
+    return {
+        "key": p["key"],
+        "name": p["name"],
+        "dob_said": p["dob_said"],
+        "member_id_groups": p["member_id_groups"],
+        "case": p["case"],
+        "warning": p.get("warning"),
+        "talk_track": [{k: b[k] for k in CALLER_BEAT_KEYS if k in b} for b in p["talk_track"]],
+    }
+
+
+@router.get("/demo/personas/{key}/caller")
+def get_caller_view(key: str) -> dict[str, Any]:
+    p = next((p for p in load() if p["key"] == key), None)
+    if p is None:
+        raise HTTPException(status_code=404, detail="no such demo persona")
+    return caller_view(p)

@@ -68,7 +68,7 @@ function DemoCard({
 
   const trackId = `demo-track-${p.key}`;
   return (
-    <article className={`panel demo-card${p.hero ? " is-hero" : ""}`} data-testid={`demo-card-${p.key}`}>
+    <article className={`panel demo-card${p.hero ? " is-hero" : ""}${open ? " is-open" : ""}`} data-testid={`demo-card-${p.key}`}>
       <header className="demo-card-head">
         <div>
           <h2>{p.name}</h2>

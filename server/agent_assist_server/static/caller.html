@@ -2,47 +2,168 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Call Deepgram Vitals</title>
   <script src="https://unpkg.com/@daily-co/daily-js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Work+Sans:wght@400;500;600&family=Azeret+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <!-- Theme before paint: saved choice, else the system setting (DESIGN.md Themes). -->
+  <script>
+    (function () {
+      var saved = null;
+      try { saved = localStorage.getItem("vitals-caller-theme"); } catch (e) {}
+      var dark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+      document.documentElement.dataset.theme = saved || (dark ? "dark" : "light");
+    })();
+  </script>
   <style>
-    body { font-family: system-ui, sans-serif; max-width: 520px; margin: 2rem auto; }
-    button { margin-top: 1rem; margin-right: .5rem; padding: .5rem 1rem; }
-    #status { margin-top: 1rem; color: #555; }
-    #persona { margin-top: 1.5rem; padding: 1rem; border: 1px solid #ddd; border-radius: 12px; }
+    /* Studio light and dark (docs/DESIGN.md, portal/src/styles/tokens.css). */
+    :root {
+      --fuchsia: #E042FF; --led: #7F39FF; --clay: #EB2A2E;
+      --sans: 'Work Sans', system-ui, sans-serif; --mono: 'Azeret Mono', ui-monospace, monospace;
+    }
+    :root, [data-theme="light"] {
+      color-scheme: light;
+      --ground: #F4F0EA;
+      --wash: radial-gradient(900px 520px at 85% -10%, rgba(224,66,255,.16), transparent 60%),
+              radial-gradient(800px 600px at -10% 110%, rgba(127,57,255,.12), transparent 60%);
+      --text: #1D1D1D; --muted: rgba(29,29,29,.62); --faint: rgba(29,29,29,.44);
+      --hair: rgba(29,29,29,.08);
+      --panel: rgba(255,255,255,.58); --panel-line: rgba(255,255,255,.9);
+      --panel-shadow: 0 30px 60px -36px rgba(60,40,20,.35);
+      --script: rgba(252,250,248,.95); --script-line: transparent;
+      --btn: rgba(255,255,255,.75); --btn-line: rgba(29,29,29,.10);
+      --ai: #9b14b8; --ai-bg: rgba(224,66,255,.11);
+      --warn: #a14d00; --warn-bg: rgba(250,129,0,.13);
+      --bad: #b3161a; --bad-bg: rgba(235,42,46,.10);
+    }
+    [data-theme="dark"] {
+      color-scheme: dark;
+      --ground: #0e0d10;
+      --wash: radial-gradient(900px 520px at 85% -10%, rgba(224,66,255,.20), transparent 60%),
+              radial-gradient(800px 600px at -10% 110%, rgba(127,57,255,.24), transparent 60%);
+      --text: #FCFAF8; --muted: rgba(252,250,248,.66); --faint: rgba(252,250,248,.44);
+      --hair: rgba(255,255,255,.08);
+      --panel: rgba(30,28,34,.52); --panel-line: rgba(255,255,255,.08);
+      --panel-shadow: 0 30px 60px -36px rgba(0,0,0,.9);
+      --script: rgba(255,255,255,.05); --script-line: rgba(255,255,255,.06);
+      --btn: rgba(255,255,255,.08); --btn-line: rgba(255,255,255,.12);
+      --ai: #f0a6ff; --ai-bg: rgba(224,66,255,.16);
+      --warn: #ffb66a; --warn-bg: rgba(250,129,0,.16);
+      --bad: #ff8a8c; --bad-bg: rgba(235,42,46,.16);
+    }
+    @media (prefers-color-scheme: dark) { :root:not([data-theme]) { color-scheme: dark; } }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { background: var(--ground); }
+    body {
+      font-family: var(--sans); font-size: 14px; line-height: 1.45; color: var(--text);
+      background: var(--wash), var(--ground); min-height: 100vh;
+      -webkit-font-smoothing: antialiased; transition: background-color .2s ease, color .2s ease;
+    }
+    main { max-width: 640px; margin: 0 auto; padding: 32px 20px 48px; display: flex; flex-direction: column; gap: 18px; }
+    .top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    h1 { font-size: 26px; font-weight: 500; letter-spacing: -.02em; }
+    .sub { color: var(--muted); margin-top: 4px; }
+    .panel {
+      background: var(--panel); border: 1px solid var(--panel-line); border-radius: 26px;
+      box-shadow: var(--panel-shadow); backdrop-filter: blur(36px) saturate(170%);
+      -webkit-backdrop-filter: blur(36px) saturate(170%); padding: 22px 24px;
+    }
+    .label { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: var(--faint); }
+    .btn {
+      font-family: var(--mono); font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase;
+      border-radius: 999px; padding: 11px 16px; border: 1px solid var(--btn-line); background: var(--btn);
+      color: var(--text); cursor: pointer;
+    }
+    .btn:disabled { opacity: .45; cursor: default; }
+    .btn:focus-visible { outline: 2px solid var(--fuchsia); outline-offset: 2px; }
+    .btn-primary { background: linear-gradient(135deg, var(--fuchsia), var(--led)); color: #fff; border: 0; box-shadow: 0 14px 28px -12px rgba(155,20,184,.6); }
+    .btn-end { color: var(--bad); }
+    .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    #status { margin-top: 12px; color: var(--muted); }
     #persona[hidden] { display: none; }
-    #persona h2 { margin: 0 0 .25rem; font-size: 1.1rem; }
-    #persona .ids { font-family: ui-monospace, monospace; font-size: 1.1rem; }
-    #persona .warn { color: #b3261e; font-weight: 600; }
-    #persona ol { padding-left: 1.25rem; }
-    #persona li { margin: .5rem 0; }
-    #persona .to { font-size: .75rem; text-transform: uppercase; color: #777; margin-right: .4rem; }
-    #persona .note { display: block; font-size: .85rem; color: #777; }
+    #persona h2 { font-size: 22px; font-weight: 500; letter-spacing: -.015em; }
+    .ids { font-family: var(--mono); font-size: 15px; margin-top: 6px; }
+    .ids b { font-weight: 500; font-size: 22px; letter-spacing: .08em; }
+    #persona-case { margin-top: 8px; color: var(--muted); }
+    .warn { margin-top: 10px; padding: 10px 12px; border-radius: 14px; background: var(--bad-bg); color: var(--bad); font-weight: 500; font-size: 13px; }
+    .warn[hidden] { display: none; }
+    .rules { margin-top: 14px; padding: 12px 14px; border-radius: 14px; background: var(--warn-bg); font-size: 13px; }
+    .rules .label { color: var(--warn); margin-bottom: 4px; }
+    .rules ul { padding-left: 18px; }
+    .phase { margin-top: 18px; }
+    .phase > .label { margin-bottom: 8px; }
+    ol.beats { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+    .beat { display: flex; gap: 10px; padding: 12px 14px; border-radius: 16px; background: var(--script); box-shadow: 0 0 0 1px var(--script-line) inset; }
+    .beat.is-optional { background: none; border: 1px dashed rgba(224,66,255,.35); }
+    .num { flex: none; width: 20px; font-family: var(--mono); font-size: 11px; color: var(--faint); padding-top: 3px; }
+    .body { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+    .say { font-size: 16px; font-weight: 500; line-height: 1.45; }
+    .note { color: var(--muted); font-size: 12.5px; }
+    .opt { align-self: flex-start; font-family: var(--mono); font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase; padding: 3px 8px; border-radius: 999px; background: var(--ai-bg); color: var(--ai); }
+    .if ul { list-style: none; display: flex; flex-direction: column; gap: 3px; margin-top: 2px; }
+    .if li { font-size: 13px; color: var(--muted); padding-left: 10px; border-left: 2px solid var(--hair); }
+    .foot { color: var(--faint); font-size: 12.5px; }
   </style>
 </head>
 <body>
-  <h1>Call Deepgram Vitals</h1>
-  <p>PoC browser caller. Mock data only: do not share real personal or health details.</p>
+<main>
+  <header class="top">
+    <div>
+      <h1>Call Deepgram Vitals</h1>
+      <p class="sub">PoC browser caller. Mock data only: do not share real personal or health details.</p>
+    </div>
+    <button id="theme" class="btn" type="button" aria-label="Switch theme">Dark</button>
+  </header>
 
-  <button id="start">Start call</button>
-  <button id="mute" disabled>Mute</button>
-  <button id="hangup" disabled>Hang up</button>
+  <section class="panel" aria-label="Call">
+    <div class="controls">
+      <button id="start" class="btn btn-primary">Start call</button>
+      <button id="mute" class="btn" disabled>Mute</button>
+      <button id="hangup" class="btn btn-end" disabled>Hang up</button>
+    </div>
+    <div id="status">Idle.</div>
+    <div id="audio"></div>
+  </section>
 
-  <div id="status">Idle.</div>
-  <div id="audio"></div>
-
-  <!-- P5-10: /caller?persona=<key> from the portal's Demos page shows the lines to read. -->
-  <section id="persona" hidden aria-label="Demo caller script">
+  <!-- P5-10/P5-11: /caller?persona=<key> from the portal's Demos page shows who you
+       are and your talk track, caller side only (GET /demo/personas/<key>/caller). -->
+  <section id="persona" class="panel" hidden aria-label="Your talk track">
     <h2 id="persona-name"></h2>
     <div class="ids" id="persona-ids"></div>
     <p id="persona-case"></p>
     <p class="warn" id="persona-warning" hidden></p>
-    <ol id="persona-script"></ol>
+    <div class="rules" role="note">
+      <div class="label">Before you start</div>
+      <ul>
+        <li>Say your name plainly. Never spell it to the bot.</li>
+        <li>Wait for each question, answer it, then pause.</li>
+        <li>After the bot hands you off, keep saying hello until a person answers.</li>
+      </ul>
+    </div>
+    <div id="persona-track"></div>
   </section>
+
+  <p class="foot">Optional lines show a dashed border: use them when the tester asks.</p>
+</main>
 
   <script>
     const $ = (id) => document.getElementById(id);
     let call = null;
     let muted = false;
+
+    function showTheme() {
+      const t = document.documentElement.dataset.theme;
+      $("theme").textContent = t === "dark" ? "Light" : "Dark";
+    }
+    $("theme").onclick = () => {
+      const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+      document.documentElement.dataset.theme = next;
+      try { localStorage.setItem("vitals-caller-theme", next); } catch (e) {}
+      showTheme();
+    };
+    showTheme();
 
     function setStatus(text) { $("status").textContent = text; }
 
@@ -131,35 +252,64 @@
 
     $("hangup").onclick = () => { if (call) call.leave(); };
 
+    const PHASES = [["intake", "Intake, to the bot"], ["agent", "With the agent"], ["closing", "Closing"]];
+    const OPTIONAL = { tone_tip: "Sound frustrated", ask_bar: "Ask a follow up", verify: "Confirm who you are" };
+
+    function el(tag, cls, text) {
+      const n = document.createElement(tag);
+      if (cls) n.className = cls;
+      if (text != null) n.textContent = text;
+      return n;
+    }
+
+    function beatItem(b, n) {
+      const li = el("li", "beat" + (b.optional ? " is-optional" : ""));
+      li.dataset.testid = "caller-beat";
+      li.append(el("span", "num", String(n)));
+      const body = el("div", "body");
+      if (b.optional) body.append(el("span", "opt", "Optional: " + (OPTIONAL[b.feature] || "extra")));
+      body.append(el("p", "say", "\u201c" + b.say + "\u201d"));
+      if (b.note) body.append(el("p", "note", b.note));
+      if (b.if_asked && b.if_asked.length) {
+        const box = el("div", "if");
+        box.append(el("div", "label", "If asked"));
+        const ul = el("ul");
+        for (const x of b.if_asked) ul.append(el("li", null, x));
+        box.append(ul);
+        body.append(box);
+      }
+      li.append(body);
+      return li;
+    }
+
     async function showPersona() {
       const key = new URLSearchParams(location.search).get("persona");
       if (!key) return;
       try {
-        const resp = await fetch("/demo/personas");
+        const resp = await fetch("/demo/personas/" + encodeURIComponent(key) + "/caller");
         if (!resp.ok) return;
-        const p = (await resp.json()).personas.find((x) => x.key === key);
-        if (!p) return;
+        const p = await resp.json();
         $("persona-name").textContent = "You are " + p.name;
-        $("persona-ids").textContent =
-          "Born " + p.dob_said + " \u00b7 Member ID " + p.member_id_groups;
+        $("persona-ids").innerHTML = "";
+        $("persona-ids").append(
+          document.createTextNode("Born " + p.dob_said + " \u00b7 Member ID "),
+          el("b", null, p.member_id_groups),
+        );
         $("persona-case").textContent = p.case;
         if (p.warning) { $("persona-warning").textContent = p.warning; $("persona-warning").hidden = false; }
-        for (const step of p.script) {
-          const li = document.createElement("li");
-          const to = document.createElement("span");
-          to.className = "to";
-          to.textContent = step.to === "bot" ? "To the bot" : "To the agent";
-          li.append(to, document.createTextNode(step.say));
-          if (step.note) {
-            const note = document.createElement("span");
-            note.className = "note";
-            note.textContent = step.note;
-            li.append(note);
-          }
-          $("persona-script").append(li);
+        let n = 0;
+        for (const [phase, label] of PHASES) {
+          const beats = p.talk_track.filter((b) => b.phase === phase);
+          if (!beats.length) continue;
+          const sec = el("div", "phase");
+          sec.append(el("h3", "label", label));
+          const ol = el("ol", "beats");
+          for (const b of beats) ol.append(beatItem(b, ++n));
+          sec.append(ol);
+          $("persona-track").append(sec);
         }
         $("persona").hidden = false;
-      } catch (err) { /* the call works without the script */ }
+      } catch (err) { /* the call works without the talk track */ }
     }
     showPersona();
   </script>
